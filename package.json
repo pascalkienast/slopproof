@@ -38,6 +38,7 @@
     "@slopproof/db": "workspace:*",
     "@slopproof/github": "workspace:*",
     "@slopproof/policy": "workspace:*",
+    "@slopproof/providers": "workspace:*",
     "@slopproof/questions": "workspace:*",
     "@testcontainers/postgresql": "12.1.0",
     "@types/node": "24.13.3",

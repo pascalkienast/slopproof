@@ -11,6 +11,8 @@ try {
     policy_count: number;
     pull_request_count: number;
     revision_count: number;
+    generation_context_count: number;
+    semantic_budget_count: number;
     proof_plan_count: number;
     question_count: number;
     attempt_count: number;
@@ -62,6 +64,14 @@ try {
            ON repository.id = policy.repository_id) AS policy_count,
       (SELECT count(*)::int FROM demo_pull_requests) AS pull_request_count,
       (SELECT count(*)::int FROM demo_revisions) AS revision_count,
+      (SELECT count(*)::int
+         FROM generation_contexts context
+         JOIN demo_revisions revision ON revision.id = context.revision_id)
+        AS generation_context_count,
+      (SELECT count(*)::int
+         FROM semantic_generation_budgets budget
+         JOIN demo_revisions revision ON revision.id = budget.revision_id)
+        AS semantic_budget_count,
       (SELECT count(*)::int FROM demo_plans) AS proof_plan_count,
       (SELECT count(*)::int
          FROM proof_questions question
@@ -109,6 +119,8 @@ try {
     policy_count: 1,
     pull_request_count: 3,
     revision_count: 3,
+    generation_context_count: 3,
+    semantic_budget_count: 3,
     proof_plan_count: 3,
     question_count: 8,
     attempt_count: 3,

@@ -282,6 +282,21 @@ try {
         }),
       );
     await client.query(
+      `INSERT INTO semantic_generation_budgets
+        (generation_context_id, repository_id, revision_id,
+         repository_policy_id, head_sha, question_budget, budget_version)
+       VALUES ($1, $2, $3, $4, $5, $6, 'semantic-generation-budget-v1')
+       ON CONFLICT (generation_context_id) DO NOTHING`,
+      [
+        persistedGenerationContext.id,
+        activeRepositoryId,
+        activeRevisionId,
+        activePolicyId,
+        seed.patch.headSha,
+        proof.questionBudget,
+      ],
+    );
+    await client.query(
       `INSERT INTO proof_plans
         (id, revision_id, generation_context_id, repository_policy_id, plan_version,
          deterministic_seed, risk_explanation, question_budget, plan_hash, status)

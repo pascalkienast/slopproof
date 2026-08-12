@@ -36,6 +36,14 @@ import {
 import { createPostgresRetentionService } from "./retention";
 import { handleReviewContextRequest } from "./review-context";
 import { handleReviewEvidenceRequest } from "./review-stream";
+import { handlePracticeRequest } from "./practice-http";
+import { createSemanticGenerationJobHandlers } from "./semantic-generation-jobs";
+import { PostgresSemanticGenerationRepository } from "./semantic-generation-repository";
+import { PgBossSemanticTransactionalScheduler } from "./semantic-generation-scheduler";
+import { createSemanticGenerationService } from "./semantic-generation";
+import { createSemanticProofReadyWriter } from "./semantic-proof-ready";
+import { createSemanticProviderSet } from "./semantic-provider-factory";
+import { createSemanticRetentionSweepHandler } from "./semantic-retention";
 
 const config = loadWorkerConfig();
 const log = createLogger(
@@ -55,8 +63,10 @@ const storage = new S3EvidenceStore({
 let jobQueue: PgBoss | undefined;
 let attemptExpiryTimer: NodeJS.Timeout | undefined;
 let retentionAuditTimer: NodeJS.Timeout | undefined;
+let semanticRetentionTimer: NodeJS.Timeout | undefined;
 let privateKeyPath: string | undefined;
 let providerPayloadCipher: PayloadCipher | undefined;
+let semanticRepository: PostgresSemanticGenerationRepository | undefined;
 let ready = false;
 let shuttingDown = false;
 
@@ -89,6 +99,18 @@ async function handleHttpRequest(
     response.end(
       JSON.stringify({ status: ready ? "ok" : "starting", service: "worker" }),
     );
+    return;
+  }
+
+  if (
+    ready &&
+    semanticRepository &&
+    (await handlePracticeRequest(request, response, {
+      database,
+      repository: semanticRepository,
+      capabilitySecret: config.WORKER_INTERNAL_SECRET,
+    }))
+  ) {
     return;
   }
 
@@ -150,6 +172,37 @@ async function start(): Promise<void> {
     activeJobQueue,
     config.APP_BASE_URL,
   );
+  const providerPayloadKey = decodeProviderPayloadKeyBase64(
+    config.PROVIDER_PAYLOAD_KEY_BASE64,
+  );
+  let activePayloadCipher: PayloadCipher;
+  try {
+    activePayloadCipher = new PayloadCipher(providerPayloadKey);
+  } finally {
+    providerPayloadKey.fill(0);
+  }
+  providerPayloadCipher = activePayloadCipher;
+  const semanticScheduler = new PgBossSemanticTransactionalScheduler(
+    activeJobQueue,
+  );
+  const activeSemanticRepository = new PostgresSemanticGenerationRepository(
+    database,
+    activePayloadCipher,
+    semanticScheduler,
+    createSemanticProofReadyWriter(checkIntents),
+  );
+  semanticRepository = activeSemanticRepository;
+  const semanticGeneration = createSemanticGenerationService({
+    ...createSemanticProviderSet(config),
+    clock: {
+      now: () => new Date(),
+      monotonicNowMs: () => performance.now(),
+    },
+  });
+  const semanticHandlers = createSemanticGenerationJobHandlers({
+    repository: activeSemanticRepository,
+    service: semanticGeneration,
+  });
   const revisionPatchSource =
     config.GITHUB_ADAPTER === "octokit"
       ? new PostgresGithubRevisionPatchSource(database.pool)
@@ -167,9 +220,45 @@ async function start(): Promise<void> {
         checkIntents,
         patchSource: revisionPatchSource,
         generationContexts,
+        semanticGeneration: activeSemanticRepository,
       });
     },
   );
+  await registerJobWorker(
+    activeJobQueue,
+    "semantic.generate-learning",
+    async (job) => semanticHandlers["semantic.generate-learning"](job.data),
+  );
+  await registerJobWorker(
+    activeJobQueue,
+    "semantic.generate-practice-feedback",
+    async (job) =>
+      semanticHandlers["semantic.generate-practice-feedback"](job.data),
+  );
+  await registerJobWorker(
+    activeJobQueue,
+    "semantic.generate-proof-questions",
+    async (job) =>
+      semanticHandlers["semantic.generate-proof-questions"](job.data),
+  );
+  await registerJobWorker(
+    activeJobQueue,
+    "semantic.expire-private",
+    async (job) => semanticHandlers["semantic.expire-private"](job.data),
+  );
+  const sweepSemanticRetention = createSemanticRetentionSweepHandler(
+    activeSemanticRepository,
+  );
+  await sweepSemanticRetention();
+  semanticRetentionTimer = setInterval(() => {
+    void sweepSemanticRetention().catch((error: unknown) => {
+      log.error(
+        { errorClass: error instanceof Error ? error.name : "UnknownError" },
+        "semantic.retention_sweep_failed",
+      );
+    });
+  }, 60_000);
+  semanticRetentionTimer.unref();
   await registerJobWorker(
     activeJobQueue,
     "proof.expire-attempt",
@@ -209,32 +298,20 @@ async function start(): Promise<void> {
     },
   );
   const providerClock = { now: () => new Date() };
-  const providerPayloadKey = decodeProviderPayloadKeyBase64(
-    config.PROVIDER_PAYLOAD_KEY_BASE64,
-  );
-  try {
-    const activePayloadCipher = new PayloadCipher(providerPayloadKey);
-    await registerProviderPipelineWorkers(activeJobQueue, {
-      repository: new PostgresProviderPipelineRepository(
-        database,
-        checkIntents,
-      ),
+  await registerProviderPipelineWorkers(activeJobQueue, {
+    repository: new PostgresProviderPipelineRepository(database, checkIntents),
+    payloadCipher: activePayloadCipher,
+    transcriptionProvider: new LocalFakeTranscriptionProvider(providerClock),
+    frameSelectionAdapter: new EncryptedFfmpegFrameSelectionAdapter({
+      database,
+      storage,
+      privateKeyPath: activePrivateKeyPath,
+      ffmpegPath: config.FFMPEG_PATH,
       payloadCipher: activePayloadCipher,
-      transcriptionProvider: new LocalFakeTranscriptionProvider(providerClock),
-      frameSelectionAdapter: new EncryptedFfmpegFrameSelectionAdapter({
-        database,
-        storage,
-        privateKeyPath: activePrivateKeyPath,
-        ffmpegPath: config.FFMPEG_PATH,
-        payloadCipher: activePayloadCipher,
-      }),
-      judgeProvider: new LocalFakeMultimodalJudgeProvider(providerClock),
-      clock: providerClock,
-    });
-    providerPayloadCipher = activePayloadCipher;
-  } finally {
-    providerPayloadKey.fill(0);
-  }
+    }),
+    judgeProvider: new LocalFakeMultimodalJudgeProvider(providerClock),
+    clock: providerClock,
+  });
   const retention = createPostgresRetentionService({
     database,
     queue: activeJobQueue,
@@ -284,6 +361,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   ready = false;
   if (attemptExpiryTimer) clearInterval(attemptExpiryTimer);
   if (retentionAuditTimer) clearInterval(retentionAuditTimer);
+  if (semanticRetentionTimer) clearInterval(semanticRetentionTimer);
   log.info({ signal }, "worker.stopping");
   await new Promise<void>((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));
@@ -316,6 +394,7 @@ start().catch((error: unknown) => {
     ready = false;
     if (attemptExpiryTimer) clearInterval(attemptExpiryTimer);
     if (retentionAuditTimer) clearInterval(retentionAuditTimer);
+    if (semanticRetentionTimer) clearInterval(semanticRetentionTimer);
     if (server.listening) {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());

@@ -31,6 +31,9 @@ importers:
       "@slopproof/policy":
         specifier: workspace:*
         version: link:packages/policy
+      "@slopproof/providers":
+        specifier: workspace:*
+        version: link:packages/providers
       "@slopproof/questions":
         specifier: workspace:*
         version: link:packages/questions
@@ -304,9 +307,15 @@ importers:
 
   packages/providers:
     dependencies:
+      "@slopproof/analysis":
+        specifier: workspace:*
+        version: link:../analysis
       "@slopproof/domain":
         specifier: workspace:*
         version: link:../domain
+      "@slopproof/questions":
+        specifier: workspace:*
+        version: link:../questions
       zod:
         specifier: 4.4.3
         version: 4.4.3

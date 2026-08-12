@@ -201,11 +201,35 @@ export type PrepareRevisionDependencies = {
   checkIntents: CheckIntentWriter;
   patchSource: RevisionPatchSource;
   generationContexts: GenerationContextWriter;
+  /**
+   * Gate-4 composition boundary. The production and local-fake workers always
+   * provide this writer; omission keeps the frozen deterministic V1 path
+   * available to older fixtures and explicit compatibility callers.
+   */
+  semanticGeneration?: {
+    scheduleRevisionSemanticGeneration(
+      client: PoolClient,
+      input: {
+        repositoryId: string;
+        revisionId: string;
+        generationContextId: string;
+        repositoryPolicyId: string;
+        headSha: string;
+        questionBudget: number;
+      },
+    ): Promise<"created" | "replayed">;
+  };
   clock?: { now(): Date };
 };
 
 export type PrepareRevisionResult =
   | { outcome: "stale" | "closed" | "split_recommended" }
+  | {
+      outcome: "semantic_generation_queued" | "semantic_generation_replayed";
+      revisionId: string;
+      headSha: string;
+      generationContextId: string;
+    }
   | {
       outcome: "ready" | "replayed";
       attemptId: string;
@@ -369,6 +393,61 @@ export async function prepareRevision(
       });
       await client.query("COMMIT");
       return { outcome: "split_recommended" };
+    }
+
+    if (dependencies.semanticGeneration !== undefined) {
+      const scheduled =
+        await dependencies.semanticGeneration.scheduleRevisionSemanticGeneration(
+          client,
+          {
+            repositoryId: current.repository_id,
+            revisionId: current.revision_id,
+            generationContextId: persistedGenerationContext.id,
+            repositoryPolicyId: frozenPolicyId,
+            headSha: current.head_sha,
+            questionBudget: proof.questionBudget,
+          },
+        );
+      if (scheduled === "created") {
+        await dependencies.checkIntents.write(client, {
+          revisionId: current.revision_id,
+          headSha: current.head_sha,
+          status: "in_progress",
+          conclusion: null,
+          summary: `patch-bound proof generation queued for head ${current.head_sha}`,
+          reason: "analysis_ready",
+          idempotencyKey: `semantic-analysis:${persistedGenerationContext.id}`,
+        });
+        await client.query(
+          `INSERT INTO audit_events
+             (actor_id, action, object_type, object_id, metadata)
+           SELECT 'analysis-worker', 'analysis.semantic_generation_queued',
+                  'revision', $1, $2::jsonb
+           WHERE NOT EXISTS (
+             SELECT 1 FROM audit_events
+              WHERE action = 'analysis.semantic_generation_queued'
+                AND object_type = 'revision' AND object_id = $1
+           )`,
+          [
+            current.revision_id,
+            JSON.stringify({
+              headSha: current.head_sha,
+              generationContextId: persistedGenerationContext.id,
+              questionBudget: proof.questionBudget,
+            }),
+          ],
+        );
+      }
+      await client.query("COMMIT");
+      return {
+        outcome:
+          scheduled === "created"
+            ? "semantic_generation_queued"
+            : "semantic_generation_replayed",
+        revisionId: current.revision_id,
+        headSha: current.head_sha,
+        generationContextId: persistedGenerationContext.id,
+      };
     }
 
     await client.query(

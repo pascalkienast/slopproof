@@ -477,13 +477,317 @@ export const practiceSessions = pgTable("practice_sessions", {
   revisionId: uuid("revision_id")
     .notNull()
     .references(() => pullRequestRevisions.id, { onDelete: "cascade" }),
+  repositoryId: uuid("repository_id").references(() => repositories.id, {
+    onDelete: "restrict",
+  }),
+  generationContextId: uuid("generation_context_id").references(
+    () => generationContexts.id,
+    { onDelete: "restrict" },
+  ),
+  learningBundleId: uuid("learning_bundle_id"),
+  headSha: text("head_sha"),
+  contextHash: text("context_hash"),
   userId: text("user_id").notNull(),
   version: text("version").notNull(),
   startedAt: timestamp("started_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  deleteAfter: timestamp("delete_after", { withTimezone: true }),
+  invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
+
+export const semanticGenerationBudgets = pgTable(
+  "semantic_generation_budgets",
+  {
+    generationContextId: uuid("generation_context_id")
+      .primaryKey()
+      .references(() => generationContexts.id, { onDelete: "restrict" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "restrict" }),
+    revisionId: uuid("revision_id")
+      .notNull()
+      .references(() => pullRequestRevisions.id, { onDelete: "restrict" }),
+    repositoryPolicyId: uuid("repository_policy_id")
+      .notNull()
+      .references(() => repositoryPolicies.id, { onDelete: "restrict" }),
+    headSha: text("head_sha").notNull(),
+    questionBudget: integer("question_budget").notNull(),
+    budgetVersion: text("budget_version").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+);
+
+export const semanticGenerationRuns = pgTable(
+  "semantic_generation_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    purpose: text("purpose").notNull(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "restrict" }),
+    revisionId: uuid("revision_id")
+      .notNull()
+      .references(() => pullRequestRevisions.id, { onDelete: "restrict" }),
+    generationContextId: uuid("generation_context_id")
+      .notNull()
+      .references(() => generationContexts.id, { onDelete: "restrict" }),
+    practiceSessionId: uuid("practice_session_id").references(
+      () => practiceSessions.id,
+      { onDelete: "restrict" },
+    ),
+    practiceQuestionId: uuid("practice_question_id"),
+    practiceAnswerId: uuid("practice_answer_id"),
+    artifactSeed: text("artifact_seed").notNull(),
+    questionCount: integer("question_count").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deadlineAt: timestamp("deadline_at", { withTimezone: true }).notNull(),
+    deleteAfter: timestamp("delete_after", { withTimezone: true }).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    artifactId: uuid("artifact_id"),
+    degraded: boolean("degraded"),
+  },
+  (table) => [
+    index("semantic_generation_runs_revision_idx").on(
+      table.revisionId,
+      table.createdAt,
+    ),
+    index("semantic_generation_runs_context_idx").on(
+      table.generationContextId,
+      table.purpose,
+    ),
+  ],
+);
+
+export const semanticLearningBundles = pgTable(
+  "semantic_learning_bundles",
+  {
+    id: uuid("id").primaryKey(),
+    runId: uuid("run_id")
+      .notNull()
+      .unique()
+      .references(() => semanticGenerationRuns.id, { onDelete: "restrict" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "restrict" }),
+    revisionId: uuid("revision_id")
+      .notNull()
+      .references(() => pullRequestRevisions.id, { onDelete: "restrict" }),
+    generationContextId: uuid("generation_context_id")
+      .notNull()
+      .references(() => generationContexts.id, { onDelete: "restrict" }),
+    headSha: text("head_sha").notNull(),
+    contextHash: text("context_hash").notNull(),
+    schemaVersion: text("schema_version").notNull(),
+    contentHash: text("content_hash").notNull(),
+    generationOutcome: text("generation_outcome").notNull(),
+    encryptedPayload: text("encrypted_payload"),
+    deleteAfter: timestamp("delete_after", { withTimezone: true }).notNull(),
+    invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("semantic_learning_bundles_retention_idx").on(
+      table.deleteAfter,
+      table.id,
+    ),
+  ],
+);
+
+export const semanticPracticeAnswers = pgTable(
+  "semantic_practice_answers",
+  {
+    id: uuid("id").primaryKey(),
+    practiceSessionId: uuid("practice_session_id")
+      .notNull()
+      .references(() => practiceSessions.id, { onDelete: "restrict" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "restrict" }),
+    revisionId: uuid("revision_id")
+      .notNull()
+      .references(() => pullRequestRevisions.id, { onDelete: "restrict" }),
+    generationContextId: uuid("generation_context_id")
+      .notNull()
+      .references(() => generationContexts.id, { onDelete: "restrict" }),
+    practiceQuestionId: uuid("practice_question_id").notNull(),
+    encryptedPayload: text("encrypted_payload"),
+    deleteAfter: timestamp("delete_after", { withTimezone: true }).notNull(),
+    invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("semantic_practice_answers_question_uq").on(
+      table.practiceSessionId,
+      table.practiceQuestionId,
+    ),
+    index("semantic_practice_answers_retention_idx").on(
+      table.deleteAfter,
+      table.id,
+    ),
+  ],
+);
+
+export const semanticPracticeFeedback = pgTable(
+  "semantic_practice_feedback",
+  {
+    id: uuid("id").primaryKey(),
+    runId: uuid("run_id")
+      .notNull()
+      .unique()
+      .references(() => semanticGenerationRuns.id, { onDelete: "restrict" }),
+    practiceSessionId: uuid("practice_session_id")
+      .notNull()
+      .references(() => practiceSessions.id, { onDelete: "restrict" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "restrict" }),
+    revisionId: uuid("revision_id")
+      .notNull()
+      .references(() => pullRequestRevisions.id, { onDelete: "restrict" }),
+    generationContextId: uuid("generation_context_id")
+      .notNull()
+      .references(() => generationContexts.id, { onDelete: "restrict" }),
+    practiceQuestionId: uuid("practice_question_id").notNull(),
+    headSha: text("head_sha").notNull(),
+    contextHash: text("context_hash").notNull(),
+    schemaVersion: text("schema_version").notNull(),
+    contentHash: text("content_hash").notNull(),
+    generationOutcome: text("generation_outcome").notNull(),
+    encryptedPayload: text("encrypted_payload"),
+    deleteAfter: timestamp("delete_after", { withTimezone: true }).notNull(),
+    invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("semantic_practice_feedback_retention_idx").on(
+      table.deleteAfter,
+      table.id,
+    ),
+  ],
+);
+
+export const semanticProofPlansV2 = pgTable("semantic_proof_plans_v2", {
+  id: uuid("id").primaryKey(),
+  runId: uuid("run_id")
+    .notNull()
+    .unique()
+    .references(() => semanticGenerationRuns.id, { onDelete: "restrict" }),
+  repositoryId: uuid("repository_id")
+    .notNull()
+    .references(() => repositories.id, { onDelete: "restrict" }),
+  revisionId: uuid("revision_id")
+    .notNull()
+    .references(() => pullRequestRevisions.id, { onDelete: "restrict" }),
+  generationContextId: uuid("generation_context_id")
+    .notNull()
+    .references(() => generationContexts.id, { onDelete: "restrict" }),
+  headSha: text("head_sha").notNull(),
+  contextHash: text("context_hash").notNull(),
+  schemaVersion: text("schema_version").notNull(),
+  plannerVersion: text("planner_version").notNull(),
+  contentHash: text("content_hash").notNull(),
+  planHash: text("plan_hash").notNull(),
+  questionBudget: integer("question_budget").notNull(),
+  generationOutcome: text("generation_outcome").notNull(),
+  plan: jsonb("plan").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  deleteAfter: timestamp("delete_after", { withTimezone: true }).notNull(),
+});
+
+export const semanticProviderInvocations = pgTable(
+  "semantic_provider_invocations",
+  {
+    callId: uuid("call_id").primaryKey(),
+    runId: uuid("run_id")
+      .notNull()
+      .unique()
+      .references(() => semanticGenerationRuns.id, { onDelete: "restrict" }),
+    metadataVersion: text("metadata_version").notNull(),
+    purpose: text("purpose").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    outputSchemaVersion: text("output_schema_version").notNull(),
+    plannerVersion: text("planner_version").notNull(),
+    inputHash: text("input_hash").notNull(),
+    outputHash: text("output_hash").notNull(),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    latencyMs: integer("latency_ms").notNull(),
+    invocationCount: integer("invocation_count").notNull(),
+    outcome: text("outcome").notNull(),
+    degraded: boolean("degraded").notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }).notNull(),
+  },
+);
+
+export const semanticPracticeRateLimits = pgTable(
+  "semantic_practice_rate_limits",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    revisionId: uuid("revision_id")
+      .notNull()
+      .references(() => pullRequestRevisions.id, { onDelete: "cascade" }),
+    actorKeyHash: text("actor_key_hash").notNull(),
+    action: text("action").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("semantic_practice_rate_limits_window_idx").on(
+      table.repositoryId,
+      table.revisionId,
+      table.actorKeyHash,
+      table.action,
+      table.occurredAt,
+    ),
+    index("semantic_practice_rate_limits_cleanup_idx").on(
+      table.expiresAt,
+      table.id,
+    ),
+  ],
+);
+
+export const semanticPracticeCapabilityUses = pgTable(
+  "semantic_practice_capability_uses",
+  {
+    jti: uuid("jti").primaryKey(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    revisionId: uuid("revision_id")
+      .notNull()
+      .references(() => pullRequestRevisions.id, { onDelete: "cascade" }),
+    actorKeyHash: text("actor_key_hash").notNull(),
+    action: text("action").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("semantic_practice_capability_uses_cleanup_idx").on(
+      table.expiresAt,
+      table.jti,
+    ),
+  ],
+);
 
 export const proofPlans = pgTable(
   "proof_plans",

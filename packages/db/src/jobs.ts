@@ -22,6 +22,10 @@ export const JOB_NAMES = [
   "github.ingest-pr",
   "github.reconcile-check",
   "analysis.prepare-revision",
+  "semantic.generate-learning",
+  "semantic.generate-practice-feedback",
+  "semantic.generate-proof-questions",
+  "semantic.expire-private",
   "proof.expire-attempt",
   "media.finalize-upload",
   "media.extract-transcript",
@@ -143,6 +147,46 @@ export const ProofExpireAttemptJobSchema = z
   })
   .strict();
 
+const SemanticGenerationJobBaseSchema = z
+  .object({
+    ...JOB_ENVELOPE,
+    revisionId: UuidSchema,
+    generationContextId: UuidSchema,
+    expectedHeadSha: GitShaSchema,
+  })
+  .strict();
+
+export const SemanticGenerateLearningJobSchema =
+  SemanticGenerationJobBaseSchema.extend({
+    artifactKind: z.literal("learning_bundle_v1"),
+  }).strict();
+
+export const SemanticGeneratePracticeFeedbackJobSchema =
+  SemanticGenerationJobBaseSchema.extend({
+    artifactKind: z.literal("practice_feedback_v1"),
+    practiceSessionId: UuidSchema,
+    practiceQuestionId: UuidSchema,
+    practiceAnswerId: UuidSchema,
+  }).strict();
+
+export const SemanticGenerateProofQuestionsJobSchema =
+  SemanticGenerationJobBaseSchema.extend({
+    artifactKind: z.literal("proof_question_plan_v2"),
+  }).strict();
+
+export const SemanticExpirePrivateJobSchema = z
+  .object({
+    ...JOB_ENVELOPE,
+    revisionId: UuidSchema,
+    artifactId: UuidSchema,
+    artifactKind: z.enum([
+      "learning_bundle_v1",
+      "practice_answer_v1",
+      "practice_feedback_v1",
+    ]),
+  })
+  .strict();
+
 export const MediaFinalizeUploadJobSchema = z
   .object({
     ...JOB_ENVELOPE,
@@ -207,6 +251,11 @@ export const JobPayloadSchemas = {
   "github.ingest-pr": GithubIngestPrJobSchema,
   "github.reconcile-check": GithubReconcileCheckJobSchema,
   "analysis.prepare-revision": AnalysisPrepareRevisionJobSchema,
+  "semantic.generate-learning": SemanticGenerateLearningJobSchema,
+  "semantic.generate-practice-feedback":
+    SemanticGeneratePracticeFeedbackJobSchema,
+  "semantic.generate-proof-questions": SemanticGenerateProofQuestionsJobSchema,
+  "semantic.expire-private": SemanticExpirePrivateJobSchema,
   "proof.expire-attempt": ProofExpireAttemptJobSchema,
   "media.finalize-upload": MediaFinalizeUploadJobSchema,
   "media.extract-transcript": MediaExtractTranscriptJobSchema,
@@ -249,6 +298,17 @@ export function getJobSingletonKey<Name extends JobName>(
     case "github.reconcile-check":
     case "analysis.prepare-revision":
       return (payload as JobPayload<"github.reconcile-check">).revisionId;
+    case "semantic.generate-learning":
+      return `${(payload as JobPayload<"semantic.generate-learning">).generationContextId}:learning`;
+    case "semantic.generate-practice-feedback":
+      return (payload as JobPayload<"semantic.generate-practice-feedback">)
+        .practiceAnswerId;
+    case "semantic.generate-proof-questions":
+      return `${(payload as JobPayload<"semantic.generate-proof-questions">).generationContextId}:proof-v2`;
+    case "semantic.expire-private": {
+      const expiry = payload as JobPayload<"semantic.expire-private">;
+      return `${expiry.artifactKind}:${expiry.artifactId}`;
+    }
     case "proof.expire-attempt":
     case "media.finalize-upload":
     case "media.extract-transcript":
@@ -289,6 +349,26 @@ export const JOB_QUEUE_DEFINITIONS = {
   "analysis.prepare-revision": {
     ...COMMON_QUEUE_OPTIONS,
     expireInSeconds: 5 * 60,
+  },
+  "semantic.generate-learning": {
+    ...COMMON_QUEUE_OPTIONS,
+    expireInSeconds: 10 * 60,
+    heartbeatSeconds: 30,
+  },
+  "semantic.generate-practice-feedback": {
+    ...COMMON_QUEUE_OPTIONS,
+    expireInSeconds: 10 * 60,
+    heartbeatSeconds: 30,
+  },
+  "semantic.generate-proof-questions": {
+    ...COMMON_QUEUE_OPTIONS,
+    expireInSeconds: 10 * 60,
+    heartbeatSeconds: 30,
+  },
+  "semantic.expire-private": {
+    ...COMMON_QUEUE_OPTIONS,
+    expireInSeconds: 2 * 60,
+    retryLimit: 10,
   },
   "proof.expire-attempt": { ...COMMON_QUEUE_OPTIONS, expireInSeconds: 60 },
   "media.finalize-upload": { ...COMMON_QUEUE_OPTIONS, expireInSeconds: 5 * 60 },

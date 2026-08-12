@@ -13,10 +13,10 @@ type ContributorView = {
   pull_request_number: number;
   head_sha: string;
   is_current: boolean;
-  attempt_id: string;
-  status: string;
+  attempt_id: string | null;
+  status: string | null;
   question_budget: number;
-  risk_explanation: {
+  risk_explanation: null | {
     title?: string;
     riskLevel?: string;
     rationale?: string[];
@@ -52,17 +52,26 @@ export default async function ContributorPage({
             pull_request.number AS pull_request_number,
             revision.head_sha, revision.is_current,
             attempt.id AS attempt_id, attempt.status,
-            proof_plan.question_budget, proof_plan.risk_explanation
+            COALESCE(proof_plan.question_budget, semantic_budget.question_budget)
+              AS question_budget,
+            proof_plan.risk_explanation
      FROM pull_request_revisions revision
      JOIN pull_requests pull_request ON pull_request.id = revision.pull_request_id
      JOIN repositories repository ON repository.id = pull_request.repository_id
-     JOIN LATERAL (
+     LEFT JOIN LATERAL (
        SELECT candidate.* FROM attempts candidate
        WHERE candidate.revision_id = revision.id
        ORDER BY candidate.created_at DESC, candidate.id DESC
        LIMIT 1
      ) attempt ON true
-     JOIN proof_plans proof_plan ON proof_plan.id = attempt.proof_plan_id
+     LEFT JOIN proof_plans proof_plan ON proof_plan.id = attempt.proof_plan_id
+     LEFT JOIN LATERAL (
+       SELECT candidate.question_budget
+         FROM semantic_generation_budgets candidate
+        WHERE candidate.revision_id = revision.id
+        ORDER BY candidate.created_at DESC, candidate.generation_context_id DESC
+        LIMIT 1
+     ) semantic_budget ON true
      WHERE revision.id = $1
        AND ($2::boolean OR (
          repository.id = $3::uuid
@@ -77,7 +86,8 @@ export default async function ContributorPage({
     ],
   );
   const view = result.rows[0];
-  if (!view) notFound();
+  if (!view || !Number.isInteger(view.question_budget)) notFound();
+  const attemptStatus = view.status ?? "preparing";
 
   return (
     <main className="shell flow-shell">
@@ -90,10 +100,12 @@ export default async function ContributorPage({
             {view.owner}/{view.name} · PR #{view.pull_request_number}
           </p>
           <h1 className="flow-title">
-            {view.risk_explanation.title ?? "Contributor proof"}
+            {view.risk_explanation?.title ?? "Contributor proof"}
           </h1>
         </div>
-        <span className="status-pill">{view.status.replaceAll("_", " ")}</span>
+        <span className="status-pill">
+          {attemptStatus.replaceAll("_", " ")}
+        </span>
       </div>
       <div className="sha-row">
         <span>Bound head SHA</span>
@@ -128,13 +140,19 @@ export default async function ContributorPage({
               {view.question_budget === 1 ? "" : "s"} are bound to this exact
               SHA.
             </p>
-            {view.status === "ready" ? (
+            {attemptStatus === "preparing" ? (
+              <p>
+                Patch-bound proof questions are being prepared. Practice is
+                optional and can be opened independently while this completes.
+              </p>
+            ) : null}
+            {attemptStatus === "ready" && view.attempt_id ? (
               <ProofHandoff
                 attemptId={view.attempt_id}
                 establishDemoSession={app.config.DEMO_MODE}
               />
             ) : null}
-            {RETRYABLE_STATUSES.has(view.status) ? (
+            {view.attempt_id && RETRYABLE_STATUSES.has(attemptStatus) ? (
               <RetryAttempt
                 attemptId={view.attempt_id}
                 headSha={view.head_sha}
@@ -142,11 +160,11 @@ export default async function ContributorPage({
               />
             ) : null}
             {["active", "uploading", "processing", "review_required"].includes(
-              view.status,
+              attemptStatus,
             ) ? (
               <p>The proof is already in progress or awaiting review.</p>
             ) : null}
-            {view.status === "passed" ? (
+            {attemptStatus === "passed" ? (
               <p>This exact revision has already been approved.</p>
             ) : null}
           </section>

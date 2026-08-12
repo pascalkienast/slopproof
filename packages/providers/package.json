@@ -5,7 +5,9 @@
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
+    "@slopproof/analysis": "workspace:*",
     "@slopproof/domain": "workspace:*",
+    "@slopproof/questions": "workspace:*",
     "zod": "4.4.3"
   }
 }

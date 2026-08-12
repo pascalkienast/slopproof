@@ -32,10 +32,13 @@ export default async function PublicRevisionPage({
             pull_request.number AS pull_request_number,
             revision.head_sha, revision.is_current,
             check_run.status, check_run.conclusion, check_run.public_summary,
-            EXISTS (
+            (EXISTS (
               SELECT 1 FROM attempts attempt
               WHERE attempt.revision_id = revision.id
-            ) AS has_contributor_flow
+            ) OR EXISTS (
+              SELECT 1 FROM semantic_generation_budgets semantic_budget
+              WHERE semantic_budget.revision_id = revision.id
+            )) AS has_contributor_flow
      FROM pull_request_revisions revision
      JOIN pull_requests pull_request ON pull_request.id = revision.pull_request_id
      JOIN repositories repository ON repository.id = pull_request.repository_id
