@@ -1,12 +1,24 @@
 import { createHash } from "node:crypto";
 import {
+  AnalysisSnapshotSchema,
+  BoundedRevisionSourceV1Schema,
   PullRequestPatchSchema,
   analyzePullRequestPatch,
+  boundedRevisionSourcePatch,
+  buildBoundedRevisionSourceV1,
+  buildGenerationContextV1,
+  GithubRevisionSourceV1Schema,
+  verifyGenerationContextV1AgainstAnalysis,
+  type AnalysisSnapshot,
+  type BoundedRevisionSourceV1,
+  type GenerationContextV1,
+  type GithubRevisionSourceV1,
   type PullRequestPatch,
 } from "@slopproof/analysis";
 import {
   PgBossGithubCheckOutbox,
   parseJobPayload,
+  persistGithubRevisionSourceInTransaction,
   persistGithubCheckIntentInTransaction,
   scheduleJobInPgTransaction,
   type JobPayload,
@@ -16,7 +28,7 @@ import {
   RepositoryPolicyV1Schema,
   type RepositoryPolicyV1,
 } from "@slopproof/policy";
-import { planProof } from "@slopproof/questions";
+import { planProof, type ProofQuestion } from "@slopproof/questions";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 
@@ -94,6 +106,8 @@ export type RevisionPatchRequest = {
   owner: string;
   repositoryName: string;
   pullRequestNumber: number;
+  githubPullRequestId: string;
+  authorId: string;
   baseSha: string;
   headSha: string;
 };
@@ -102,29 +116,81 @@ export interface RevisionPatchSource {
   loadPatch(input: RevisionPatchRequest): Promise<PullRequestPatch>;
 }
 
+export interface BoundedRevisionPatchSource extends RevisionPatchSource {
+  loadBoundedSource(
+    input: RevisionPatchRequest,
+  ): Promise<BoundedRevisionSourceV1>;
+}
+
+interface MaterializingRevisionPatchSource extends BoundedRevisionPatchSource {
+  loadImmutableSource(
+    input: RevisionPatchRequest,
+  ): Promise<GithubRevisionSourceV1>;
+}
+
+export interface GenerationContextWriter {
+  persist(
+    client: PoolClient,
+    context: GenerationContextV1,
+  ): Promise<{ id: string; replay: boolean }>;
+}
+
 /**
  * Explicit offline adapter for the fake-GitHub MVP. A productive adapter must
  * replace this with an installation-authorized, bounded patch fetch.
  */
-export class LocalFakeRevisionPatchSource implements RevisionPatchSource {
+export class LocalFakeRevisionPatchSource implements MaterializingRevisionPatchSource {
   async loadPatch(input: RevisionPatchRequest): Promise<PullRequestPatch> {
-    return PullRequestPatchSchema.parse({
-      baseSha: input.baseSha,
+    return boundedRevisionSourcePatch(await this.loadBoundedSource(input));
+  }
+
+  async loadBoundedSource(
+    input: RevisionPatchRequest,
+  ): Promise<BoundedRevisionSourceV1> {
+    const source = await this.loadImmutableSource(input);
+    return buildBoundedRevisionSourceV1(source);
+  }
+
+  async loadImmutableSource(
+    input: RevisionPatchRequest,
+  ): Promise<GithubRevisionSourceV1> {
+    const patch = [
+      "@@ -1,1 +1,2 @@ bounded fake-GitHub patch",
+      `-Previous behavior for ${input.owner}/${input.repositoryName}.`,
+      `+Updated behavior for pull request #${String(input.pullRequestNumber)}.`,
+      "+The contributor must explain the observable change and recovery path.",
+    ].join("\n");
+    return GithubRevisionSourceV1Schema.parse({
+      githubPullRequestId: input.githubPullRequestId,
+      number: input.pullRequestNumber,
+      state: "open",
+      draft: false,
+      title: `Local fake pull request #${String(input.pullRequestNumber)}`,
+      body: "Deterministic offline source for the local fake profile.",
+      authorId: input.authorId,
+      authorLogin: "local-fake",
       headSha: input.headSha,
+      baseSha: input.baseSha,
+      changedFiles: 1,
+      isFork: false,
       files: [
         {
-          path: `pull-requests/${String(input.pullRequestNumber)}.md`,
-          kind: "text",
+          sha: input.headSha,
+          filename: `pull-requests/${String(input.pullRequestNumber)}.md`,
+          previousFilename: null,
+          status: "modified",
           additions: 2,
           deletions: 1,
-          patch: [
-            "@@ -1,1 +1,2 @@ bounded fake-GitHub patch",
-            `-Previous behavior for ${input.owner}/${input.repositoryName}.`,
-            `+Updated behavior for pull request #${String(input.pullRequestNumber)}.`,
-            "+The contributor must explain the observable change and recovery path.",
-          ].join("\n"),
+          changes: 3,
+          patch,
+          gitKind: "blob",
         },
       ],
+      limitsHit: {
+        files: false,
+        patchBytes: false,
+        patchUnavailable: false,
+      },
     });
   }
 }
@@ -134,6 +200,7 @@ export type PrepareRevisionDependencies = {
   queue: PgBoss;
   checkIntents: CheckIntentWriter;
   patchSource: RevisionPatchSource;
+  generationContexts: GenerationContextWriter;
   clock?: { now(): Date };
 };
 
@@ -153,6 +220,7 @@ type RevisionContext = {
   repository_name: string;
   active_policy_version: number;
   pull_request_number: number;
+  github_pull_request_id: string;
   author_id: string;
   pull_request_state: string;
   base_sha: string;
@@ -180,15 +248,26 @@ export async function prepareRevision(
   if (context.pull_request_state !== "open") return { outcome: "closed" };
 
   const policy = await loadPolicy(dependencies.pool, context);
+  const patchRequest = {
+    revisionId: context.revision_id,
+    owner: context.owner,
+    repositoryName: context.repository_name,
+    pullRequestNumber: context.pull_request_number,
+    githubPullRequestId: context.github_pull_request_id,
+    authorId: context.author_id,
+    baseSha: context.base_sha,
+    headSha: context.head_sha,
+  };
+  const boundedSource = await loadRequiredBoundedSource(
+    dependencies.patchSource,
+    patchRequest,
+  );
+  const immutableSource = await loadOptionalImmutableSource(
+    dependencies.patchSource,
+    patchRequest,
+  );
   const patch = PullRequestPatchSchema.parse(
-    await dependencies.patchSource.loadPatch({
-      revisionId: context.revision_id,
-      owner: context.owner,
-      repositoryName: context.repository_name,
-      pullRequestNumber: context.pull_request_number,
-      baseSha: context.base_sha,
-      headSha: context.head_sha,
-    }),
+    boundedRevisionSourcePatch(boundedSource),
   );
   if (
     patch.baseSha !== context.base_sha ||
@@ -239,18 +318,39 @@ export async function prepareRevision(
       policy,
       now,
     );
-    await client.query(
-      `INSERT INTO analysis_snapshots
-        (revision_id, analyzer_version, diff_hash, snapshot, status)
-       VALUES ($1, $2, $3, $4::jsonb, 'ready')
-       ON CONFLICT (revision_id, analyzer_version, diff_hash) DO NOTHING`,
-      [
-        current.revision_id,
-        analysis.analyzerVersion,
-        diffHash,
-        JSON.stringify(analysis),
-      ],
+    if (immutableSource !== undefined) {
+      const persistedSource = await persistGithubRevisionSourceInTransaction(
+        client,
+        {
+          revisionId: current.revision_id,
+          fetchedAt: current.received_at,
+          source: immutableSource,
+        },
+      );
+      if (persistedSource.sourceHash !== boundedSource.sourceHash) {
+        throw new Error(
+          "Immutable revision source conflicts with bounded data",
+        );
+      }
+    }
+    const analysisSnapshotId = await persistAnalysisSnapshotExactlyOnce(
+      client,
+      current.revision_id,
+      analysis,
+      diffHash,
     );
+    const generationContext = buildGenerationContextV1({
+      revisionId: current.revision_id,
+      analysisSnapshotId,
+      boundedSource,
+      analysis,
+    });
+    verifyGenerationContextV1AgainstAnalysis(generationContext, analysis);
+    const persistedGenerationContext =
+      await dependencies.generationContexts.persist(client, generationContext);
+    if (!persistedGenerationContext.id) {
+      throw new Error("Generation context persistence returned no identity");
+    }
 
     if (proof.status === "split_recommended") {
       await dependencies.checkIntents.write(client, {
@@ -273,13 +373,14 @@ export async function prepareRevision(
 
     await client.query(
       `INSERT INTO proof_plans
-        (id, revision_id, repository_policy_id, plan_version,
+        (id, revision_id, generation_context_id, repository_policy_id, plan_version,
          deterministic_seed, risk_explanation, question_budget, plan_hash, status)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, 'ready')
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, 'ready')
        ON CONFLICT (id) DO NOTHING`,
       [
         proof.id,
         current.revision_id,
+        persistedGenerationContext.id,
         frozenPolicyId,
         proof.plannerVersion,
         proof.seedCommitment,
@@ -295,17 +396,22 @@ export async function prepareRevision(
     const persistedPlan = await client.query<{
       plan_hash: string;
       repository_policy_id: string;
+      generation_context_id: string | null;
     }>(
-      "SELECT plan_hash, repository_policy_id FROM proof_plans WHERE id = $1",
+      `SELECT plan_hash, repository_policy_id, generation_context_id
+         FROM proof_plans WHERE id = $1`,
       [proof.id],
     );
     if (
       persistedPlan.rows[0]?.plan_hash !== proof.planHash ||
-      persistedPlan.rows[0]?.repository_policy_id !== frozenPolicyId
+      persistedPlan.rows[0]?.repository_policy_id !== frozenPolicyId ||
+      persistedPlan.rows[0]?.generation_context_id !==
+        persistedGenerationContext.id
     ) {
       throw new Error("Deterministic proof plan conflicts with persisted data");
     }
     for (const question of proof.questions) {
+      assertProofQuestionAnchor(question.anchor, generationContext);
       await client.query(
         `INSERT INTO proof_questions
           (id, proof_plan_id, ordinal, type, prompt, diff_anchor, rubric, required)
@@ -322,6 +428,7 @@ export async function prepareRevision(
         ],
       );
     }
+    await assertPersistedProofQuestions(client, proof.id, proof.questions);
 
     const active = await client.query<{ id: string; expires_at: Date }>(
       `SELECT id, expires_at FROM attempts
@@ -430,7 +537,8 @@ const REVISION_CONTEXT_SQL = `
   SELECT revision.id AS revision_id, repository.id AS repository_id,
          repository.owner, repository.name AS repository_name,
          repository.active_policy_version, pull_request.number AS pull_request_number,
-         pull_request.author_id, pull_request.state AS pull_request_state,
+         pull_request.github_pull_request_id, pull_request.author_id,
+         pull_request.state AS pull_request_state,
          revision.base_sha, revision.head_sha, revision.is_current,
          revision.received_at
   FROM pull_request_revisions revision
@@ -447,6 +555,89 @@ async function loadRevisionContext(
     [revisionId],
   );
   return result.rows[0];
+}
+
+async function loadRequiredBoundedSource(
+  source: RevisionPatchSource,
+  request: RevisionPatchRequest,
+): Promise<BoundedRevisionSourceV1> {
+  if (!("loadBoundedSource" in source)) {
+    throw new Error(
+      "Production revision preparation requires an immutable bounded source",
+    );
+  }
+  const loadBoundedSource = Reflect.get(source, "loadBoundedSource");
+  if (typeof loadBoundedSource !== "function") {
+    throw new Error(
+      "Production revision preparation requires an immutable bounded source",
+    );
+  }
+  return BoundedRevisionSourceV1Schema.parse(
+    await Reflect.apply(loadBoundedSource, source, [request]),
+  );
+}
+
+async function loadOptionalImmutableSource(
+  source: RevisionPatchSource,
+  request: RevisionPatchRequest,
+): Promise<GithubRevisionSourceV1 | undefined> {
+  if (!("loadImmutableSource" in source)) return undefined;
+  const loadImmutableSource = Reflect.get(source, "loadImmutableSource");
+  if (typeof loadImmutableSource !== "function") return undefined;
+  return GithubRevisionSourceV1Schema.parse(
+    await Reflect.apply(loadImmutableSource, source, [request]),
+  );
+}
+
+async function persistAnalysisSnapshotExactlyOnce(
+  client: PoolClient,
+  revisionId: string,
+  analysis: AnalysisSnapshot,
+  diffHash: string,
+): Promise<string> {
+  const inserted = await client.query<{
+    id: string;
+    snapshot: unknown;
+    status: string;
+  }>(
+    `INSERT INTO analysis_snapshots
+       (revision_id, analyzer_version, diff_hash, snapshot, status)
+     VALUES ($1, $2, $3, $4::jsonb, 'ready')
+     ON CONFLICT (revision_id, analyzer_version, diff_hash) DO NOTHING
+     RETURNING id, snapshot, status`,
+    [revisionId, analysis.analyzerVersion, diffHash, JSON.stringify(analysis)],
+  );
+  const persisted =
+    inserted.rows.length === 1
+      ? inserted
+      : await client.query<{
+          id: string;
+          snapshot: unknown;
+          status: string;
+        }>(
+          `SELECT id, snapshot, status
+             FROM analysis_snapshots
+            WHERE revision_id = $1
+              AND analyzer_version = $2
+              AND diff_hash = $3
+            LIMIT 2
+            FOR SHARE`,
+          [revisionId, analysis.analyzerVersion, diffHash],
+        );
+  const row = persisted.rows.length === 1 ? persisted.rows[0] : undefined;
+  const snapshot = AnalysisSnapshotSchema.safeParse(row?.snapshot);
+  if (
+    !row ||
+    row.status !== "ready" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(
+      row.id,
+    ) ||
+    !snapshot.success ||
+    stableJson(snapshot.data) !== stableJson(analysis)
+  ) {
+    throw new Error("Analysis snapshot conflicts with persisted data");
+  }
+  return row.id;
 }
 
 async function loadPolicy(
@@ -527,8 +718,70 @@ async function insertAuditOnce(
   );
 }
 
+function assertProofQuestionAnchor(
+  anchor: ProofQuestion["anchor"],
+  context: GenerationContextV1,
+): void {
+  const exact = context.anchors.find((candidate) => candidate.id === anchor.id);
+  if (
+    !exact ||
+    exact.filename.content !== anchor.file ||
+    exact.hunkHeader.content !== anchor.hunkHeader ||
+    exact.oldStart !== anchor.oldStart ||
+    exact.newStart !== anchor.newStart ||
+    exact.changedLines !== anchor.changedLines
+  ) {
+    throw new Error("Proof question anchor is outside the generation context");
+  }
+}
+
+async function assertPersistedProofQuestions(
+  client: PoolClient,
+  proofPlanId: string,
+  questions: readonly ProofQuestion[],
+): Promise<void> {
+  const persisted = await client.query<{
+    id: string;
+    ordinal: number;
+    type: string;
+    prompt: string;
+    diff_anchor: unknown;
+    rubric: unknown;
+    required: boolean;
+  }>(
+    `SELECT id, ordinal, type, prompt, diff_anchor, rubric, required
+       FROM proof_questions
+      WHERE proof_plan_id = $1
+      ORDER BY ordinal`,
+    [proofPlanId],
+  );
+  const expected = questions.map((question) => ({
+    id: question.id,
+    ordinal: question.order - 1,
+    type: question.intent,
+    prompt: question.prompt,
+    diff_anchor: question.anchor,
+    rubric: question.rubric,
+    required: true,
+  }));
+  if (stableJson(persisted.rows) !== stableJson(expected)) {
+    throw new Error("Proof questions conflict with persisted data");
+  }
+}
+
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value) ?? "undefined";
+  }
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`);
+  return `{${entries.join(",")}}`;
 }
 
 function deterministicUuid(value: string): string {

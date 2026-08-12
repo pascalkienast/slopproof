@@ -17,6 +17,19 @@ export type PullRequestFilesRequest = PullRequestRequest & {
   perPage: number;
 };
 
+export type GitCommitRequest = {
+  owner: string;
+  repositoryName: string;
+  commitSha: string;
+};
+
+/** Deliberately has no `recursive` member: callers may only read one tree level. */
+export type GitTreeRequest = {
+  owner: string;
+  repositoryName: string;
+  treeSha: string;
+};
+
 export type CheckRunRequest = {
   owner: string;
   repositoryName: string;
@@ -66,6 +79,14 @@ export interface GithubRestClient {
   ): Promise<GithubApiResponse>;
   listPullRequestFiles(
     input: PullRequestFilesRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse>;
+  getGitCommit(
+    input: GitCommitRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse>;
+  getGitTree(
+    input: GitTreeRequest,
     signal: AbortSignal,
   ): Promise<GithubApiResponse>;
   createCheckRun(
@@ -153,6 +174,30 @@ export class OctokitGithubRestClient implements GithubRestClient {
       pull_number: input.pullNumber,
       page: input.page,
       per_page: input.perPage,
+      request: { signal },
+    });
+  }
+
+  async getGitCommit(
+    input: GitCommitRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse> {
+    return this.octokit.rest.git.getCommit({
+      owner: input.owner,
+      repo: input.repositoryName,
+      commit_sha: input.commitSha,
+      request: { signal },
+    });
+  }
+
+  async getGitTree(
+    input: GitTreeRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse> {
+    return this.octokit.rest.git.getTree({
+      owner: input.owner,
+      repo: input.repositoryName,
+      tree_sha: input.treeSha,
       request: { signal },
     });
   }

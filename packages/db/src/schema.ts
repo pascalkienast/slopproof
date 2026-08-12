@@ -431,6 +431,47 @@ export const analysisSnapshots = pgTable(
   ],
 );
 
+export const generationContexts = pgTable(
+  "generation_contexts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    revisionId: uuid("revision_id")
+      .notNull()
+      .references(() => pullRequestRevisions.id, { onDelete: "restrict" }),
+    analysisSnapshotId: uuid("analysis_snapshot_id")
+      .notNull()
+      .references(() => analysisSnapshots.id, { onDelete: "restrict" }),
+    headSha: text("head_sha").notNull(),
+    analyzerVersion: text("analyzer_version").notNull(),
+    contextVersion: text("context_version").notNull(),
+    contextHash: text("context_hash").notNull(),
+    canonicalMaterial: text("canonical_material").notNull(),
+    providerMaterial: text("provider_material").notNull(),
+    sourceHash: text("source_hash").notNull(),
+    allowedAnchorIds: jsonb("allowed_anchor_ids").$type<string[]>().notNull(),
+    limits: jsonb("limits").$type<Record<string, unknown>>().notNull(),
+    exclusions: jsonb("exclusions").$type<unknown[]>().notNull(),
+    context: jsonb("context").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("generation_contexts_snapshot_version_uq").on(
+      table.analysisSnapshotId,
+      table.contextVersion,
+    ),
+    uniqueIndex("generation_contexts_revision_hash_uq").on(
+      table.revisionId,
+      table.contextHash,
+    ),
+    index("generation_contexts_revision_idx").on(
+      table.revisionId,
+      table.createdAt,
+    ),
+  ],
+);
+
 export const practiceSessions = pgTable("practice_sessions", {
   id: uuid("id").defaultRandom().primaryKey(),
   revisionId: uuid("revision_id")
@@ -451,6 +492,10 @@ export const proofPlans = pgTable(
     revisionId: uuid("revision_id")
       .notNull()
       .references(() => pullRequestRevisions.id, { onDelete: "cascade" }),
+    generationContextId: uuid("generation_context_id").references(
+      () => generationContexts.id,
+      { onDelete: "restrict" },
+    ),
     repositoryPolicyId: uuid("repository_policy_id")
       .notNull()
       .references(() => repositoryPolicies.id, { onDelete: "restrict" }),
@@ -468,6 +513,7 @@ export const proofPlans = pgTable(
   },
   (table) => [
     uniqueIndex("proof_plans_hash_uq").on(table.revisionId, table.planHash),
+    index("proof_plans_generation_context_idx").on(table.generationContextId),
     index("proof_plans_repository_policy_idx").on(table.repositoryPolicyId),
     check(
       "proof_plans_question_budget",

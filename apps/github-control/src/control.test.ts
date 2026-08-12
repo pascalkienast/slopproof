@@ -848,6 +848,7 @@ function snapshot(
         deletions: 0,
         changes: 1,
         patch: "@@ -1 +1 @@",
+        gitKind: "blob" as const,
       },
     ],
     limitsHit: { files: false, patchBytes: false, patchUnavailable: false },

@@ -10,6 +10,8 @@ export function githubRestClientStub(
     createInstallationAccessToken: unexpected,
     getPullRequest: unexpected,
     listPullRequestFiles: unexpected,
+    getGitCommit: unexpected,
+    getGitTree: unexpected,
     createCheckRun: unexpected,
     updateCheckRun: unexpected,
     getCheckRun: unexpected,

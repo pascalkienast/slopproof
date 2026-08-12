@@ -425,6 +425,29 @@ databaseDescribe("production GitHub persistence", () => {
       conflictingClient.release();
     }
 
+    const kindConflictClient = await database.pool.connect();
+    try {
+      await kindConflictClient.query("BEGIN");
+      await expect(
+        persistGithubRevisionSourceInTransaction(kindConflictClient, {
+          revisionId,
+          fetchedAt: new Date(),
+          source: {
+            ...githubRevisionSource(),
+            files: [
+              {
+                ...githubRevisionSource().files[0]!,
+                gitKind: "symlink",
+              },
+            ],
+          },
+        }),
+      ).rejects.toBeInstanceOf(GithubRevisionSourceConflictError);
+      await kindConflictClient.query("ROLLBACK");
+    } finally {
+      kindConflictClient.release();
+    }
+
     await database.pool.query(
       "UPDATE pull_request_revisions SET is_current = false WHERE id = $1",
       [revisionId],
@@ -2276,6 +2299,7 @@ function githubRevisionSource() {
         deletions: 1,
         changes: 2,
         patch: "@@ -1 +1 @@\n-old\n+new",
+        gitKind: "blob" as const,
       },
     ],
     limitsHit: {

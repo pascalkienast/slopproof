@@ -1,6 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
 import type { AuthenticatedSession } from "@slopproof/auth";
-import type { PullRequestPatch } from "@slopproof/analysis";
 import {
   connectDatabase,
   enqueueJobInPgTransaction,
@@ -26,40 +25,17 @@ import {
 import { expireAttempt } from "../../apps/worker/src/attempt-expiry";
 import {
   createWorkerCheckIntentWriter,
+  LocalFakeRevisionPatchSource,
   prepareRevision,
   type CheckIntentWriter as WorkerCheckIntentWriter,
-  type RevisionPatchRequest,
-  type RevisionPatchSource,
 } from "../../apps/worker/src/revision-preparation";
+import { persistGenerationContextV1InTransaction } from "../../apps/worker/src/generation-context-repository";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PoolClient } from "pg";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const databaseDescribe = databaseUrl ? describe : describe.skip;
 const webhookSecret = "product-flow-webhook-secret";
-
-class TestPatchSource implements RevisionPatchSource {
-  async loadPatch(input: RevisionPatchRequest): Promise<PullRequestPatch> {
-    return {
-      baseSha: input.baseSha,
-      headSha: input.headSha,
-      files: [
-        {
-          path: "src/order-service.ts",
-          kind: "text",
-          additions: 2,
-          deletions: 1,
-          patch: [
-            "@@ -10,1 +10,2 @@ export async function submit()",
-            "-return repository.insert(command);",
-            "+await events.publish('order.requested');",
-            "+return repository.insert(command);",
-          ].join("\n"),
-        },
-      ],
-    };
-  }
-}
 
 class FakeAbortStorage implements MultipartAbortPort {
   readonly calls: { objectKey: string; uploadId: string }[] = [];
@@ -115,7 +91,10 @@ databaseDescribe("complete current-SHA product flow", () => {
           pool: connection.pool,
           queue: jobQueue,
           checkIntents: workerCheckIntents,
-          patchSource: new TestPatchSource(),
+          patchSource: new LocalFakeRevisionPatchSource(),
+          generationContexts: {
+            persist: persistGenerationContextV1InTransaction,
+          },
         });
       },
     );
@@ -162,7 +141,8 @@ databaseDescribe("complete current-SHA product flow", () => {
         frame_selections, transcripts, recording_objects, recording_parts,
         upload_sessions, wrapping_materials, handoff_tokens, auth_sessions,
         attempt_transitions, attempts, proof_questions, proof_plans,
-        practice_sessions, analysis_snapshots, webhook_deliveries,
+        practice_sessions, generation_contexts, analysis_snapshots,
+        github_revision_sources, webhook_deliveries,
         pull_request_revisions, pull_requests, repository_policies,
         repositories, installations
       RESTART IDENTITY CASCADE
@@ -185,6 +165,8 @@ databaseDescribe("complete current-SHA product flow", () => {
 
     const product = await connection.pool.query<{
       analysis_count: number;
+      source_count: number;
+      context_count: number;
       plan_count: number;
       question_count: number;
       policy_id: string;
@@ -193,6 +175,8 @@ databaseDescribe("complete current-SHA product flow", () => {
     }>(
       `SELECT
          (SELECT count(*)::int FROM analysis_snapshots WHERE revision_id = $1) AS analysis_count,
+         (SELECT count(*)::int FROM github_revision_sources WHERE revision_id = $1) AS source_count,
+         (SELECT count(*)::int FROM generation_contexts WHERE revision_id = $1) AS context_count,
          (SELECT count(*)::int FROM proof_plans WHERE revision_id = $1) AS plan_count,
          (SELECT count(*)::int FROM proof_questions question
           JOIN proof_plans plan ON plan.id = question.proof_plan_id
@@ -206,6 +190,8 @@ databaseDescribe("complete current-SHA product flow", () => {
     );
     expect(product.rows[0]).toMatchObject({
       analysis_count: 1,
+      source_count: 1,
+      context_count: 1,
       plan_count: 1,
       check_status: "in_progress",
       public_summary: `proof ready for head ${"a".repeat(40)}`,
@@ -225,6 +211,7 @@ databaseDescribe("complete current-SHA product flow", () => {
     ).resolves.toMatchObject({ duplicate: true });
     expect(await count(connection, "attempts")).toBe(1);
     expect(await count(connection, "proof_plans")).toBe(1);
+    expect(await count(connection, "generation_contexts")).toBe(1);
 
     const synchronized = webhook({
       deliveryId: "71000000-0000-4000-8000-000000000002",
@@ -446,7 +433,8 @@ databaseDescribe("complete current-SHA product flow", () => {
         frame_selections, transcripts, recording_objects, recording_parts,
         upload_sessions, wrapping_materials, handoff_tokens, auth_sessions,
         attempt_transitions, attempts, proof_questions, proof_plans,
-        practice_sessions, analysis_snapshots, webhook_deliveries,
+        practice_sessions, generation_contexts, analysis_snapshots,
+        github_revision_sources, webhook_deliveries,
         pull_request_revisions, pull_requests, repository_policies,
         repositories, installations
       RESTART IDENTITY CASCADE
@@ -652,7 +640,7 @@ async function waitForAudit(
 
 async function count(
   connection: DatabaseConnection,
-  table: "attempts" | "proof_plans",
+  table: "attempts" | "proof_plans" | "generation_contexts",
 ): Promise<number> {
   const result = await connection.pool.query<{ count: number }>(
     `SELECT count(*)::int AS count FROM ${table}`,

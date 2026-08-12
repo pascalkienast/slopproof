@@ -40,6 +40,17 @@ export type GithubPullRequestReadInput = z.infer<
   typeof GithubPullRequestReadInputSchema
 >;
 
+/** Git object kind at the exact immutable head/base paths used by the PR. */
+export const GithubChangedFileGitKindSchema = z.enum([
+  "blob",
+  "symlink",
+  "submodule",
+]);
+
+export type GithubChangedFileGitKind = z.infer<
+  typeof GithubChangedFileGitKindSchema
+>;
+
 export const GithubChangedFileSchema = z
   .object({
     sha: shaSchema.nullable(),
@@ -58,6 +69,7 @@ export const GithubChangedFileSchema = z
     deletions: z.number().int().nonnegative(),
     changes: z.number().int().nonnegative(),
     patch: z.string().nullable(),
+    gitKind: GithubChangedFileGitKindSchema,
   })
   .strict();
 

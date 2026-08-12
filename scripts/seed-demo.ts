@@ -1,11 +1,19 @@
 import { createHash } from "node:crypto";
 import {
   analyzePullRequestPatch,
+  boundedRevisionSourcePatch,
+  buildBoundedRevisionSourceV1,
+  buildGenerationContextV1,
+  type GithubRevisionSourceV1,
   type PullRequestPatch,
 } from "@slopproof/analysis";
-import { connectDatabase } from "@slopproof/db";
+import {
+  connectDatabase,
+  persistGithubRevisionSourceInTransaction,
+} from "@slopproof/db";
 import { DEFAULT_REPOSITORY_POLICY_V1 } from "@slopproof/policy";
 import { planProof } from "@slopproof/questions";
+import { persistGenerationContextV1InTransaction } from "../apps/worker/src/generation-context-repository";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -165,7 +173,11 @@ try {
   );
 
   for (const seed of seeds) {
-    const analysis = analyzePullRequestPatch(seed.patch);
+    const githubPullRequestId = String(510_000 + seed.number);
+    const source = githubSource(seed, githubPullRequestId);
+    const boundedSource = buildBoundedRevisionSourceV1(source);
+    const boundedPatch = boundedRevisionSourcePatch(boundedSource);
+    const analysis = analyzePullRequestPatch(boundedPatch);
     const proof = planProof(
       {
         analysis,
@@ -191,7 +203,7 @@ try {
       [
         seed.pullRequestId,
         activeRepositoryId,
-        String(510_000 + seed.number),
+        githubPullRequestId,
         seed.number,
         githubAuthorId,
       ],
@@ -219,27 +231,66 @@ try {
       ],
     );
     const activeRevisionId = revision.rows[0]!.id;
-    await client.query(
+    const persistedSource = await persistGithubRevisionSourceInTransaction(
+      client,
+      {
+        revisionId: activeRevisionId,
+        fetchedAt: new Date("2026-08-11T12:00:00.000Z"),
+        source,
+      },
+    );
+    if (persistedSource.sourceHash !== boundedSource.sourceHash) {
+      throw new Error("Demo revision source hash mismatch");
+    }
+    const insertedAnalysis = await client.query<{ id: string }>(
       `INSERT INTO analysis_snapshots
         (revision_id, analyzer_version, diff_hash, snapshot, status)
        VALUES ($1, $2, $3, $4::jsonb, 'ready')
-       ON CONFLICT (revision_id, analyzer_version, diff_hash) DO NOTHING`,
+       ON CONFLICT (revision_id, analyzer_version, diff_hash) DO NOTHING
+       RETURNING id`,
       [
         activeRevisionId,
         analysis.analyzerVersion,
-        sha256(JSON.stringify(seed.patch)),
+        sha256(JSON.stringify(boundedPatch)),
         JSON.stringify(analysis),
       ],
     );
+    const analysisSnapshotId =
+      insertedAnalysis.rows[0]?.id ??
+      (
+        await client.query<{ id: string }>(
+          `SELECT id FROM analysis_snapshots
+            WHERE revision_id = $1 AND analyzer_version = $2 AND diff_hash = $3
+            FOR SHARE`,
+          [
+            activeRevisionId,
+            analysis.analyzerVersion,
+            sha256(JSON.stringify(boundedPatch)),
+          ],
+        )
+      ).rows[0]?.id;
+    if (!analysisSnapshotId)
+      throw new Error("Demo analysis snapshot is missing");
+    const persistedGenerationContext =
+      await persistGenerationContextV1InTransaction(
+        client,
+        buildGenerationContextV1({
+          revisionId: activeRevisionId,
+          analysisSnapshotId,
+          boundedSource,
+          analysis,
+        }),
+      );
     await client.query(
       `INSERT INTO proof_plans
-        (id, revision_id, repository_policy_id, plan_version,
+        (id, revision_id, generation_context_id, repository_policy_id, plan_version,
          deterministic_seed, risk_explanation, question_budget, plan_hash, status)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, 'ready')
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, 'ready')
        ON CONFLICT (revision_id, plan_hash) DO NOTHING`,
       [
         proof.id,
         activeRevisionId,
+        persistedGenerationContext.id,
         activePolicyId,
         proof.plannerVersion,
         proof.seedCommitment,
@@ -330,5 +381,41 @@ function patch(
     baseSha,
     headSha: headDigit.repeat(40),
     files: files.map((file) => ({ ...file, kind: "text" as const })),
+  };
+}
+
+function githubSource(
+  seed: (typeof seeds)[number],
+  githubPullRequestId: string,
+): GithubRevisionSourceV1 {
+  return {
+    githubPullRequestId,
+    number: seed.number,
+    state: "open",
+    draft: false,
+    title: seed.title,
+    body: "Deterministic offline source for the local demo profile.",
+    authorId: githubAuthorId,
+    authorLogin: "demo-contributor",
+    headSha: seed.patch.headSha,
+    baseSha: seed.patch.baseSha,
+    changedFiles: seed.patch.files.length,
+    isFork: false,
+    files: seed.patch.files.map((file) => ({
+      sha: seed.patch.headSha,
+      filename: file.path,
+      previousFilename: file.previousPath ?? null,
+      status: "modified",
+      additions: file.additions,
+      deletions: file.deletions,
+      changes: file.additions + file.deletions,
+      patch: file.patch ?? null,
+      gitKind: "blob",
+    })),
+    limitsHit: {
+      files: false,
+      patchBytes: false,
+      patchUnavailable: false,
+    },
   };
 }

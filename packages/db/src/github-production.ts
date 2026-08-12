@@ -67,6 +67,7 @@ const GithubChangedFileSchema = z
       .string()
       .max(128 * 1_024)
       .nullable(),
+    gitKind: z.enum(["blob", "symlink", "submodule"]),
   })
   .strict();
 
@@ -99,11 +100,29 @@ const GithubRevisionSourceSchema = z
       (total, file) => total + Buffer.byteLength(file.patch ?? "", "utf8"),
       0,
     );
-    if (patchBytes > 2 * 1_024 * 1_024) {
+    const oversizedFile = source.files.some(
+      (file) => Buffer.byteLength(file.patch ?? "", "utf8") > 128 * 1_024,
+    );
+    if (patchBytes > 2 * 1_024 * 1_024 || oversizedFile) {
       context.addIssue({
         code: "custom",
         path: ["files"],
         message: "total patch data exceeds 2 MiB",
+      });
+    }
+    const expectedFiles = Math.min(source.changedFiles, 300);
+    const filesTruncated = source.changedFiles > 300;
+    const missingPatch = source.files.some((file) => file.patch === null);
+    if (
+      source.files.length !== expectedFiles ||
+      source.limitsHit.files !== filesTruncated ||
+      (source.limitsHit.patchUnavailable || source.limitsHit.patchBytes) !==
+        missingPatch
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["limitsHit"],
+        message: "source truncation flags require exact bounded evidence",
       });
     }
   });
@@ -138,6 +157,7 @@ function immutableRevisionMaterial(source: GithubRevisionSource): string {
       file.deletions,
       file.changes,
       file.patch,
+      file.gitKind,
     ]),
     [
       source.limitsHit.files,

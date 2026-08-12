@@ -26,6 +26,8 @@ import {
   registerProviderPipelineWorkers,
 } from "./provider-pipeline";
 import { PostgresProviderPipelineRepository } from "./provider-pipeline-repository";
+import { persistGenerationContextV1InTransaction } from "./generation-context-repository";
+import { PostgresGithubRevisionPatchSource } from "./github-revision-patch-source";
 import {
   createWorkerCheckIntentWriter,
   LocalFakeRevisionPatchSource,
@@ -148,6 +150,13 @@ async function start(): Promise<void> {
     activeJobQueue,
     config.APP_BASE_URL,
   );
+  const revisionPatchSource =
+    config.GITHUB_ADAPTER === "octokit"
+      ? new PostgresGithubRevisionPatchSource(database.pool)
+      : new LocalFakeRevisionPatchSource();
+  const generationContexts = {
+    persist: persistGenerationContextV1InTransaction,
+  };
   await registerJobWorker(
     activeJobQueue,
     "analysis.prepare-revision",
@@ -156,7 +165,8 @@ async function start(): Promise<void> {
         pool: database.pool,
         queue: activeJobQueue,
         checkIntents,
-        patchSource: new LocalFakeRevisionPatchSource(),
+        patchSource: revisionPatchSource,
+        generationContexts,
       });
     },
   );

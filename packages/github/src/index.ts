@@ -1,5 +1,6 @@
 export * from "./app-auth";
 export * from "./check-run";
+export * from "./git-tree-metadata";
 export * from "./ingest";
 export * from "./octokit-client";
 export * from "./production-errors";

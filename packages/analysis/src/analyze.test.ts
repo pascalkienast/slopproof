@@ -119,6 +119,86 @@ describe("bounded deterministic patch analysis", () => {
     expect(snapshot.anchors).toEqual([]);
   });
 
+  it("recognizes ecosystem lockfiles without swallowing similar source paths", () => {
+    const lockfiles = [
+      "Gemfile.lock",
+      "backend/composer.lock",
+      "Pipfile.lock",
+      "python/uv.lock",
+      "flake.lock",
+      "mobile/pubspec.lock",
+      "dotnet/packages.lock.json",
+      "gradle.lockfile",
+      "gradle/dependency-locks/runtimeClasspath.lockfile",
+    ];
+    const sourceLookalikes = [
+      "Gemfile.lock.example",
+      "docs/composer.lock.md",
+      "src/Pipfile.lock.ts",
+      "src/uv.lock/parser.ts",
+      "flake.lock.backup",
+      "mobile/pubspec.lock.notes",
+      "src/packages.lock.json.ts",
+      "mygradle.lockfile",
+      "gradle/dependency-locks/README.md",
+    ];
+    const patch = "@@ -1,1 +1,1 @@\n-old\n+new";
+    const snapshot = analyzePullRequestPatch({
+      baseSha: "1".repeat(40),
+      headSha: "2".repeat(40),
+      files: [...lockfiles, ...sourceLookalikes].map((path) => ({
+        path,
+        kind: "text" as const,
+        additions: 1,
+        deletions: 1,
+        patch,
+      })),
+    });
+
+    expect(snapshot.lockfiles).toEqual([...lockfiles].sort());
+    expect(snapshot.anchors.map((anchor) => anchor.file).sort()).toEqual(
+      [...sourceLookalikes].sort(),
+    );
+  });
+
+  it("recognizes generated-code conventions without swallowing lookalikes", () => {
+    const generated = [
+      "src/__generated__/types.ts",
+      "src/client.gen.ts",
+      "lib/model.g.dart",
+      "proto/cache.pb.go",
+      "proto/cache.pb.cc",
+      "proto/cache.pb.h",
+      "proto/cache.pb.py",
+      "proto/cache.pb.ts",
+      "api/schema_generated.go",
+    ];
+    const lookalikes = [
+      "src/__generated_notes/types.ts",
+      "src/client.generation.ts",
+      "lib/model.g.dart.md",
+      "proto/cache.pb.rs",
+      "api/schema_generated.go.md",
+    ];
+    const patch = "@@ -1,1 +1,1 @@\n-old\n+new";
+    const snapshot = analyzePullRequestPatch({
+      baseSha: "1".repeat(40),
+      headSha: "2".repeat(40),
+      files: [...generated, ...lookalikes].map((path) => ({
+        path,
+        kind: "text" as const,
+        additions: 1,
+        deletions: 1,
+        patch,
+      })),
+    });
+
+    expect(snapshot.generatedFiles).toEqual([...generated].sort());
+    expect(snapshot.anchors.map((anchor) => anchor.file).sort()).toEqual(
+      [...lookalikes].sort(),
+    );
+  });
+
   it("uses strict Zod schemas at input and snapshot boundaries", () => {
     expect(() =>
       PullRequestPatchSchema.parse({

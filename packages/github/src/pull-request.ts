@@ -1,6 +1,10 @@
 import { z } from "zod";
 import type { RepositoryInstallationTokenProvider } from "./app-auth";
 import {
+  GithubExactPathKindResolver,
+  type GithubGitTreeMetadataLimitsInput,
+} from "./git-tree-metadata";
+import {
   createOctokitGithubRestClient,
   type GithubRestClient,
   type GithubRestClientFactory,
@@ -11,6 +15,7 @@ import {
   GithubCurrentHeadSchema,
   GithubPullRequestReadInputSchema,
   GithubPullRequestSnapshotSchema,
+  type GithubChangedFile,
   type GithubCurrentHead,
   type GithubCurrentHeadInput,
   type GithubPullRequestHeadPort,
@@ -86,7 +91,6 @@ export const DEFAULT_GITHUB_PULL_REQUEST_LIMITS = Object.freeze({
 });
 
 export type GithubPullRequestLimits = {
-  maxFiles?: number;
   maxPatchBytesPerFile?: number;
   maxTotalPatchBytes?: number;
 };
@@ -95,10 +99,12 @@ export type OctokitPullRequestPortOptions = {
   clientFactory?: GithubRestClientFactory;
   requestPolicy?: GithubRequestPolicy;
   limits?: GithubPullRequestLimits;
+  gitTreeMetadataLimits?: GithubGitTreeMetadataLimitsInput;
 };
 
-type ResolvedLimits = Required<GithubPullRequestLimits>;
+type ResolvedLimits = Required<GithubPullRequestLimits> & { maxFiles: 300 };
 type ParsedPullRequest = z.infer<typeof upstreamPullRequestSchema>;
+type ChangedFileWithoutGitKind = Omit<GithubChangedFile, "gitKind">;
 
 /** Read-only GitHub PR source. It never clones or executes repository data. */
 export class OctokitPullRequestPort
@@ -107,6 +113,7 @@ export class OctokitPullRequestPort
   private readonly clientFactory: GithubRestClientFactory;
   private readonly requestPolicy: GithubRequestPolicy;
   private readonly limits: ResolvedLimits;
+  private readonly gitTreeMetadataLimits: GithubGitTreeMetadataLimitsInput;
 
   constructor(
     private readonly tokenProvider: RepositoryInstallationTokenProvider,
@@ -115,6 +122,7 @@ export class OctokitPullRequestPort
     this.clientFactory = options.clientFactory ?? createOctokitGithubRestClient;
     this.requestPolicy = options.requestPolicy ?? {};
     this.limits = resolveLimits(options.limits);
+    this.gitTreeMetadataLimits = options.gitTreeMetadataLimits ?? {};
   }
 
   async load(
@@ -153,6 +161,31 @@ export class OctokitPullRequestPort
           input,
           initial.changed_files,
         );
+        const kinds = await new GithubExactPathKindResolver(
+          client,
+          this.requestPolicy,
+          this.gitTreeMetadataLimits,
+        ).resolve({
+          // Installation tokens are repository-scoped. Resolve the immutable
+          // fork head object through the already-authorized base repository;
+          // never send that credential to an untrusted fork repository name.
+          head: repositoryRevision(
+            initial.base.repo.full_name,
+            initial.head.sha,
+          ),
+          base: repositoryRevision(
+            initial.base.repo.full_name,
+            initial.base.sha,
+          ),
+          files: mapped.files,
+        });
+        const files = mapped.files.map((file, index) => {
+          const gitKind = kinds[index];
+          if (gitKind === undefined) {
+            throw new GithubControlError("INVALID_RESPONSE");
+          }
+          return { ...file, gitKind };
+        });
         const final = await this.readPullRequest(client, input);
         assertRepositoryBinding(input, final);
         if (
@@ -177,7 +210,7 @@ export class OctokitPullRequestPort
           isFork:
             initial.head.repo === null ||
             initial.head.repo.id !== initial.base.repo.id,
-          files: mapped.files,
+          files,
           limitsHit: mapped.limitsHit,
         };
         const parsed = GithubPullRequestSnapshotSchema.safeParse(snapshot);
@@ -251,11 +284,11 @@ export class OctokitPullRequestPort
     input: GithubPullRequestReadInput,
     changedFiles: number,
   ): Promise<{
-    files: GithubPullRequestSnapshot["files"];
+    files: ChangedFileWithoutGitKind[];
     limitsHit: GithubPullRequestSnapshot["limitsHit"];
   }> {
     const target = Math.min(changedFiles, this.limits.maxFiles);
-    const files: GithubPullRequestSnapshot["files"] = [];
+    const files: ChangedFileWithoutGitKind[] = [];
     const filenames = new Set<string>();
     let patchBytes = 0;
     let patchBytesLimitHit = false;
@@ -411,6 +444,21 @@ function repositoryBinding(
   };
 }
 
+function repositoryRevision(
+  fullName: string,
+  commitSha: string,
+): { owner: string; repositoryName: string; commitSha: string } {
+  const separator = fullName.indexOf("/");
+  if (separator <= 0 || separator !== fullName.lastIndexOf("/")) {
+    throw new GithubControlError("INVALID_RESPONSE");
+  }
+  return {
+    owner: fullName.slice(0, separator),
+    repositoryName: fullName.slice(separator + 1),
+    commitSha,
+  };
+}
+
 function isUnauthorized(error: unknown): error is GithubControlError {
   return (
     error instanceof GithubControlError &&
@@ -422,7 +470,6 @@ function isUnauthorized(error: unknown): error is GithubControlError {
 function resolveLimits(input: GithubPullRequestLimits = {}): ResolvedLimits {
   const parsed = z
     .object({
-      maxFiles: z.number().int().positive().max(3_000).default(300),
       maxPatchBytesPerFile: z
         .number()
         .int()
@@ -439,7 +486,7 @@ function resolveLimits(input: GithubPullRequestLimits = {}): ResolvedLimits {
     .strict()
     .safeParse(input);
   if (!parsed.success) throw new GithubControlError("INVALID_INPUT");
-  return parsed.data;
+  return { ...parsed.data, maxFiles: 300 };
 }
 
 function parseInput<T extends z.ZodType>(

@@ -86,6 +86,9 @@ export async function executeGithubRequest<T>(
       ]);
       return response;
     } catch (error) {
+      // Internal callers use this to enforce their own hard, cross-request
+      // budgets. Never reinterpret or retry an already-safe control error.
+      if (error instanceof GithubControlError) throw error;
       lastFailure =
         error === timeoutMarker
           ? { code: "TIMEOUT", retryable: true }

@@ -18,8 +18,13 @@ const GENERATED_PATTERNS = [
   /(?:^|\/)dist\//i,
   /(?:^|\/)build\//i,
   /(?:^|\/)generated\//i,
+  /(?:^|\/)__generated__(?:\/|$)/i,
   /(?:^|\/)vendor\//i,
   /\.generated\./i,
+  /\.gen\.[^/]+$/i,
+  /\.g\.dart$/i,
+  /\.pb\.(?:go|cc|h|py|ts)$/i,
+  /_generated\.go$/i,
   /\.min\.(?:js|css)$/i,
   /(?:^|\/)coverage\//i,
 ];
@@ -31,6 +36,15 @@ const LOCKFILE_PATTERNS = [
   /(?:^|\/)bun\.lockb?$/,
   /(?:^|\/)Cargo\.lock$/,
   /(?:^|\/)poetry\.lock$/,
+  /(?:^|\/)Gemfile\.lock$/,
+  /(?:^|\/)composer\.lock$/,
+  /(?:^|\/)Pipfile\.lock$/,
+  /(?:^|\/)uv\.lock$/,
+  /(?:^|\/)flake\.lock$/,
+  /(?:^|\/)pubspec\.lock$/,
+  /(?:^|\/)packages\.lock\.json$/,
+  /(?:^|\/)gradle\.lockfile$/,
+  /(?:^|\/)gradle\/dependency-locks\/[^/]+\.lockfile$/,
   /(?:^|\/)go\.sum$/,
 ];
 
@@ -420,7 +434,7 @@ export function analyzePullRequestPatch(
     riskLevel,
     riskVector,
     changedAreas: [...areaMap.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
       .map(([area, files]) => ({ area, files: [...files].sort() })),
     behavioralChanges,
     risks,
