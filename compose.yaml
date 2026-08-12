@@ -9,6 +9,7 @@ x-app-image: &app-image slopproof-app:local
 
 x-app-environment: &app-environment
   NODE_ENV: production
+  DEPLOYMENT_PROFILE: local
   APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
   DATABASE_URL: postgres://slopproof:${POSTGRES_PASSWORD:-slopproof-local-only}@postgres:5432/slopproof
   GITHUB_ADAPTER: fake
@@ -124,8 +125,6 @@ services:
     environment:
       <<: *app-environment
       SESSION_SECRET: ${SESSION_SECRET:-local-session-secret-change-me-00000}
-      GITHUB_APP_ID: fake-local
-      GITHUB_PRIVATE_KEY: fake-local-never-used
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-local-webhook-secret-change-me-0000}
       GITHUB_CLIENT_ID: fake-local
       GITHUB_CLIENT_SECRET: fake-local

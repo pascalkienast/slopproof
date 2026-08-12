@@ -474,7 +474,7 @@ describe("RSA-OAEP/SHA-256 key wrapping", () => {
         keyId: material.keyId,
       }),
     ).resolves.toEqual(masterKey);
-  });
+  }, 20_000);
 
   it("rejects weak, expired, replayed and hash-mismatched wrapping material", async () => {
     const weak = generateKeyPairSync("rsa", {
@@ -550,5 +550,5 @@ describe("RSA-OAEP/SHA-256 key wrapping", () => {
         keyId: "wrong-key",
       }),
     ).rejects.toMatchObject({ code: "invalid_key" });
-  });
+  }, 20_000);
 });

@@ -11,6 +11,8 @@ reports/
 backups/
 .env*
 !.env.example
+*.env
+!.env.example
 *.pem
 *.key
 *.p12

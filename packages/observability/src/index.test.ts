@@ -20,7 +20,18 @@ describe("evidence-free logging", () => {
       wrappedKey: "secret-wrapped-key",
       transcript: "secret-transcript",
       presignedUrl: "https://secret.example/upload",
-      config: { PROVIDER_PAYLOAD_KEY_BASE64: "secret-provider-key" },
+      providerRequest: "secret-provider-request",
+      GENERATION_API_KEY: "secret-top-level-generation-key",
+      env: { JUDGE_API_KEY: "secret-nested-judge-key" },
+      provider: {
+        headers: { authorization: "Bearer secret-provider-authorization" },
+      },
+      config: {
+        PROVIDER_PAYLOAD_KEY_BASE64: "secret-provider-key",
+        GENERATION_API_KEY: "secret-generation-key",
+        JUDGE_API_KEY: "secret-judge-key",
+        TRANSCRIPTION_API_KEY: "secret-transcription-key",
+      },
     });
     await new Promise<void>((resolve) => destination.end(resolve));
 
@@ -30,6 +41,13 @@ describe("evidence-free logging", () => {
     expect(output).not.toContain("secret-transcript");
     expect(output).not.toContain("secret.example");
     expect(output).not.toContain("secret-provider-key");
+    expect(output).not.toContain("secret-provider-request");
+    expect(output).not.toContain("secret-generation-key");
+    expect(output).not.toContain("secret-judge-key");
+    expect(output).not.toContain("secret-transcription-key");
+    expect(output).not.toContain("secret-top-level-generation-key");
+    expect(output).not.toContain("secret-nested-judge-key");
+    expect(output).not.toContain("secret-provider-authorization");
   });
 
   it("serializes an error without its message or stack", async () => {

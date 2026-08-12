@@ -106,6 +106,24 @@ pnpm dev:keys
 pnpm verify
 ```
 
+Das lokale Profil setzt `DEPLOYMENT_PROFILE=local` und bleibt dadurch trotz
+optimiertem Next-Produktionsbuild bei den internetfreien Fake-Adaptern. Ein
+produktiver Prozess muss ausdrücklich `DEPLOYMENT_PROFILE=production` setzen;
+die vier Prozesskonfigurationen für Web, Media-Worker, GitHub-Control und
+Migration werden dann getrennt und fail-closed validiert. Aus dem vorhandenen
+lokalen Secretbestand lassen sie sich ohne Ausgabe von Werten in ein neues,
+geschütztes Verzeichnis kompilieren:
+
+```bash
+source "$HOME/.secrets/slopproof.env"
+pnpm production:env -- /absolute/path/to/new-output-directory
+```
+
+Der Compiler überschreibt keine vorhandenen Dateien. Er
+verwendet ausschließlich kanonische Laufzeitnamen, übernimmt den privaten
+GitHub-App-Key nur als Container-Dateipfad und gibt Worker-Providerkeys weder
+an Web noch GitHub-Control weiter.
+
 PostgreSQL-Integrationstests erwarten zusätzlich `TEST_DATABASE_URL`. Der
 Playwright-Lauf erwartet eine migrierte, gesäte Webinstanz; die CI bildet diese
 Reihenfolge vollständig ab.
@@ -154,5 +172,6 @@ Der aktuelle Abnahmebefund und verbleibende externe Smokes stehen in
 - produktive GitHub-App-Interoperabilität, echte Modellqualität und ein
   physischer Smartphone-Smoke sind bewusst noch nicht bestätigt;
 - noch kein GitHub-Repository angelegt;
-- noch keine Domain oder Marke registriert;
+- `slopproof.paskie.me` liefert bereits eine temporäre HTTPS-Landingpage; die
+  produktive Anwendung ist dort noch nicht umgeschaltet;
 - Arbeitsname: `SlopProof`.

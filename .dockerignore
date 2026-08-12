@@ -12,6 +12,7 @@ backups
 **/*.tsbuildinfo
 .git
 .env*
+*.env
 *.pem
 *.key
 *.p12

@@ -19,6 +19,9 @@ importers:
       "@slopproof/auth":
         specifier: workspace:*
         version: link:packages/auth
+      "@slopproof/config":
+        specifier: workspace:*
+        version: link:packages/config
       "@slopproof/db":
         specifier: workspace:*
         version: link:packages/db

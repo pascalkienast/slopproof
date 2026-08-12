@@ -38,6 +38,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm test:live-smoke-contracts
       - run: pnpm test:integration
         env:
           TEST_DATABASE_URL: postgres://slopproof:slopproof@localhost:5432/slopproof_test
@@ -58,10 +59,12 @@ jobs:
       - run: pnpm test:e2e
         env:
           APP_BASE_URL: http://127.0.0.1:3000
+          DEPLOYMENT_PROFILE: local
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
           PLAYWRIGHT_WORKER_SMOKE: "true"
           DATABASE_URL: postgres://slopproof:slopproof@localhost:5432/slopproof_test
           GITHUB_ADAPTER: fake
+          GENERATION_PROVIDER: fake
           EVIDENCE_STORAGE_PROVIDER: s3
           S3_REGION: us-east-1
           S3_BUCKET: slopproof-evidence
@@ -75,8 +78,6 @@ jobs:
           TRANSCRIPTION_PROVIDER: fake
           MULTIMODAL_JUDGE_PROVIDER: fake
           SESSION_SECRET: local-session-secret-change-me-00000
-          GITHUB_APP_ID: fake-local
-          GITHUB_PRIVATE_KEY: fake-local-never-used
           GITHUB_WEBHOOK_SECRET: local-webhook-secret-change-me-0000
           GITHUB_CLIENT_ID: fake-local
           GITHUB_CLIENT_SECRET: fake-local
