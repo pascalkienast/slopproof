@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
+  <title id="title">SlopProof mark</title>
+  <desc id="desc">A black proof frame with a check mark and orange SHA notch.</desc>
+  <rect width="96" height="96" rx="4" fill="#F3EFE4"/>
+  <path d="M10 26V10h16M70 10h16v16M86 70v16H70M26 86H10V70" fill="none" stroke="#11110E" stroke-width="8" stroke-linecap="square"/>
+  <path d="M27 48l14 14 29-34" fill="none" stroke="#11110E" stroke-width="10" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M10 70h22v16H10z" fill="#FF4D1C"/>
+  <path d="M14 74h14" stroke="#11110E" stroke-width="4" stroke-dasharray="3 3"/>
+</svg>

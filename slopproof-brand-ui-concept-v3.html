@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Practice when it helps, or prove your patch directly in one live video." />
+  <title>SlopProof — Prove you know what you ship.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,650;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --paper: #f2eddf;
+      --sheet: #fffdf7;
+      --ink: #171711;
+      --muted: #6c685e;
+      --orange: #ff4f22;
+      --green: #bce93c;
+      --yellow: #ffd04a;
+      --red: #e7372f;
+      --blue: #4c70ff;
+      --line: 2px solid var(--ink);
+      --display: "Bricolage Grotesque", sans-serif;
+      --body: "Instrument Sans", sans-serif;
+      --mono: "IBM Plex Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; overflow-x: clip; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 10%, rgba(255,79,34,.11), transparent 24rem),
+        radial-gradient(circle at 95% 44%, rgba(188,233,60,.14), transparent 22rem),
+        var(--paper);
+      font: 500 16px/1.55 var(--body);
+      overflow-x: clip;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 20;
+      opacity: .035;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.7'/%3E%3C/svg%3E");
+    }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    button { font: inherit; }
+    a { color: inherit; }
+    :focus-visible { outline: 4px solid var(--blue); outline-offset: 4px; }
+    .shell { width: min(1180px, calc(100% - 40px)); margin-inline: auto; }
+    .mono { font-family: var(--mono); }
+    .eyebrow {
+      margin: 0 0 14px;
+      font: 600 11px/1.2 var(--mono);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before { content: "// "; color: var(--orange); }
+    .scribble-note { font: 600 13px/1.2 var(--mono); transform: rotate(-4deg); }
+    .muted { color: var(--muted); }
+
+    .nav {
+      min-height: 82px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      border-bottom: 1px solid rgba(23,23,17,.3);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 800 21px/1 var(--display); }
+    .brand-mark { width: 35px; aspect-ratio: 1; border: var(--line); border-radius: 50% 42% 48% 38%; display: grid; place-items: center; background: var(--orange); transform: rotate(-6deg); }
+    .brand-mark svg { width: 22px; }
+    .brand i { font-style: normal; color: var(--orange); }
+    .nav-links { display: flex; align-items: center; gap: 24px; font: 600 12px/1 var(--mono); }
+    .nav-links a { text-decoration: none; }
+
+    .button {
+      min-height: 48px;
+      padding: 0 19px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      border: var(--line);
+      border-radius: 999px;
+      color: var(--ink);
+      background: var(--sheet);
+      box-shadow: 3px 4px 0 var(--ink);
+      text-decoration: none;
+      font: 650 13px/1 var(--mono);
+      cursor: pointer;
+      transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+    }
+    .button:hover { transform: translate(2px, 2px); box-shadow: 1px 2px 0 var(--ink); }
+    .button.primary { background: var(--orange); }
+    .button.green { background: var(--green); }
+    .button.dark { background: var(--ink); color: var(--sheet); box-shadow: 3px 4px 0 var(--orange); }
+
+    .hero {
+      min-height: 760px;
+      padding: 92px 0 110px;
+      display: grid;
+      grid-template-columns: 1.02fr .98fr;
+      align-items: center;
+      gap: 70px;
+      position: relative;
+    }
+    .hero h1 {
+      max-width: 760px;
+      margin: 0;
+      font: 800 clamp(62px, 6.6vw, 106px)/.84 var(--display);
+      letter-spacing: -.055em;
+    }
+    .hero-line { display: inline-block; white-space: nowrap; }
+    .hero h1 .live { position: relative; display: inline-block; color: var(--orange); }
+    .hero h1 .live::after {
+      content: "";
+      position: absolute;
+      left: -3%; right: -5%; bottom: -3px;
+      height: 13px;
+      border-bottom: 5px solid var(--orange);
+      border-radius: 50%;
+      transform: rotate(-1.4deg);
+    }
+    .lede { max-width: 620px; margin: 28px 0; font-size: clamp(18px, 2vw, 23px); line-height: 1.4; }
+    .brand-claim {
+      width: fit-content;
+      margin: 25px 0 -5px;
+      padding: 10px 17px 11px;
+      border: 3px solid var(--orange);
+      border-radius: 54% 46% 52% 43% / 48% 55% 45% 52%;
+      color: var(--ink);
+      background: rgba(255,253,247,.72);
+      font: 700 clamp(18px, 2vw, 25px)/1 var(--display);
+      letter-spacing: -.025em;
+      transform: rotate(-1.3deg);
+    }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 14px; }
+    .check-card {
+      position: relative;
+      padding: 22px;
+      background: var(--sheet);
+      border: var(--line);
+      border-radius: 34px 19px 29px 22px;
+      box-shadow: 12px 14px 0 var(--ink);
+      transform: rotate(1.2deg);
+    }
+    .check-card::before { content: "GitHub check"; position: absolute; top: -18px; right: 30px; padding: 7px 13px; border: var(--line); border-radius: 999px; background: var(--yellow); font: 600 10px/1 var(--mono); text-transform: uppercase; transform: rotate(3deg); }
+    .check-top { display: flex; justify-content: space-between; gap: 18px; padding-bottom: 18px; border-bottom: 2px dashed var(--ink); }
+    .check-title { font: 750 20px/1.15 var(--display); }
+    .status { display: inline-flex; align-items: center; gap: 7px; font: 600 10px/1 var(--mono); text-transform: uppercase; }
+    .status i { width: 10px; height: 10px; border-radius: 50%; background: var(--yellow); border: 1px solid var(--ink); }
+    .check-meta { margin-top: 6px; color: var(--muted); font: 500 10px/1.5 var(--mono); }
+    .check-choice { width: 100%; margin-top: 16px; padding: 18px; display: grid; grid-template-columns: 48px 1fr auto; align-items: center; gap: 14px; border: var(--line); border-radius: 22px 13px 18px 15px; background: transparent; text-align: left; cursor: pointer; transition: background .2s ease, transform .2s ease; }
+    .check-choice:hover, .check-choice.active { background: #ffe8de; transform: translateX(4px) rotate(-.4deg); }
+    .check-choice.proof:hover, .check-choice.proof.active { background: #ecf9c8; transform: translateX(4px) rotate(.4deg); }
+    .choice-icon { width: 46px; aspect-ratio: 1; display: grid; place-items: center; border: var(--line); border-radius: 50%; background: var(--orange); font: 700 17px/1 var(--mono); }
+    .proof .choice-icon { background: var(--green); }
+    .choice-copy strong { display: block; font: 700 16px/1.2 var(--display); }
+    .choice-copy span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .choice-arrow { font: 600 18px/1 var(--mono); }
+    .loop-hero { position: absolute; width: 290px; height: 190px; left: -90px; bottom: -92px; pointer-events: none; }
+    .loop-path { fill: none; stroke: var(--orange); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 8 11; animation: crawl 12s linear infinite; }
+    @keyframes crawl { to { stroke-dashoffset: -190; } }
+
+    .marquee { width: calc(100% + 40px); margin-inline: -20px; overflow: hidden; border-block: var(--line); background: var(--ink); color: var(--sheet); transform: rotate(-.4deg); }
+    .marquee-track { width: max-content; display: flex; gap: 42px; padding: 16px 0; font: 600 13px/1 var(--mono); text-transform: uppercase; animation: ticker 25s linear infinite; }
+    .marquee-track span::after { content: "✺"; margin-left: 42px; color: var(--orange); }
+    @keyframes ticker { to { transform: translateX(-50%); } }
+
+    .manifesto { padding: 130px 0; background: var(--orange); position: relative; overflow: hidden; }
+    .manifesto .shell { display: grid; grid-template-columns: 280px 1fr; gap: 60px; align-items: start; }
+    .manifesto h2 { margin: 0; max-width: 850px; font: 800 clamp(50px, 7vw, 94px)/.95 var(--display); letter-spacing: -.045em; }
+    .manifesto p { max-width: 780px; margin: 30px 0 0; font-size: 21px; }
+    .manifesto-loop { position: absolute; right: -100px; bottom: -120px; width: 520px; opacity: .34; }
+
+    .section { padding: 120px 0; }
+    .section-head { display: grid; grid-template-columns: 280px 1fr; gap: 60px; margin-bottom: 58px; align-items: start; }
+    .section h2 { margin: 0; max-width: 840px; font: 800 clamp(44px, 5.4vw, 78px)/.96 var(--display); letter-spacing: -.04em; }
+    .section-intro { max-width: 700px; margin: 20px 0 0; color: var(--muted); font-size: 19px; }
+
+    .two-moments { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+    .moment { min-height: 410px; padding: 34px; border: var(--line); border-radius: 64px 26px 48px 28px; background: var(--sheet); position: relative; overflow: hidden; }
+    .moment:nth-child(2) { border-radius: 30px 72px 31px 55px; background: var(--ink); color: var(--sheet); }
+    .moment-no { display: inline-grid; place-items: center; width: 58px; aspect-ratio: 1; border: var(--line); border-radius: 50% 44% 52% 40%; background: var(--orange); font: 650 13px/1 var(--mono); transform: rotate(-7deg); }
+    .moment:nth-child(2) .moment-no { color: var(--ink); background: var(--green); }
+    .moment h3 { max-width: 470px; margin: 54px 0 14px; font: 750 clamp(35px, 4vw, 54px)/.95 var(--display); letter-spacing: -.035em; }
+    .moment p { max-width: 520px; color: var(--muted); font-size: 17px; }
+    .moment:nth-child(2) p { color: #c9c6bc; }
+    .moment-scribble { position: absolute; width: 150px; right: 20px; top: 20px; transform: rotate(9deg); }
+
+    .product { padding: 120px 0; background: #222119; color: var(--sheet); }
+    .product .section-intro { color: #c5c0b4; }
+    .product-frame { border: 2px solid var(--sheet); border-radius: 35px 18px 35px 22px; background: var(--paper); color: var(--ink); box-shadow: 10px 12px 0 var(--orange); overflow: hidden; }
+    .window-bar { min-height: 58px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 20px; background: var(--sheet); border-bottom: var(--line); }
+    .window-name { font: 600 11px/1 var(--mono); }
+    .mode-tabs { display: flex; gap: 7px; }
+    .mode-tab { padding: 10px 14px; border: 0; border-radius: 999px; background: transparent; font: 600 11px/1 var(--mono); cursor: pointer; }
+    .mode-tab[aria-selected="true"] { background: var(--ink); color: var(--sheet); }
+    .mode-panel { display: none; }
+    .mode-panel.active { display: grid; }
+
+    .practice-ui { min-height: 590px; grid-template-columns: .9fr 1.1fr; }
+    .diff-pane { padding: 28px; border-right: var(--line); background: #e9e3d5; }
+    .diff-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 20px; }
+    .pill { padding: 7px 10px; border: 1px solid var(--ink); border-radius: 999px; font: 600 9px/1 var(--mono); background: var(--sheet); }
+    .code { padding: 20px; border: var(--line); border-radius: 18px 10px 17px 12px; background: #171711; color: #eae4d8; font: 500 11px/1.8 var(--mono); overflow: auto; }
+    .code .plus { color: #c9f15c; }
+    .code .minus { color: #ff8f78; }
+    .hotspots { display: grid; gap: 10px; margin-top: 17px; }
+    .hotspot { padding: 13px 14px; border: 1px solid var(--ink); border-radius: 14px 20px 12px 19px; background: var(--sheet); text-align: left; font: 600 11px/1.4 var(--mono); cursor: pointer; }
+    .hotspot.active { background: var(--yellow); transform: rotate(-.5deg); }
+    .coach-pane { padding: 38px; background: var(--sheet); position: relative; }
+    .coach-pane h3 { margin: 0; font: 750 clamp(34px, 4vw, 54px)/1 var(--display); letter-spacing: -.035em; }
+    .coach-card { margin-top: 28px; padding: 25px; border: var(--line); border-radius: 30px 14px 26px 17px; background: #fff4cd; }
+    .coach-label { color: var(--orange); font: 600 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .11em; }
+    .coach-card h4 { margin: 14px 0 10px; font: 700 23px/1.15 var(--display); }
+    .coach-progress { margin-top: 25px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .coach-progress i { height: 8px; border: 1px solid var(--ink); border-radius: 999px; background: var(--green); }
+    .coach-progress i:last-child { background: transparent; }
+    .ready-row { margin-top: 28px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+
+    .proof-ui { min-height: 590px; grid-template-columns: .9fr 1.1fr; }
+    .handoff { padding: 38px; background: var(--sheet); border-right: var(--line); display: flex; flex-direction: column; justify-content: center; }
+    .handoff h3 { margin: 0; font: 750 clamp(36px, 4.5vw, 58px)/.98 var(--display); letter-spacing: -.035em; }
+    .qr-row { margin-top: 30px; display: grid; grid-template-columns: 164px 1fr; gap: 24px; align-items: center; }
+    .qr { width: 164px; aspect-ratio: 1; padding: 10px; border: var(--line); border-radius: 25px 12px 20px 15px; background: var(--sheet); transform: rotate(-2deg); }
+    .qr svg { width: 100%; height: 100%; display: block; }
+    .handoff-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 11px; font: 500 11px/1.4 var(--mono); }
+    .handoff-list li::before { content: "↳ "; color: var(--orange); }
+    .phone-stage { min-height: 590px; padding: 34px; display: grid; place-items: center; background: var(--orange); position: relative; overflow: hidden; }
+    .phone { width: min(312px, 100%); padding: 10px; border: 3px solid var(--ink); border-radius: 47px; background: var(--ink); box-shadow: 8px 10px 0 rgba(23,23,17,.28); transform: rotate(1.6deg); }
+    .phone-screen { min-height: 505px; padding: 20px; border-radius: 37px; background: #f8f1e3; overflow: hidden; display: flex; flex-direction: column; }
+    .phone-top { display: flex; justify-content: space-between; align-items: center; font: 600 9px/1 var(--mono); }
+    .rec { display: flex; align-items: center; gap: 7px; color: var(--red); }
+    .rec i { width: 10px; height: 10px; border-radius: 50%; background: var(--red); animation: pulse 1.1s ease infinite; }
+    @keyframes pulse { 50% { opacity: .35; transform: scale(.75); } }
+    .camera { flex: 1; margin-top: 14px; border: var(--line); border-radius: 26px 16px 23px 19px; background: radial-gradient(circle at 50% 38%, #d7b28f 0 11%, transparent 11.5%), radial-gradient(ellipse at 50% 73%, #41443f 0 27%, transparent 27.5%), linear-gradient(145deg, #a8c0a0, #546c68); position: relative; overflow: hidden; }
+    .camera::before { content: "face in frame"; position: absolute; left: 50%; top: 50%; width: 48%; height: 65%; border: 2px dashed rgba(255,255,255,.9); border-radius: 47% 47% 38% 38%; transform: translate(-50%,-50%); color: white; display: grid; place-items: end center; padding-bottom: 11px; font: 500 8px/1 var(--mono); }
+    .timer { margin: 14px 0 8px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .timer strong { font: 700 30px/1 var(--mono); }
+    .phone-question { margin: 0; font: 700 16px/1.18 var(--display); }
+    .one-take { margin-top: 11px; color: var(--muted); font: 500 9px/1.4 var(--mono); }
+    .phone-loop { position: absolute; width: 220px; right: -76px; top: 90px; opacity: .55; }
+
+    .pipeline { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; align-items: stretch; }
+    .pipe-card { min-height: 190px; padding: 22px; border: var(--line); border-radius: 27px 14px 24px 17px; background: var(--sheet); position: relative; }
+    .pipe-card::after { content: "→"; position: absolute; right: -20px; top: 50%; z-index: 2; font: 700 25px/1 var(--mono); }
+    .pipe-card:last-child::after { display: none; }
+    .pipe-card:nth-child(2) { transform: rotate(-1deg); }
+    .pipe-card:nth-child(4) { transform: rotate(1deg); background: #fff1d0; }
+    .pipe-card:last-child { background: var(--green); }
+    .pipe-no { font: 600 10px/1 var(--mono); color: var(--orange); }
+    .pipe-card h3 { margin: 38px 0 9px; font: 700 22px/1 var(--display); }
+    .pipe-card p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    .privacy { padding: 120px 0; background: var(--ink); color: var(--sheet); }
+    .privacy .section-intro { color: #c7c2b6; }
+    .security-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .security-card { min-height: 260px; padding: 30px; border: 2px solid var(--sheet); border-radius: 42px 19px 35px 24px; display: flex; flex-direction: column; position: relative; }
+    .security-card:nth-child(2) { border-radius: 22px 48px 24px 39px; transform: rotate(-.5deg); }
+    .security-card:nth-child(3) { border-radius: 51px 22px 42px 27px; background: var(--green); color: var(--ink); transform: rotate(.45deg); }
+    .security-no { font: 600 10px/1 var(--mono); color: var(--orange); letter-spacing: .12em; }
+    .security-card h3 { margin: auto 0 14px; font: 730 32px/.98 var(--display); }
+    .security-card p { margin: 0; color: #c7c2b6; font-size: 15px; line-height: 1.48; }
+    .security-card:nth-child(3) p { color: #334216; }
+    .security-provider { margin-top: 18px; padding: 20px 24px; border: 1px dashed #77736a; border-radius: 20px 37px 19px 29px; display: grid; grid-template-columns: 190px 1fr; gap: 24px; align-items: center; }
+    .security-provider strong { font: 700 14px/1.2 var(--display); color: var(--yellow); }
+    .security-provider span { color: #c7c2b6; font-size: 14px; }
+    .privacy-limits { margin-top: 30px; padding-top: 24px; border-top: 1px solid #555249; display: flex; gap: 22px 38px; align-items: baseline; flex-wrap: wrap; color: #aaa69c; font: 500 11px/1.6 var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+    .privacy-limits strong { color: var(--sheet); }
+
+    .closing { padding: 140px 0 110px; text-align: center; position: relative; overflow: hidden; }
+    .closing h2 { max-width: 920px; margin: 0 auto; font: 800 clamp(58px, 8vw, 112px)/.88 var(--display); letter-spacing: -.055em; }
+    .closing p { max-width: 690px; margin: 26px auto 34px; font-size: 20px; }
+    .closing-loop { width: 860px; max-width: 100%; margin: -35px auto -20px; display: block; }
+    footer { padding: 30px 0; border-top: var(--line); background: var(--sheet); }
+    .footer-row { display: flex; justify-content: space-between; gap: 24px; font: 500 11px/1.4 var(--mono); }
+
+    dialog { width: min(430px, calc(100% - 28px)); padding: 0; border: 0; border-radius: 34px; background: transparent; color: var(--ink); }
+    dialog::backdrop { background: rgba(23,23,17,.82); backdrop-filter: blur(4px); }
+    .dialog-card { padding: 28px; border: var(--line); border-radius: 34px 18px 31px 20px; background: var(--sheet); box-shadow: 8px 10px 0 var(--orange); }
+    .dialog-head { display: flex; justify-content: space-between; gap: 18px; align-items: center; }
+    .dialog-head h3 { margin: 0; font: 750 31px/1 var(--display); }
+    .close { width: 40px; height: 40px; border: var(--line); border-radius: 50%; background: var(--paper); cursor: pointer; }
+    .preflight { margin: 24px 0; display: grid; gap: 10px; }
+    .preflight div { display: flex; justify-content: space-between; gap: 20px; padding: 13px 0; border-bottom: 1px dashed var(--muted); font: 500 11px/1.3 var(--mono); }
+    .preflight strong { color: #477400; }
+    .demo-result { display: none; margin-top: 18px; padding: 14px; border: var(--line); border-radius: 18px; background: #edf8ce; font: 600 11px/1.5 var(--mono); }
+
+    @media (max-width: 980px) {
+      .hero { grid-template-columns: 1fr; padding-top: 72px; }
+      .check-card { max-width: 690px; }
+      .manifesto .shell, .section-head { grid-template-columns: 1fr; gap: 20px; }
+      .manifesto .eyebrow, .section-head > .eyebrow { max-width: none; }
+      .practice-ui, .proof-ui { grid-template-columns: 1fr; }
+      .diff-pane, .handoff { border-right: 0; border-bottom: var(--line); }
+      .pipeline { grid-template-columns: 1fr 1fr; }
+      .pipe-card::after { display: none; }
+      .pipe-card:last-child { grid-column: 1 / -1; }
+      .security-board { grid-template-columns: 1fr 1fr; }
+      .security-card:last-child { grid-column: 1 / -1; }
+    }
+    @media (max-width: 720px) {
+      .shell { width: min(100% - 26px, 1180px); }
+      .nav { min-height: 68px; }
+      .nav-links a:not(.button) { display: none; }
+      .nav-links .button { min-height: 40px; padding-inline: 13px; font-size: 10px; }
+      .hero { min-height: auto; padding: 70px 0 92px; display: flex; flex-direction: column; align-items: stretch; gap: 62px; }
+      .hero h1 { font-size: clamp(55px, 16vw, 78px); }
+      .lede { font-size: 18px; }
+      .brand-claim { width: auto; font-size: 19px; text-align: center; }
+      .hero-actions { display: grid; }
+      .button { width: 100%; }
+      .check-card { padding: 16px; border-radius: 25px 15px 24px 17px; box-shadow: 7px 8px 0 var(--ink); }
+      .check-choice { grid-template-columns: 42px 1fr; padding: 14px; }
+      .choice-icon { width: 40px; }
+      .choice-arrow { display: none; }
+      .loop-hero { left: auto; right: -8px; bottom: -95px; width: 210px; }
+      .manifesto, .section, .product, .privacy { padding: 82px 0; }
+      .manifesto h2, .section h2 { font-size: clamp(43px, 13vw, 62px); }
+      .manifesto p { font-size: 18px; }
+      .two-moments, .security-board { grid-template-columns: 1fr; }
+      .moment { min-height: 350px; padding: 26px; }
+      .product-frame { border-radius: 23px 14px 22px 16px; box-shadow: 6px 7px 0 var(--orange); }
+      .window-bar { padding: 12px; align-items: flex-start; flex-direction: column; }
+      .mode-tabs { width: 100%; }
+      .mode-tab { flex: 1; }
+      .diff-pane, .coach-pane, .handoff, .phone-stage { padding: 22px; }
+      .qr-row { grid-template-columns: 128px 1fr; gap: 15px; }
+      .qr { width: 128px; }
+      .ready-row { align-items: stretch; flex-direction: column; }
+      .phone-stage { min-height: 560px; }
+      .pipeline { grid-template-columns: 1fr; }
+      .pipe-card:last-child { grid-column: auto; }
+      .security-card, .security-card:last-child { min-height: 230px; padding: 26px; grid-column: auto; transform: none; }
+      .security-provider { grid-template-columns: 1fr; gap: 8px; }
+      .privacy-limits { display: grid; gap: 10px; }
+      .closing { padding: 95px 0 75px; }
+      .closing h2 { font-size: clamp(58px, 16vw, 78px); }
+      .footer-row { flex-direction: column; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="shell nav">
+    <a class="brand" href="#top" aria-label="SlopProof home">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5 9.4 17 19 6.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      SLOP<i>/</i>PROOF
+    </a>
+    <nav class="nav-links" aria-label="Primary navigation">
+      <a href="#flow">The flow</a>
+      <a href="#privacy">Video security</a>
+      <a class="button" href="#product">See the proof ↘</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="shell hero">
+      <div>
+        <p class="eyebrow">The pull request accountability gate</p>
+        <h1><span class="hero-line">Understand it.</span><br/>Say it <span class="live">live.</span><br/>Ship it.</h1>
+        <p class="brand-claim">Prove you know what you ship.</p>
+        <p class="lede">Practice when it helps. When you're ready, answer a focused set of questions on live video before the pull request can merge.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#product" data-open-mode="practice">Practice the patch ↘</a>
+          <a class="button" href="#product" data-open-mode="proof">See the live proof</a>
+        </div>
+      </div>
+
+      <div class="check-card" aria-label="Example GitHub check">
+        <div class="check-top">
+          <div><div class="check-title">SlopProof / understanding required</div><div class="check-meta">PR #184 · head 9f31c2e · callback rollback</div></div>
+          <span class="status"><i></i> action needed</span>
+        </div>
+        <button class="check-choice active" type="button" data-open-mode="practice">
+          <span class="choice-icon">OPT</span>
+          <span class="choice-copy"><strong>Practice your understanding</strong><span>Optional deep dive when you want more context.</span></span>
+          <span class="choice-arrow">↗</span>
+        </button>
+        <button class="check-choice proof" type="button" data-open-mode="proof">
+          <span class="choice-icon">GO</span>
+          <span class="choice-copy"><strong>Prove your understanding</strong><span>Go straight to the required live challenge.</span></span>
+          <span class="choice-arrow">↗</span>
+        </button>
+        <svg class="loop-hero" viewBox="0 0 290 190" aria-hidden="true"><path class="loop-path" d="M12 31C55 2 132 16 126 69c-7 58-113 34-91 89 18 44 109 17 161-18 35-24 57-28 83-20"/><path d="m264 106 17 14-20 9" fill="none" stroke="var(--orange)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+    </section>
+
+    <div class="marquee" aria-hidden="true"><div class="marquee-track"><span>Prove you know what you ship.</span><span>Practice your understanding. Prove your understanding.</span><span>Fast code still deserves a slow thought.</span><span>Focused questions. One take. Your patch.</span><span>Prove you know what you ship.</span><span>Practice your understanding. Prove your understanding.</span><span>Fast code still deserves a slow thought.</span><span>Focused questions. One take. Your patch.</span></div></div>
+
+    <section class="manifesto">
+      <div class="shell">
+        <p class="eyebrow">Understanding before merge</p>
+        <div>
+          <h2>Fast code still deserves a slow thought.</h2>
+          <p>Tools can generate code. They cannot take responsibility. SlopProof creates a deliberate pause to understand a change before a shared project has to carry it.</p>
+        </div>
+      </div>
+      <svg class="manifesto-loop" viewBox="0 0 500 390" aria-hidden="true"><path d="M40 258c15-172 360-237 399-89 36 138-252 191-317 66-46-88 87-144 188-76 76 51 44 166-18 196" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-dasharray="10 14"/></svg>
+    </section>
+
+    <section class="shell section" id="flow">
+      <div class="section-head">
+        <p class="eyebrow">One flow · different starting points</p>
+        <div><h2>Practice when it helps. Prove when you're ready.</h2><p class="section-intro">Contributors arrive with different experience and context. Practice gives everyone access to preparation without turning preparation into a hurdle. Experienced contributors and small patches can go directly to Proof.</p></div>
+      </div>
+      <div class="two-moments">
+        <article class="moment">
+          <span class="moment-no">OPTIONAL</span>
+          <svg class="moment-scribble" viewBox="0 0 160 120" aria-hidden="true"><path d="M15 88c19-79 126-88 130-24 4 63-109 54-105 5 3-33 60-37 85-15" fill="none" stroke="var(--orange)" stroke-width="5" stroke-linecap="round"/><path d="m114 42 17 10-15 12" fill="none" stroke="var(--orange)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <h3>Practice your understanding.</h3>
+          <p>Explore changed behavior, risky paths and missing tests. Answer rehearsal questions. Let the coach show you what you can explain—and what you still need to learn.</p>
+        </article>
+        <article class="moment">
+          <span class="moment-no">REQUIRED</span>
+          <svg class="moment-scribble" viewBox="0 0 160 120" aria-hidden="true"><circle cx="78" cy="57" r="41" fill="none" stroke="var(--green)" stroke-width="5"/><circle cx="78" cy="57" r="6" fill="var(--red)"/><path d="M25 104c39-17 75-6 112-23" fill="none" stroke="var(--green)" stroke-width="5" stroke-linecap="round"/></svg>
+          <h3>Prove your understanding.</h3>
+          <p>Open the challenge on your phone. Questions appear one by one when the timer starts. Explain the patch on live video in one continuous take.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="product" id="product">
+      <div class="shell">
+        <div class="section-head">
+          <p class="eyebrow">Product walkthrough</p>
+          <div><h2>Deep dive—or go straight to Proof.</h2><p class="section-intro">Both paths are directly available from the check. Practice is optional, and the exact proof questions stay hidden until recording starts.</p></div>
+        </div>
+
+        <div class="product-frame">
+          <div class="window-bar">
+            <span class="window-name">cachekit / pull / 184 · 9f31c2e</span>
+            <div class="mode-tabs" role="tablist" aria-label="SlopProof modes">
+              <button class="mode-tab" id="practice-tab" role="tab" aria-selected="true" aria-controls="practice-panel">Practice</button>
+              <button class="mode-tab" id="proof-tab" role="tab" aria-selected="false" aria-controls="proof-panel">Prove</button>
+            </div>
+          </div>
+
+          <section class="mode-panel practice-ui active" id="practice-panel" role="tabpanel" aria-labelledby="practice-tab">
+            <div class="diff-pane">
+              <div class="diff-head"><strong class="mono">src/runtime/reload.ts</strong><span class="pill">3 learning goals</span></div>
+              <div class="code"><span class="minus">- state.publish(candidate)</span><br/><span class="plus">+ const snapshot = state.capture()</span><br/><span class="plus">+ state.publish(candidate)</span><br/><span class="plus">+ try { await callback() }</span><br/><span class="plus">+ catch (error) {</span><br/><span class="plus">+ &nbsp;state.restore(snapshot)</span><br/><span class="plus">+ &nbsp;throw error</span><br/><span class="plus">+ }</span></div>
+              <div class="hotspots" aria-label="Patch learning goals">
+                <button class="hotspot active" data-title="Atomic visibility" data-question="Can a concurrent reader observe candidate state before the callback succeeds?" data-note="Trace publish → callback → restore. Name the exact interval in which another reader can enter.">01 · Atomic visibility</button>
+                <button class="hotspot" data-title="Rollback semantics" data-question="What state is restored when the callback fails, and what cannot be undone?" data-note="Separate in-memory state from any external side effect the callback may already have caused.">02 · Rollback semantics</button>
+                <button class="hotspot" data-title="Missing test" data-question="Which interleaving would expose a half-applied candidate to a reader?" data-note="Describe the two actors and the synchronization point. A generic happy-path test is not enough.">03 · Missing concurrency test</button>
+              </div>
+            </div>
+            <div class="coach-pane">
+              <p class="eyebrow">Understanding coach</p>
+              <h3 id="coach-title">Atomic visibility</h3>
+              <div class="coach-card">
+                <span class="coach-label">Practice question · never reused in live proof</span>
+                <h4 id="coach-question">Can a concurrent reader observe candidate state before the callback succeeds?</h4>
+                <p id="coach-note">Trace publish → callback → restore. Name the exact interval in which another reader can enter.</p>
+              </div>
+              <div class="coach-progress" aria-label="Two of three learning goals explored"><i></i><i></i><i></i></div>
+              <div class="ready-row"><span class="scribble-note">learn the edge,<br/>not the answer ↗</span><button class="button green" type="button" data-open-mode="proof">I'm ready to prove it</button></div>
+            </div>
+          </section>
+
+          <section class="mode-panel proof-ui" id="proof-panel" role="tabpanel" aria-labelledby="proof-tab">
+            <div class="handoff">
+              <p class="eyebrow">Live proof handoff</p>
+              <h3>Scan when you're ready. The questions are still sealed.</h3>
+              <div class="qr-row">
+                <div class="qr" role="img" aria-label="Decorative QR code for mobile handoff"><svg viewBox="0 0 100 100"><rect width="100" height="100" fill="#fffdf7"/><g fill="#171711"><path d="M4 4h28v28H4zm7 7v14h14V11zM68 4h28v28H68zm7 7v14h14V11zM4 68h28v28H4zm7 7v14h14V75z" fill-rule="evenodd"/><path d="M39 5h8v8h-8zm13 0h8v8h-8zM39 18h20v8H39zm-1 14h8v8h-8zm14 0h8v14h-8zm14 7h8v8h-8zm14-1h15v8H80zM38 51h8v8h-8zm13 0h22v8H51zm29 0h15v8H80zM38 65h15v8H38zm22 0h8v16h-8zm14 0h21v8H74zM38 80h8v15h-8zm14 7h15v8H52zm22-7h8v15h-8zm13 0h8v8h-8z"/></g></svg></div>
+                <ul class="handoff-list"><li>One-time mobile link</li><li>Camera + microphone preflight</li><li>15 sec orientation</li><li>90 sec live answer</li><li>No pause or retake</li></ul>
+              </div>
+              <button class="button primary" id="open-proof" type="button">Preview mobile preflight ↗</button>
+            </div>
+            <div class="phone-stage">
+              <svg class="phone-loop" viewBox="0 0 220 280" aria-hidden="true"><path d="M19 203c59 34 182-17 165-93-16-68-134-78-155-7-20 68 77 104 131 68 39-25 42-78 21-113" fill="none" stroke="var(--sheet)" stroke-width="6" stroke-linecap="round" stroke-dasharray="9 12"/></svg>
+              <div class="phone" aria-label="Live proof mobile preview">
+                <div class="phone-screen">
+                  <div class="phone-top"><span>SLOP/PROOF</span><span class="rec"><i></i> LIVE</span></div>
+                  <div class="camera"></div>
+                  <div class="timer"><span class="mono">QUESTION 2/3</span><strong>01:17</strong></div>
+                  <p class="phone-question">Why can another reader still observe candidate state before rollback?</p>
+                  <p class="one-take">One take · uploading encrypted · head 9f31c2e</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell section">
+      <div class="section-head">
+        <p class="eyebrow">Configurable multimodal review</p>
+        <div><h2>A multimodal LLM evaluates. Repository policy decides the path.</h2><p class="section-intro">A multimodal LLM can act as an automated judge, comparing the transcript, selected video frames, answer timing, patch context and rubric. Maintainers can enable automatic pass for calibrated cases—or require human review for every proof.</p></div>
+      </div>
+      <div class="pipeline">
+        <article class="pipe-card"><span class="pipe-no">01</span><h3>Live capture</h3><p>A risk-sized question set, one take, bound to this PR revision.</p></article>
+        <article class="pipe-card"><span class="pipe-no">02</span><h3>Encrypted vault</h3><p>A per-attempt key protects the original recording.</p></article>
+        <article class="pipe-card"><span class="pipe-no">03</span><h3>Extract</h3><p>Transcript, timestamps and a few reasoned frames.</p></article>
+        <article class="pipe-card"><span class="pipe-no">04</span><h3>Multimodal LLM judge</h3><p>Patch references, transcript, frames, rubric, gaps and contradictions.</p></article>
+        <article class="pipe-card"><span class="pipe-no">05</span><h3>Policy → outcome</h3><p>Auto-pass can be enabled. Review can always remain required.</p></article>
+      </div>
+    </section>
+
+    <section class="privacy" id="privacy">
+      <div class="shell">
+        <div class="section-head">
+          <p class="eyebrow">Private by architecture</p>
+          <div><h2>Your video is locked down from capture to deletion.</h2><p class="section-intro">A live proof may contain your face, voice and technical reasoning. SlopProof treats the recording as sensitive evidence—not ordinary product analytics.</p></div>
+        </div>
+        <div class="security-board">
+          <article class="security-card"><span class="security-no">01 · AT REST</span><h3>Encrypted per attempt</h3><p>Each live proof gets its own encryption key. Private object storage alone is never enough to play the recording back.</p></article>
+          <article class="security-card"><span class="security-no">02 · IN REVIEW</span><h3>Need-to-see access</h3><p>Only authorized maintainers can open evidence when review is required. Every access is short-lived and auditable.</p></article>
+          <article class="security-card"><span class="security-no">03 · END OF LIFE</span><h3>Deleted on a short clock</h3><p>Recordings disappear after 24 hours by default—and sooner after a clear pass. Storage lifecycle rules provide a second deletion backstop.</p></article>
+        </div>
+        <div class="security-provider"><strong>Bounded model access</strong><span>SlopProof exposes only a temporary, job-scoped media reference. Deployment operators choose the model endpoint and are responsible for its processing and retention terms.</span></div>
+        <div class="privacy-limits"><strong>Hard limits</strong><span>No face recognition</span><span>No gaze tracking or room scan</span><span>No public video or transcript</span><span>No permanent evidence archive</span></div>
+      </div>
+    </section>
+
+    <section class="closing">
+      <div class="shell">
+        <h2>Practice it. Prove it. Own it.</h2>
+        <svg class="closing-loop" viewBox="0 0 900 180" aria-hidden="true"><path d="M20 92c84-93 242 62 351-19 97-72-72-117-104-28-39 108 210 119 334 31 84-60 194-57 279 9" fill="none" stroke="var(--orange)" stroke-width="7" stroke-linecap="round" stroke-dasharray="10 14"/><circle cx="267" cy="45" r="9" fill="var(--red)"/><path d="m853 65 28 20-29 17" fill="none" stroke="var(--orange)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="m690 81 21 22 40-49" fill="none" stroke="var(--green)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <p>SlopProof turns understanding into a visible step in shipping software—first as learning, then as accountability.</p>
+        <a class="button primary" href="#product">See the flow again ↑</a>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="shell footer-row"><span>SLOP/PROOF · PROVE YOU KNOW WHAT YOU SHIP.</span><span>Open-source product concept · 2026</span></div></footer>
+
+  <dialog id="proof-dialog" aria-labelledby="dialog-title">
+    <div class="dialog-card">
+      <div class="dialog-head"><h3 id="dialog-title">Ready for one take?</h3><button class="close" type="button" aria-label="Close dialog">×</button></div>
+      <p>Your questions appear one by one only after you start. This prototype does not access your real camera.</p>
+      <div class="preflight"><div><span>Camera</span><strong>ready</strong></div><div><span>Microphone</span><strong>ready</strong></div><div><span>Encrypted upload</span><strong>ready</strong></div><div><span>Time</span><strong>15 sec + 90 sec each</strong></div></div>
+      <button class="button primary" id="demo-start" type="button">Start demo proof</button>
+      <div class="demo-result" role="status">● LIVE · 01:30 — “Why can another reader observe candidate state before rollback?”</div>
+    </div>
+  </dialog>
+
+  <script>
+    const tabs = [...document.querySelectorAll('.mode-tab')];
+    const panels = [...document.querySelectorAll('.mode-panel')];
+
+    function showMode(mode, shouldScroll = false) {
+      tabs.forEach(tab => tab.setAttribute('aria-selected', String(tab.id === `${mode}-tab`)));
+      panels.forEach(panel => panel.classList.toggle('active', panel.id === `${mode}-panel`));
+      document.querySelectorAll('.check-choice').forEach(choice => choice.classList.toggle('active', choice.dataset.openMode === mode));
+      if (shouldScroll) document.querySelector('#product').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    tabs.forEach(tab => tab.addEventListener('click', () => showMode(tab.id.replace('-tab', ''))));
+    document.querySelectorAll('[data-open-mode]').forEach(control => control.addEventListener('click', event => {
+      const mode = control.dataset.openMode;
+      showMode(mode, control.tagName === 'BUTTON');
+      if (control.tagName === 'BUTTON') event.preventDefault();
+    }));
+
+    document.querySelectorAll('.hotspot').forEach(button => button.addEventListener('click', () => {
+      document.querySelectorAll('.hotspot').forEach(item => item.classList.remove('active'));
+      button.classList.add('active');
+      document.querySelector('#coach-title').textContent = button.dataset.title;
+      document.querySelector('#coach-question').textContent = button.dataset.question;
+      document.querySelector('#coach-note').textContent = button.dataset.note;
+    }));
+
+    const dialog = document.querySelector('#proof-dialog');
+    document.querySelector('#open-proof').addEventListener('click', () => dialog.showModal());
+    dialog.querySelector('.close').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
+    document.querySelector('#demo-start').addEventListener('click', event => {
+      document.querySelector('.demo-result').style.display = 'block';
+      event.currentTarget.textContent = 'Demo recording started';
+      event.currentTarget.disabled = true;
+    });
+  </script>
+</body>
+</html>

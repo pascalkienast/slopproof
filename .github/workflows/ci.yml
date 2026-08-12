@@ -1,0 +1,90 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: slopproof_test
+          POSTGRES_USER: slopproof
+          POSTGRES_PASSWORD: slopproof
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U slopproof -d slopproof_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm test:integration
+        env:
+          TEST_DATABASE_URL: postgres://slopproof:slopproof@localhost:5432/slopproof_test
+      - run: pnpm build
+      - run: pnpm audit:secrets
+      - run: pnpm dev:keys
+      - run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgres://slopproof:slopproof@localhost:5432/slopproof_test
+      - name: Seed demo twice and verify idempotence
+        run: |
+          pnpm db:seed
+          pnpm db:seed
+          pnpm exec tsx scripts/verify-demo-seed.ts
+        env:
+          DATABASE_URL: postgres://slopproof:slopproof@localhost:5432/slopproof_test
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+        env:
+          APP_BASE_URL: http://127.0.0.1:3000
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+          PLAYWRIGHT_WORKER_SMOKE: "true"
+          DATABASE_URL: postgres://slopproof:slopproof@localhost:5432/slopproof_test
+          GITHUB_ADAPTER: fake
+          EVIDENCE_STORAGE_PROVIDER: s3
+          S3_REGION: us-east-1
+          S3_BUCKET: slopproof-evidence
+          S3_ACCESS_KEY_ID: slopproof-local
+          S3_SECRET_ACCESS_KEY: slopproof-local-storage-secret
+          S3_CONTROL_ENDPOINT: http://127.0.0.1:9000
+          S3_PUBLIC_ENDPOINT: http://127.0.0.1:9000
+          KEY_WRAPPING_PROVIDER: local
+          KEY_WRAPPING_PUBLIC_KEY_PATH: ${{ github.workspace }}/infra/docker/secrets/wrapping-public.pem
+          KEY_WRAPPING_PRIVATE_KEY_PATH: ${{ github.workspace }}/infra/docker/secrets/wrapping-private.pem
+          TRANSCRIPTION_PROVIDER: fake
+          MULTIMODAL_JUDGE_PROVIDER: fake
+          SESSION_SECRET: local-session-secret-change-me-00000
+          GITHUB_APP_ID: fake-local
+          GITHUB_PRIVATE_KEY: fake-local-never-used
+          GITHUB_WEBHOOK_SECRET: local-webhook-secret-change-me-0000
+          GITHUB_CLIENT_ID: fake-local
+          GITHUB_CLIENT_SECRET: fake-local
+          WORKER_INTERNAL_URL: http://127.0.0.1:4001
+          WORKER_INTERNAL_SECRET: local-worker-secret-change-me-000000
+          PROVIDER_PAYLOAD_KEY_BASE64: cHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHA=
+          WORKER_HOST: 127.0.0.1
+          WORKER_PORT: "4001"
+          DEMO_MODE: "true"
+          DEMO_FAKE_MEDIA: "false"
+      - run: pnpm audit:boundaries

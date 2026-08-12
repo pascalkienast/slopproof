@@ -1,0 +1,32 @@
+{
+  "name": "@slopproof/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@slopproof/analysis": "workspace:*",
+    "@slopproof/auth": "workspace:*",
+    "@slopproof/config": "workspace:*",
+    "@slopproof/db": "workspace:*",
+    "@slopproof/domain": "workspace:*",
+    "@slopproof/github": "workspace:*",
+    "@slopproof/media": "workspace:*",
+    "@slopproof/observability": "workspace:*",
+    "@slopproof/policy": "workspace:*",
+    "@slopproof/providers": "workspace:*",
+    "@slopproof/questions": "workspace:*",
+    "@slopproof/storage": "workspace:*",
+    "next": "16.3.0",
+    "pg-boss": "12.27.0",
+    "qrcode": "1.5.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.4.3"
+  }
+}

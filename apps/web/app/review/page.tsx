@@ -1,0 +1,121 @@
+import { MaintainerAuthorizationError } from "../../lib/maintainer-authorization";
+import { loadReviewQueue } from "../../lib/maintainer-review";
+import { readPageSession } from "../../lib/http-auth";
+import { getWebRuntime } from "../../lib/runtime";
+import { DemoMaintainerLogin } from "./demo-maintainer-login";
+
+export const dynamic = "force-dynamic";
+
+export default async function ReviewQueuePage() {
+  const app = await getWebRuntime();
+  const session = await readPageSession(app);
+  if (!session) {
+    return (
+      <ReviewShell>
+        <section className="notice-card review-empty">
+          <p className="eyebrow">Protected review</p>
+          <h2>Maintainer authorization required.</h2>
+          <p>
+            Evidence and review decisions are repository-bound. The local MVP
+            exposes a demo maintainer session only while offline demo mode is
+            enabled.
+          </p>
+          {app.config.DEMO_MODE ? <DemoMaintainerLogin /> : null}
+        </section>
+      </ReviewShell>
+    );
+  }
+
+  try {
+    const queue = await loadReviewQueue(app, session);
+    return (
+      <ReviewShell>
+        <div className="check-header">
+          <div>
+            <p className="eyebrow">
+              Protected queue · {queue.authorization.owner}/
+              {queue.authorization.name}
+            </p>
+            <h1 className="flow-title">
+              Human review, bound to the current SHA.
+            </h1>
+          </div>
+          <span className="status-pill">{queue.items.length} open</span>
+        </div>
+        <p className="lede">
+          Model output is context, never the decision. Every detail view,
+          evidence stream and maintainer action is authorized again and audited.
+        </p>
+        {queue.items.length === 0 ? (
+          <section className="notice-card review-empty">
+            <h2>Nothing waiting.</h2>
+            <p>No current proof in this repository requires review.</p>
+          </section>
+        ) : (
+          <div className="review-queue" aria-label="Proofs awaiting review">
+            {queue.items.map((item) => (
+              <a
+                className="review-row"
+                href={`/review/${item.attemptId}`}
+                key={item.attemptId}
+              >
+                <div>
+                  <span className="eyebrow">PR #{item.pullRequestNumber}</span>
+                  <strong>
+                    {item.questionCount} question
+                    {item.questionCount === 1 ? "" : "s"}
+                  </strong>
+                  <span>Author {item.authorId}</span>
+                </div>
+                <div className="review-row-facts">
+                  <code>{item.headSha}</code>
+                  <span>{item.hasRecording ? "Video ready" : "No video"}</span>
+                  <span>
+                    {item.hasTranscript ? "Transcript ready" : "No transcript"}
+                  </span>
+                  <span>{formatAge(item.submittedAt)}</span>
+                </div>
+                <span className="status-pill">review required</span>
+              </a>
+            ))}
+          </div>
+        )}
+      </ReviewShell>
+    );
+  } catch (error) {
+    if (!(error instanceof MaintainerAuthorizationError)) throw error;
+    return (
+      <ReviewShell>
+        <section className="notice-card error-card review-empty">
+          <p className="eyebrow">Access denied</p>
+          <h2>This session cannot review this repository.</h2>
+          <p>
+            The offline MVP accepts only a freshly checked, repository-bound
+            local demo maintainer. No evidence metadata was returned.
+          </p>
+          {app.config.DEMO_MODE ? <DemoMaintainerLogin /> : null}
+        </section>
+      </ReviewShell>
+    );
+  }
+}
+
+function ReviewShell({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="shell flow-shell review-shell">
+      <a className="back-link" href="/demo">
+        ← Local demo
+      </a>
+      {children}
+    </main>
+  );
+}
+
+function formatAge(value: Date): string {
+  const minutes = Math.max(
+    0,
+    Math.round((Date.now() - value.getTime()) / 60_000),
+  );
+  if (minutes < 60) return `${String(minutes)} min waiting`;
+  return `${String(Math.round(minutes / 60))} h waiting`;
+}

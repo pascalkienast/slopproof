@@ -1,0 +1,275 @@
+import { createHmac } from "node:crypto";
+import {
+  connectDatabase,
+  migrateDatabase,
+  type DatabaseConnection,
+} from "@slopproof/db";
+import {
+  FakeGithubCheckAdapter,
+  PgBossPullRequestQueue,
+  WebhookDeliveryConflictError,
+  ingestPullRequestWebhook,
+  processPullRequestJob,
+} from "@slopproof/github";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+
+const databaseUrl = process.env.TEST_DATABASE_URL;
+const databaseDescribe = databaseUrl ? describe : describe.skip;
+const webhookSecret = "integration-webhook-secret";
+
+databaseDescribe("signed fake GitHub ingress", () => {
+  let connection: DatabaseConnection;
+  let queue: PgBossPullRequestQueue;
+  let checkAdapter: FakeGithubCheckAdapter;
+
+  beforeAll(async () => {
+    connection = connectDatabase(databaseUrl!);
+    await migrateDatabase(connection.pool);
+    checkAdapter = new FakeGithubCheckAdapter(
+      connection.pool,
+      "https://slopproof.test",
+    );
+    queue = new PgBossPullRequestQueue(databaseUrl!);
+    await queue.start();
+    await queue.work(async (payload) => {
+      await processPullRequestJob(connection.pool, checkAdapter, payload);
+    });
+  });
+
+  afterAll(async () => {
+    if (queue) await queue.stop();
+    if (connection) await connection.close();
+  });
+
+  beforeEach(async () => {
+    await connection.pool.query(`
+      TRUNCATE TABLE
+        audit_events, deletion_jobs, check_runs, review_decisions, evaluations,
+        frame_selections, transcripts, recording_objects, recording_parts,
+        upload_sessions, wrapping_materials, handoff_tokens, auth_sessions,
+        attempt_transitions, attempts, proof_questions, proof_plans,
+        practice_sessions, analysis_snapshots, webhook_deliveries,
+        pull_request_revisions, pull_requests, repository_policies,
+        repositories, installations
+      RESTART IDENTITY CASCADE
+    `);
+  });
+
+  it("deduplicates deliveries and invalidates the old SHA on synchronize", async () => {
+    const first = webhook({
+      deliveryId: "30000000-0000-4000-8000-000000000001",
+      action: "opened",
+      headSha: "a".repeat(40),
+    });
+    await expect(
+      ingestPullRequestWebhook({
+        pool: connection.pool,
+        queue,
+        secret: webhookSecret,
+        ...first,
+      }),
+    ).resolves.toMatchObject({ duplicate: false });
+    await waitForDelivery(connection, first.headers.deliveryId);
+
+    const initial = await connection.pool.query<{
+      revision_id: string;
+      repository_id: string;
+      head_sha: string;
+      status: string;
+      conclusion: string | null;
+      public_summary: string;
+    }>(`
+      SELECT revision.id AS revision_id, repository.id AS repository_id,
+             revision.head_sha, check_run.status, check_run.conclusion,
+             check_run.public_summary
+      FROM pull_request_revisions revision
+      JOIN pull_requests pull_request ON pull_request.id = revision.pull_request_id
+      JOIN repositories repository ON repository.id = pull_request.repository_id
+      JOIN check_runs check_run ON check_run.revision_id = revision.id
+      WHERE revision.is_current = true
+    `);
+    expect(initial.rows).toHaveLength(1);
+    expect(initial.rows[0]).toMatchObject({
+      head_sha: "a".repeat(40),
+      status: "in_progress",
+      conclusion: null,
+      public_summary: `understanding required for head ${"a".repeat(40)}`,
+    });
+
+    await expect(
+      ingestPullRequestWebhook({
+        pool: connection.pool,
+        queue,
+        secret: webhookSecret,
+        ...first,
+      }),
+    ).resolves.toMatchObject({ duplicate: true });
+    expect(
+      await scalar(
+        connection,
+        "SELECT count(*)::int FROM pull_request_revisions",
+      ),
+    ).toBe(1);
+
+    const oldRevisionId = initial.rows[0]!.revision_id;
+    const repositoryId = initial.rows[0]!.repository_id;
+    const planId = "30000000-0000-4000-8000-000000000010";
+    const attemptId = "30000000-0000-4000-8000-000000000011";
+    const policyId = "30000000-0000-4000-8000-000000000012";
+    await connection.pool.query(
+      `INSERT INTO repository_policies
+        (id, repository_id, version, schema_version, policy, policy_hash,
+         created_by, activated_at)
+       VALUES ($1, $2, 1, '1', '{"decisionMode":"maintainer_review"}', $3,
+               'system', now())`,
+      [policyId, repositoryId, "f".repeat(64)],
+    );
+    await connection.pool.query(
+      `INSERT INTO proof_plans
+        (id, revision_id, repository_policy_id, plan_version,
+         deterministic_seed, risk_explanation, question_budget, plan_hash, status)
+       VALUES ($1, $2, $3, 'planner-v1', 'seed-c', '{}', 1, $4, 'ready')`,
+      [planId, oldRevisionId, policyId, "c".repeat(64)],
+    );
+    await connection.pool.query(
+      `INSERT INTO attempts
+        (id, repository_id, revision_id, author_id, proof_plan_id, head_sha,
+         status, nonce_hash, expires_at, started_at)
+       VALUES ($1, $2, $3, '99', $4, $5, 'active', $6,
+               now() + interval '1 hour', now())`,
+      [
+        attemptId,
+        repositoryId,
+        oldRevisionId,
+        planId,
+        "a".repeat(40),
+        "d".repeat(64),
+      ],
+    );
+
+    const synchronized = webhook({
+      deliveryId: "30000000-0000-4000-8000-000000000002",
+      action: "synchronize",
+      headSha: "e".repeat(40),
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...synchronized,
+    });
+    await waitForDelivery(connection, synchronized.headers.deliveryId);
+
+    const revisions = await connection.pool.query<{
+      id: string;
+      head_sha: string;
+      is_current: boolean;
+      conclusion: string | null;
+    }>(`
+      SELECT revision.id, revision.head_sha, revision.is_current,
+             check_run.conclusion
+      FROM pull_request_revisions revision
+      JOIN check_runs check_run ON check_run.revision_id = revision.id
+      ORDER BY revision.received_at, revision.head_sha
+    `);
+    expect(revisions.rows).toHaveLength(2);
+    expect(
+      revisions.rows.find((row) => row.head_sha === "a".repeat(40)),
+    ).toMatchObject({
+      is_current: false,
+      conclusion: "cancelled",
+    });
+    expect(
+      revisions.rows.find((row) => row.head_sha === "e".repeat(40)),
+    ).toMatchObject({
+      is_current: true,
+      conclusion: null,
+    });
+    const attempt = await connection.pool.query<{
+      status: string;
+      invalidated_at: Date | null;
+    }>("SELECT status, invalidated_at FROM attempts WHERE id = $1", [
+      attemptId,
+    ]);
+    expect(attempt.rows[0]?.status).toBe("invalidated");
+    expect(attempt.rows[0]?.invalidated_at).toBeInstanceOf(Date);
+
+    const conflicting = webhook({
+      deliveryId: first.headers.deliveryId,
+      action: "opened",
+      headSha: "f".repeat(40),
+    });
+    await expect(
+      ingestPullRequestWebhook({
+        pool: connection.pool,
+        queue,
+        secret: webhookSecret,
+        ...conflicting,
+      }),
+    ).rejects.toBeInstanceOf(WebhookDeliveryConflictError);
+  });
+});
+
+function webhook(input: {
+  deliveryId: string;
+  action: "opened" | "synchronize";
+  headSha: string;
+}) {
+  const rawBody = new TextEncoder().encode(
+    JSON.stringify({
+      action: input.action,
+      installation: { id: 17 },
+      repository: {
+        id: 42,
+        name: "cachekit",
+        full_name: "acme/cachekit",
+        default_branch: "main",
+        owner: { id: 7, login: "acme" },
+      },
+      pull_request: {
+        id: 1840,
+        number: 184,
+        state: "open",
+        user: { id: 99, login: "octocat" },
+        head: { sha: input.headSha },
+        base: { sha: "b".repeat(40) },
+      },
+    }),
+  );
+  return {
+    rawBody,
+    headers: {
+      deliveryId: input.deliveryId,
+      eventName: "pull_request" as const,
+      signature: `sha256=${createHmac("sha256", webhookSecret)
+        .update(rawBody)
+        .digest("hex")}`,
+    },
+  };
+}
+
+async function waitForDelivery(
+  connection: DatabaseConnection,
+  deliveryId: string,
+): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const result = await connection.pool.query<{ processing_status: string }>(
+      "SELECT processing_status FROM webhook_deliveries WHERE delivery_id = $1",
+      [deliveryId],
+    );
+    if (result.rows[0]?.processing_status === "processed") return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(
+    `delivery ${deliveryId} was not processed before the deadline`,
+  );
+}
+
+async function scalar(
+  connection: DatabaseConnection,
+  query: string,
+): Promise<number> {
+  const result = await connection.pool.query<{ count: number }>(query);
+  return result.rows[0]?.count ?? 0;
+}

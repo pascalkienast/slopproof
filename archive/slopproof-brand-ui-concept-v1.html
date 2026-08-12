@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="SlopProof brand and interface concept — Prove you know what you ship." />
+  <title>SlopProof — Prove you know what you ship.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --paper: #f3efe4;
+      --sheet: #fffdf6;
+      --ink: #11110e;
+      --carbon: #66635a;
+      --orange: #ff4d1c;
+      --green: #c8f43d;
+      --yellow: #ffd452;
+      --red: #e43b32;
+      --line: 2px solid var(--ink);
+      --shadow: 8px 8px 0 var(--ink);
+      --display: "Bricolage Grotesque", sans-serif;
+      --body: "Instrument Sans", sans-serif;
+      --mono: "IBM Plex Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      color: var(--ink);
+      background:
+        linear-gradient(rgba(17, 17, 14, .045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(17, 17, 14, .045) 1px, transparent 1px),
+        var(--paper);
+      background-size: 24px 24px;
+      font-family: var(--body);
+      font-size: 17px;
+      line-height: 1.45;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      pointer-events: none;
+      opacity: .035;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.75'/%3E%3C/svg%3E");
+    }
+
+    a { color: inherit; }
+    button, input, textarea { font: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    :focus-visible { outline: 3px solid var(--orange); outline-offset: 4px; }
+
+    .shell { width: min(1180px, calc(100% - 44px)); margin: 0 auto; }
+    .mono { font-family: var(--mono); }
+    .eyebrow {
+      margin: 0 0 18px;
+      font: 600 12px/1 var(--mono);
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before { content: "// "; color: var(--orange); }
+
+    .nav {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 80px;
+      border-bottom: var(--line);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .mark { width: 40px; height: 40px; background: var(--green); border: var(--line); display: grid; place-items: center; }
+    .mark svg { width: 26px; height: 26px; }
+    .wordmark { font: 800 22px/1 var(--display); letter-spacing: -.05em; }
+    .wordmark i { font-style: normal; color: var(--orange); }
+    .navlinks { display: flex; align-items: center; gap: 28px; font: 600 13px/1 var(--mono); }
+    .navlinks a { text-decoration: none; }
+    .navlinks a:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 5px; }
+
+    .button {
+      min-height: 48px;
+      padding: 0 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      border: var(--line);
+      border-radius: 2px;
+      background: var(--sheet);
+      color: var(--ink);
+      box-shadow: 4px 4px 0 var(--ink);
+      font: 700 14px/1 var(--mono);
+      text-decoration: none;
+      cursor: pointer;
+      transition: transform .16s ease, box-shadow .16s ease;
+    }
+    .button:hover { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink); }
+    .button.primary { background: var(--orange); }
+    .button.green { background: var(--green); }
+
+    .hero {
+      min-height: 760px;
+      padding: 94px 0 110px;
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 76px;
+      align-items: center;
+    }
+    .hero-copy { position: relative; z-index: 2; }
+    .hero h1 {
+      max-width: 720px;
+      margin: 0;
+      font: 780 clamp(58px, 7.2vw, 104px)/.88 var(--display);
+      letter-spacing: -.035em;
+      word-spacing: .045em;
+      font-kerning: normal;
+    }
+    .hero h1 .under { position: relative; display: inline-block; white-space: nowrap; }
+    .hero h1 .under::after {
+      content: "";
+      position: absolute;
+      left: 0; right: 0; bottom: -8px;
+      height: 12px;
+      background: var(--green);
+      border: var(--line);
+      z-index: -1;
+      transform: rotate(-1deg);
+    }
+    .lede { max-width: 590px; margin: 32px 0; font-size: clamp(19px, 2vw, 24px); line-height: 1.38; letter-spacing: -.02em; }
+    .actions { display: flex; flex-wrap: wrap; gap: 15px; }
+    .microproof { margin-top: 30px; display: flex; gap: 18px; align-items: center; color: var(--carbon); font: 500 12px/1.5 var(--mono); }
+    .microproof strong { color: var(--ink); }
+
+    .manifest-wrap { position: relative; min-height: 520px; display: grid; place-items: center; }
+    .manifest {
+      position: relative;
+      width: min(100%, 490px);
+      background: var(--sheet);
+      border: var(--line);
+      box-shadow: var(--shadow);
+      transform: rotate(1.5deg);
+      animation: manifest-in .65s cubic-bezier(.2,.75,.25,1) both;
+    }
+    .manifest-head { display: flex; justify-content: space-between; padding: 18px 20px; border-bottom: var(--line); font: 600 11px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+    .manifest-head span:last-child { color: var(--orange); }
+    .manifest-body { padding: 24px; }
+    .repo { font: 750 27px/1 var(--display); letter-spacing: -.04em; }
+    .pr-title { margin: 9px 0 26px; color: var(--carbon); }
+    .sha-strip { display: flex; justify-content: space-between; gap: 14px; padding: 12px; background: var(--ink); color: var(--paper); font: 500 12px/1 var(--mono); }
+    .sha-strip b { color: var(--green); font-weight: 600; }
+    .diff { margin: 20px 0 4px; border: var(--line); background: #f6f3e9; font: 500 11px/1.7 var(--mono); overflow: hidden; }
+    .diff div { padding: 1px 11px; white-space: nowrap; }
+    .diff .plus { background: rgba(200,244,61,.3); }
+    .diff .minus { background: rgba(228,59,50,.12); }
+    .diff .plus::before { content: "+ "; color: #397500; }
+    .diff .minus::before { content: "− "; color: var(--red); }
+    .manifest-foot { display: grid; grid-template-columns: 1fr 1fr; border-top: var(--line); }
+    .manifest-foot div { padding: 15px 20px; font: 600 11px/1.4 var(--mono); text-transform: uppercase; }
+    .manifest-foot div + div { border-left: var(--line); }
+    .stamp {
+      position: absolute;
+      right: -22px;
+      bottom: 74px;
+      padding: 10px 14px;
+      border: 4px solid var(--orange);
+      color: var(--orange);
+      background: rgba(255,253,246,.88);
+      font: 800 19px/1 var(--display);
+      letter-spacing: .02em;
+      transform: rotate(-8deg) scale(1);
+      animation: stamp-in .3s cubic-bezier(.2,1.8,.5,1) .65s both;
+    }
+    .scribble {
+      position: absolute;
+      left: -35px;
+      top: 30px;
+      width: 88px;
+      height: 32px;
+      border-top: 5px solid var(--orange);
+      transform: rotate(-11deg);
+    }
+
+    .marquee { overflow: hidden; border-block: var(--line); background: var(--ink); color: var(--paper); }
+    .marquee-track { width: max-content; padding: 16px 0; display: flex; animation: crawl 24s linear infinite; font: 600 13px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+    .marquee-track span::after { content: "✦"; margin: 0 28px; color: var(--green); }
+
+    .manifesto { padding: 140px 0; background: var(--orange); border-bottom: var(--line); }
+    .manifesto-grid { display: grid; grid-template-columns: .6fr 1.4fr; gap: 72px; align-items: start; }
+    .manifesto h2 { margin: 0; max-width: 890px; font: 770 clamp(48px, 6.6vw, 94px)/.98 var(--display); letter-spacing: -.02em; word-spacing: .04em; font-kerning: normal; }
+    .manifesto h2 em { font-style: normal; background: var(--green); padding: 0 .08em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+    .manifesto-copy { max-width: 760px; margin: 54px 0 0 auto; font-size: clamp(19px, 2vw, 27px); line-height: 1.4; }
+    .manifesto-copy strong { font-weight: 750; }
+    .humanity-note { margin-top: 42px; padding-top: 20px; border-top: var(--line); display: flex; justify-content: space-between; gap: 30px; font: 600 12px/1.45 var(--mono); text-transform: uppercase; }
+
+    .section { padding: 120px 0; border-bottom: var(--line); }
+    .section-head { display: grid; grid-template-columns: .7fr 1.3fr; gap: 50px; margin-bottom: 66px; }
+    .section h2 { margin: 0; font: 760 clamp(43px, 5.3vw, 76px)/.94 var(--display); letter-spacing: -.06em; }
+    .section-intro { max-width: 650px; margin: 4px 0 0; font-size: 21px; }
+
+    .steps { display: grid; grid-template-columns: repeat(4, 1fr); border: var(--line); background: var(--sheet); box-shadow: var(--shadow); }
+    .step { min-height: 260px; padding: 22px; position: relative; }
+    .step + .step { border-left: 2px dashed var(--ink); }
+    .step-no { font: 600 12px/1 var(--mono); color: var(--orange); }
+    .step h3 { margin: 42px 0 12px; font: 740 25px/1.02 var(--display); letter-spacing: -.04em; }
+    .step p { margin: 0; color: var(--carbon); font-size: 15px; }
+    .step .dot { position: absolute; right: 18px; top: 18px; width: 13px; height: 13px; border: var(--line); background: var(--green); }
+
+    .product { padding: 120px 0; background: #1b1b17; color: var(--paper); border-bottom: var(--line); }
+    .product .eyebrow { color: var(--paper); }
+    .product .section-head { margin-bottom: 48px; }
+    .product .section-intro { color: #bab7ae; }
+    .app-frame { border: 2px solid var(--paper); background: var(--paper); color: var(--ink); box-shadow: 10px 10px 0 var(--orange); }
+    .app-top { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 11px 16px; border-bottom: var(--line); background: var(--sheet); }
+    .window-dots { display: flex; gap: 8px; }
+    .window-dots i { width: 11px; height: 11px; border: 1.5px solid var(--ink); background: var(--yellow); }
+    .window-dots i:nth-child(2) { background: var(--orange); }
+    .window-dots i:nth-child(3) { background: var(--green); }
+    .app-tabs { display: flex; gap: 6px; }
+    .app-tab { min-height: 38px; padding: 0 13px; border: var(--line); background: var(--sheet); cursor: pointer; font: 600 11px/1 var(--mono); }
+    .app-tab[aria-selected="true"] { background: var(--ink); color: var(--paper); }
+    .app-panel { display: none; min-height: 620px; }
+    .app-panel.active { display: block; }
+
+    .challenge-layout { display: grid; grid-template-columns: 230px 1fr; min-height: 620px; }
+    .challenge-side { border-right: var(--line); padding: 24px 18px; background: #ebe7db; }
+    .challenge-side .repo-small { font: 700 16px/1.2 var(--display); }
+    .challenge-side .small { margin-top: 8px; color: var(--carbon); font: 500 11px/1.5 var(--mono); }
+    .rail { margin-top: 45px; }
+    .rail-item { position: relative; min-height: 60px; padding-left: 28px; font: 600 12px/1.2 var(--mono); color: #88847a; }
+    .rail-item::before { content: ""; position: absolute; left: 3px; top: 0; width: 12px; height: 12px; border: 2px solid currentColor; background: var(--paper); }
+    .rail-item::after { content: ""; position: absolute; left: 9px; top: 14px; height: 42px; border-left: 2px dashed currentColor; }
+    .rail-item:last-child::after { display: none; }
+    .rail-item.done { color: var(--ink); }
+    .rail-item.done::before { background: var(--green); }
+    .rail-item.now { color: var(--orange); }
+    .rail-item.now::before { background: var(--orange); }
+    .challenge-main { padding: 32px; background: var(--sheet); }
+    .challenge-bar { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-bottom: 20px; border-bottom: 2px dashed var(--ink); }
+    .timer { padding: 8px 11px; border: var(--line); background: var(--yellow); font: 600 12px/1 var(--mono); }
+    .question-label { margin-top: 28px; color: var(--orange); font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .12em; }
+    .question { max-width: 730px; margin: 12px 0 22px; font: 720 30px/1.14 var(--display); letter-spacing: -.035em; }
+    .anchor { padding: 14px 17px; border: var(--line); background: #ece9df; font: 500 12px/1.65 var(--mono); overflow: auto; }
+    .nonce-row { margin: 20px 0; display: flex; align-items: stretch; gap: 14px; }
+    .nonce { flex: 1; padding: 14px; border: var(--line); background: var(--green); }
+    .nonce span { display: block; font: 600 10px/1 var(--mono); text-transform: uppercase; }
+    .nonce strong { display: block; margin-top: 5px; font: 760 25px/1 var(--display); letter-spacing: .02em; }
+    .upload { flex: 1.4; padding: 15px; border: 2px dashed var(--ink); background: var(--paper); display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+    .upload span { font-size: 14px; }
+    .upload button { min-height: 40px; padding: 0 13px; border: var(--line); background: var(--orange); font: 650 11px/1 var(--mono); cursor: pointer; }
+    .privacy-line { display: flex; gap: 12px; margin-top: 18px; color: var(--carbon); font: 500 11px/1.45 var(--mono); }
+    .privacy-line b { color: var(--ink); }
+
+    .review-layout { display: grid; grid-template-columns: 210px 1fr 265px; min-height: 620px; }
+    .review-queue { border-right: var(--line); background: #ebe7db; }
+    .review-title { padding: 17px; border-bottom: var(--line); font: 700 13px/1 var(--mono); }
+    .queue-item { padding: 15px 17px; border-bottom: 1px solid #aaa69d; font: 500 11px/1.45 var(--mono); }
+    .queue-item.active { background: var(--yellow); border-bottom: var(--line); }
+    .queue-item strong { display: block; margin-bottom: 5px; font: 700 13px/1.2 var(--display); }
+    .evidence { padding: 25px; }
+    .evidence h3 { margin: 6px 0 17px; font: 720 25px/1.1 var(--display); }
+    .paper-answer { min-height: 330px; padding: 28px; background: #fbf5df; border: var(--line); box-shadow: 5px 5px 0 #bbb6aa; transform: rotate(-.5deg); }
+    .hand { font-family: "Bricolage Grotesque", sans-serif; font-size: 18px; line-height: 1.55; }
+    .hand strong { display: inline-block; border-bottom: 4px solid var(--green); }
+    .review-actions { border-left: var(--line); background: #ebe7db; padding: 20px; }
+    .review-actions h4 { margin: 0 0 18px; font: 720 20px/1 var(--display); }
+    .criterion { padding: 12px 0; border-top: 1px solid #9f9b91; font-size: 13px; }
+    .criterion b { display: block; margin-bottom: 4px; }
+    .decision { display: grid; gap: 10px; margin-top: 28px; }
+    .decision button { width: 100%; min-height: 46px; border: var(--line); font: 700 12px/1 var(--mono); cursor: pointer; }
+    .decision .pass { background: var(--green); }
+    .decision .retry { background: var(--sheet); color: var(--red); border-color: var(--red); }
+
+    .policy-panel { padding: 28px; background: var(--sheet); }
+    .policy-panel h3 { margin: 0 0 8px; font: 750 29px/1 var(--display); }
+    .policy-panel > p { margin: 0 0 30px; color: var(--carbon); }
+    .policy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; max-width: 880px; }
+    .policy-card { border: var(--line); padding: 20px; }
+    .policy-card h4 { margin: 0 0 6px; font: 700 18px/1.1 var(--display); }
+    .policy-card p { margin: 0 0 17px; color: var(--carbon); font-size: 14px; }
+    .choices { display: flex; flex-wrap: wrap; gap: 8px; }
+    .choice { padding: 8px 10px; border: var(--line); font: 600 11px/1 var(--mono); }
+    .choice.on { background: var(--green); }
+    .choice.soon { color: var(--carbon); border-style: dashed; }
+
+    .trust { display: grid; grid-template-columns: 1fr 1fr; border: var(--line); box-shadow: var(--shadow); }
+    .trust-col { padding: 36px; min-height: 390px; background: var(--sheet); }
+    .trust-col + .trust-col { border-left: var(--line); background: var(--ink); color: var(--paper); }
+    .trust h3 { margin: 0 0 30px; font: 740 33px/1 var(--display); letter-spacing: -.04em; }
+    .trust-list { list-style: none; margin: 0; padding: 0; }
+    .trust-list li { display: flex; gap: 12px; padding: 13px 0; border-top: 1px solid currentColor; font: 500 13px/1.4 var(--mono); }
+    .trust-list li::before { content: "↳"; color: var(--orange); }
+    .trust-col + .trust-col .trust-list li::before { color: var(--green); }
+
+    .closing { padding: 150px 0; text-align: center; background: var(--green); }
+    .closing .eyebrow::before { color: var(--ink); }
+    .closing h2 { max-width: 980px; margin: 0 auto 36px; font: 790 clamp(52px, 7.4vw, 104px)/.98 var(--display); letter-spacing: -.02em; word-spacing: .04em; font-kerning: normal; }
+    .closing p { max-width: 650px; margin: 0 auto 35px; font-size: 21px; }
+    footer { padding: 28px 0; background: var(--ink); color: var(--paper); }
+    .footer-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; font: 500 11px/1.4 var(--mono); }
+
+    @keyframes manifest-in { from { opacity: 0; transform: translateY(30px) rotate(4deg); } }
+    @keyframes stamp-in { from { opacity: 0; transform: rotate(-8deg) scale(1.8); } }
+    @keyframes crawl { to { transform: translateX(-50%); } }
+
+    @media (max-width: 960px) {
+      .hero { grid-template-columns: 1fr; padding-top: 70px; gap: 42px; }
+      .manifest-wrap { min-height: 470px; }
+      .manifesto-grid, .section-head { grid-template-columns: 1fr; gap: 22px; }
+      .steps { grid-template-columns: 1fr 1fr; }
+      .step:nth-child(3) { border-left: 0; border-top: 2px dashed var(--ink); }
+      .step:nth-child(4) { border-top: 2px dashed var(--ink); }
+      .review-layout { grid-template-columns: 180px 1fr; }
+      .review-actions { grid-column: 1 / -1; border-left: 0; border-top: var(--line); }
+      .decision { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 720px) {
+      .shell { width: min(calc(100% - 28px), 1180px); }
+      .nav { min-height: 66px; }
+      .navlinks { display: none; }
+      .wordmark { font-size: 19px; }
+      .mark { width: 34px; height: 34px; }
+      .hero { min-height: auto; min-width: 0; padding: 70px 0 84px; display: flex; flex-direction: column; align-items: stretch; text-align: left; }
+      .hero > *, .hero-copy, .manifest-wrap { min-width: 0; }
+      .hero h1 { font-size: clamp(43px, 12.5vw, 54px); line-height: .92; }
+      .hero h1 .under { display: inline; white-space: normal; background: linear-gradient(transparent 82%, var(--green) 82%); box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+      .hero h1 .under::after { display: none; }
+      .actions { flex-direction: column; }
+      .actions .button { width: 100%; }
+      .microproof { align-items: flex-start; flex-wrap: wrap; }
+      .manifest-wrap { min-height: 400px; }
+      .manifest { width: calc(100% - 16px); transform: rotate(.5deg); }
+      .stamp { right: -5px; bottom: 66px; font-size: 15px; }
+      .scribble { display: none; }
+      .manifesto, .section, .product, .closing { padding: 82px 0; }
+      .manifesto h2, .section h2 { font-size: 46px; }
+      .manifesto-copy { margin-top: 34px; font-size: 20px; }
+      .humanity-note { flex-direction: column; }
+      .steps { grid-template-columns: 1fr; }
+      .step { min-height: 210px; }
+      .step + .step { border-left: 0; border-top: 2px dashed var(--ink); }
+      .app-top { align-items: flex-start; flex-direction: column; }
+      .app-tabs { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
+      .app-tab { padding: 0 6px; }
+      .challenge-layout { grid-template-columns: 1fr; }
+      .challenge-side { border-right: 0; border-bottom: var(--line); padding: 15px; }
+      .rail { display: grid; grid-template-columns: repeat(4, 1fr); margin: 20px 0 0; }
+      .rail-item { min-height: 40px; padding: 23px 4px 0 0; font-size: 9px; }
+      .rail-item::after { left: 13px; top: 6px; width: calc(100% - 15px); height: 0; border-left: 0; border-top: 2px dashed currentColor; }
+      .challenge-main { padding: 21px 16px; }
+      .challenge-bar { align-items: flex-start; }
+      .question { font-size: 24px; }
+      .nonce-row { flex-direction: column; }
+      .upload { flex-direction: column; align-items: stretch; }
+      .review-layout { grid-template-columns: 1fr; }
+      .review-queue { display: none; }
+      .review-actions { border-top: var(--line); }
+      .decision, .policy-grid { grid-template-columns: 1fr; }
+      .trust { grid-template-columns: 1fr; }
+      .trust-col + .trust-col { border-left: 0; border-top: var(--line); }
+      .footer-row { align-items: flex-start; flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="shell nav">
+    <a class="brand" href="#top" aria-label="SlopProof home">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><path d="M5 16l7 7L27 6" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+      </span>
+      <span class="wordmark">SLOP<i>/</i>PROOF</span>
+    </a>
+    <nav class="navlinks" aria-label="Main navigation">
+      <a href="#manifesto">Manifesto</a>
+      <a href="#product">Interface</a>
+      <a class="button" href="#how">How it works ↘</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="shell hero">
+      <div class="hero-copy">
+        <p class="eyebrow">A required check for responsible pull requests</p>
+        <h1>Prove you know <span class="under">what you ship.</span></h1>
+        <p class="lede">SlopProof adds a short understanding challenge before a pull request can merge. No surveillance. No AI guessing. A contributor responds; a maintainer decides.</p>
+        <div class="actions">
+          <a class="button primary" href="#product">See the challenge ↘</a>
+          <a class="button" href="#manifesto">Read the manifesto</a>
+        </div>
+        <div class="microproof"><strong>OPEN SOURCE</strong><span>Private evidence · Short retention · Human judgment</span></div>
+      </div>
+
+      <div class="manifest-wrap" aria-label="Example pull request proof manifest">
+        <i class="scribble" aria-hidden="true"></i>
+        <article class="manifest">
+          <div class="manifest-head"><span>Pull request manifest</span><span>Proof required</span></div>
+          <div class="manifest-body">
+            <div class="repo">open-commons/cachekit</div>
+            <div class="pr-title">#184 · Repair callback rollback semantics</div>
+            <div class="sha-strip"><span>HEAD SHA</span><b>9f31c2e</b><span>EXACT</span></div>
+            <div class="diff" aria-label="Example diff">
+              <div class="minus">state.publish(candidate)</div>
+              <div class="plus">const snapshot = state.capture()</div>
+              <div class="plus">state.publish(candidate)</div>
+              <div class="plus">onFailure(() =&gt; state.restore(snapshot))</div>
+            </div>
+          </div>
+          <div class="manifest-foot"><div>Challenge<br/>Ready</div><div>Retention<br/>24 hours</div></div>
+          <div class="stamp">PROOF REQUIRED</div>
+        </article>
+      </div>
+    </section>
+
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee-track">
+        <span>Use whatever tools you want</span><span>Own the result</span><span>Team Humanity</span><span>Understanding over output</span>
+        <span>Use whatever tools you want</span><span>Own the result</span><span>Team Humanity</span><span>Understanding over output</span>
+      </div>
+    </div>
+
+    <section class="manifesto" id="manifesto">
+      <div class="shell">
+        <div class="manifesto-grid">
+          <p class="eyebrow">Team Humanity / 01</p>
+          <h2>Use whatever tools you want. <em>Own the result.</em></h2>
+        </div>
+        <div class="manifesto-copy">
+          Generate it. Pair on it. Search for it. Write it by hand. SlopProof does not care where the first draft came from. Before the patch enters a shared codebase, <strong>someone should understand what it changes and stand behind it.</strong>
+          <div class="humanity-note"><span>Tools can generate code.<br/>They cannot take responsibility.</span><span>Humanity is a practice:<br/>judgment, care, accountability.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="how">
+      <div class="shell">
+        <div class="section-head">
+          <p class="eyebrow">One patch. One SHA. One accountable response.</p>
+          <div><h2>A pull request is a promise.</h2><p class="section-intro">Reviewers inherit the consequences of every merge. SlopProof asks the author to account for the patch while its context is still live.</p></div>
+        </div>
+        <div class="steps">
+          <article class="step"><span class="step-no">01 / PIN</span><i class="dot"></i><h3>Bind the check.</h3><p>SlopProof pins a required check to the pull request’s exact head SHA.</p></article>
+          <article class="step"><span class="step-no">02 / START</span><i class="dot"></i><h3>Open the challenge.</h3><p>The author starts a timed, patch-specific question when they are ready.</p></article>
+          <article class="step"><span class="step-no">03 / RESPOND</span><i class="dot"></i><h3>Show the reasoning.</h3><p>A response and one follow-up stay private for maintainer review.</p></article>
+          <article class="step"><span class="step-no">04 / APPROVE</span><i class="dot"></i><h3>Release that SHA.</h3><p>Approval clears this revision. Push again and the proof expires.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="product" id="product">
+      <div class="shell">
+        <div class="section-head">
+          <p class="eyebrow">Product surface / interactive concept</p>
+          <div><h2>Firm process. Calm interface.</h2><p class="section-intro">The challenge feels like a focused workbench, not an exam room. Switch between contributor, maintainer and repository views.</p></div>
+        </div>
+
+        <div class="app-frame">
+          <div class="app-top">
+            <div class="window-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="app-tabs" role="tablist" aria-label="Interface previews">
+              <button class="app-tab" role="tab" aria-selected="true" aria-controls="challenge-panel" id="challenge-tab">Contributor</button>
+              <button class="app-tab" role="tab" aria-selected="false" aria-controls="review-panel" id="review-tab">Maintainer</button>
+              <button class="app-tab" role="tab" aria-selected="false" aria-controls="policy-panel" id="policy-tab">Policy</button>
+            </div>
+            <span class="mono" style="font-size:11px">SLOP/PROOF · PRIVATE WORKSPACE</span>
+          </div>
+
+          <section class="app-panel active" id="challenge-panel" role="tabpanel" aria-labelledby="challenge-tab">
+            <div class="challenge-layout">
+              <aside class="challenge-side">
+                <div class="repo-small">open-commons/cachekit</div>
+                <div class="small">PR #184<br/>HEAD 9f31c2e · CURRENT</div>
+                <div class="rail">
+                  <div class="rail-item done">Prepare</div><div class="rail-item now">Respond</div><div class="rail-item">Follow-up</div><div class="rail-item">Review</div>
+                </div>
+              </aside>
+              <div class="challenge-main">
+                <div class="challenge-bar"><span class="mono" style="font-size:12px">PAPER CHALLENGE · ATTEMPT 01</span><span class="timer" id="timer">06:42 remaining</span></div>
+                <div class="question-label">Your patch-specific question</div>
+                <h3 class="question">If the callback fails after publication, which state must readers observe—and which line in this patch guarantees it?</h3>
+                <div class="anchor"><span style="color:#397500">+ const snapshot = state.capture()</span><br/><span style="color:#397500">+ state.publish(candidate)</span><br/><span style="color:#397500">+ onFailure(() =&gt; state.restore(snapshot))</span></div>
+                <div class="nonce-row">
+                  <div class="nonce"><span>Write this proof code on paper</span><strong>MOSS–47K</strong></div>
+                  <div class="upload"><span><b>Photograph your response</b><br/><small>JPEG, PNG or WebP · max 12 MB</small></span><button type="button" id="upload-demo">Choose photo</button></div>
+                </div>
+                <div class="privacy-line"><b>PRIVATE</b><span>Your photo stays out of GitHub and is scheduled for deletion 24 hours after review.</span></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="app-panel" id="review-panel" role="tabpanel" aria-labelledby="review-tab">
+            <div class="review-layout">
+              <aside class="review-queue"><div class="review-title">REVIEW QUEUE · 3</div><div class="queue-item active"><strong>cachekit #184</strong>9f31c2e · 4 min ago</div><div class="queue-item"><strong>parser #92</strong>21be7f0 · 18 min ago</div><div class="queue-item"><strong>docs #611</strong>8a21db4 · 1 h ago</div></aside>
+              <div class="evidence"><p class="eyebrow">Private evidence / exact SHA 9f31c2e</p><h3>How does rollback protect concurrent readers?</h3><div class="paper-answer"><div class="hand"><strong>MOSS–47K · 9f31c2e</strong><br/><br/>Readers must either see the old valid snapshot or the fully published candidate. They must never observe the half-applied state.<br/><br/>The patch captures the old state before publish and registers restoration for callback failure. The follow-up should explain whether restoration happens before the failure escapes.</div></div></div>
+              <aside class="review-actions"><h4>Review understanding</h4><div class="criterion"><b>Behavior</b>Names the externally visible state.</div><div class="criterion"><b>Causality</b>Connects snapshot, publish and rollback.</div><div class="criterion"><b>Edge case</b>Addresses callback failure timing.</div><div class="criterion"><b>SHA current</b>9f31c2e matches GitHub.</div><div class="decision"><button class="pass" type="button">Pass challenge</button><button class="retry" type="button">Request retry</button></div></aside>
+            </div>
+          </section>
+
+          <section class="app-panel" id="policy-panel" role="tabpanel" aria-labelledby="policy-tab">
+            <div class="policy-panel"><h3>Repository policy</h3><p>Make the accountability contract explicit. Keep the setup small enough to understand at a glance.</p><div class="policy-grid"><article class="policy-card"><h4>Who must respond?</h4><p>Apply the gate by contributor relationship.</p><div class="choices"><span class="choice on">First-time</span><span class="choice on">External</span><span class="choice">Members</span></div></article><article class="policy-card"><h4>Accepted modes</h4><p>Contributors choose only from enabled modes.</p><div class="choices"><span class="choice on">Paper</span><span class="choice soon">Live text · MVP+2</span><span class="choice soon">Audio · MVP+2</span></div></article><article class="policy-card"><h4>Private retention</h4><p>Delete evidence automatically after review.</p><div class="choices"><span class="choice on">24 hours</span><span class="choice">12 hours</span><span class="choice">72 hours</span></div></article><article class="policy-card"><h4>Protected paths</h4><p>Require proof where mistakes carry more weight.</p><div class="choices"><span class="choice on">src/**</span><span class="choice on">security/**</span><span class="choice">docs/**</span></div></article></div></div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="shell">
+        <div class="section-head"><p class="eyebrow">Honest boundaries</p><div><h2>Accountability without surveillance.</h2><p class="section-intro">SlopProof does not pretend to read minds, identify authorship or calculate a person’s worth.</p></div></div>
+        <div class="trust"><div class="trust-col"><h3>Public proof</h3><ul class="trust-list"><li>Required check status</li><li>Exact head SHA</li><li>Completion timestamp</li><li>Maintainer approval</li></ul></div><div class="trust-col"><h3>Private evidence</h3><ul class="trust-list"><li>Paper photo or response</li><li>Patch-specific follow-up</li><li>Maintainer review reason</li><li>Deleted on a short retention clock</li></ul></div></div>
+      </div>
+    </section>
+
+    <section class="closing">
+      <div class="shell"><p class="eyebrow">Team Humanity / keep judgment in the loop</p><h2>Fast code still deserves a slow thought.</h2><p>SlopProof makes room for tools—and keeps responsibility attached to the person asking others to merge the result.</p><a class="button" href="#top">Back to the proof ↑</a></div>
+    </section>
+  </main>
+
+  <footer><div class="shell footer-row"><span>SLOP/PROOF — PROVE YOU KNOW WHAT YOU SHIP.</span><span>Concept 01 · 2026 · OPEN SOURCE</span></div></footer>
+
+  <script>
+    const tabs = [...document.querySelectorAll('.app-tab')];
+    const panels = [...document.querySelectorAll('.app-panel')];
+    tabs.forEach((tab) => tab.addEventListener('click', () => {
+      tabs.forEach((item) => item.setAttribute('aria-selected', String(item === tab)));
+      panels.forEach((panel) => panel.classList.toggle('active', panel.id === tab.getAttribute('aria-controls')));
+    }));
+
+    document.querySelector('#upload-demo').addEventListener('click', (event) => {
+      event.currentTarget.textContent = 'Photo selected ✓';
+      event.currentTarget.style.background = 'var(--green)';
+    });
+
+    document.querySelectorAll('.decision button').forEach((button) => button.addEventListener('click', () => {
+      button.textContent = button.classList.contains('pass') ? 'Approved for 9f31c2e ✓' : 'Retry reason required →';
+    }));
+  </script>
+</body>
+</html>

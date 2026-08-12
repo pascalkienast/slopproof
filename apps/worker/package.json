@@ -1,0 +1,27 @@
+{
+  "name": "@slopproof/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup --config tsup.config.ts",
+    "start": "node dist/index.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@slopproof/analysis": "workspace:*",
+    "@slopproof/config": "workspace:*",
+    "@slopproof/db": "workspace:*",
+    "@slopproof/domain": "workspace:*",
+    "@slopproof/github": "workspace:*",
+    "@slopproof/media": "workspace:*",
+    "@slopproof/observability": "workspace:*",
+    "@slopproof/policy": "workspace:*",
+    "@slopproof/providers": "workspace:*",
+    "@slopproof/questions": "workspace:*",
+    "@slopproof/storage": "workspace:*",
+    "pg-boss": "12.27.0",
+    "zod": "4.4.3"
+  }
+}
