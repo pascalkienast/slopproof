@@ -19,6 +19,7 @@ import {
   type StoredProofQuestionV1,
   type TranscriptExtractionContextV1,
 } from "./provider-pipeline-contracts";
+import type { CheckIntentWriter } from "./revision-preparation";
 
 type AttemptRow = {
   attempt_id: string;
@@ -129,7 +130,10 @@ function decodeFrameObjectKey(row: FrameRow) {
 }
 
 export class PostgresProviderPipelineRepository implements ProviderPipelineRepository {
-  constructor(private readonly database: DatabaseConnection) {}
+  constructor(
+    private readonly database: DatabaseConnection,
+    private readonly checkIntents: CheckIntentWriter,
+  ) {}
 
   private async loadQuestions(
     attemptId: string,
@@ -441,10 +445,12 @@ export class PostgresProviderPipelineRepository implements ProviderPipelineRepos
       await client.query("BEGIN");
       const current = await client.query<{
         status: string;
+        revision_id: string;
         head_sha: string;
         is_current: boolean;
       }>(
-        `SELECT attempt.status, attempt.head_sha, revision.is_current
+        `SELECT attempt.status, attempt.revision_id, attempt.head_sha,
+                revision.is_current
            FROM attempts attempt
            JOIN pull_request_revisions revision ON revision.id = attempt.revision_id
           WHERE attempt.id = $1 FOR UPDATE OF attempt`,
@@ -496,6 +502,15 @@ export class PostgresProviderPipelineRepository implements ProviderPipelineRepos
           input.providerRecommendation ?? null,
         ],
       );
+      await this.checkIntents.write(client, {
+        revisionId: row.revision_id,
+        headSha: row.head_sha,
+        status: "in_progress",
+        conclusion: null,
+        summary: `maintainer review required for head ${row.head_sha}`,
+        reason: "review_required",
+        idempotencyKey: input.idempotencyKey,
+      });
       await client.query("COMMIT");
       return "updated";
     } catch (error) {
@@ -517,10 +532,12 @@ export class PostgresProviderPipelineRepository implements ProviderPipelineRepos
       await client.query("BEGIN");
       const current = await client.query<{
         status: string;
+        revision_id: string;
         head_sha: string;
         is_current: boolean;
       }>(
-        `SELECT attempt.status, attempt.head_sha, revision.is_current
+        `SELECT attempt.status, attempt.revision_id, attempt.head_sha,
+                revision.is_current
            FROM attempts attempt
            JOIN pull_request_revisions revision ON revision.id = attempt.revision_id
           WHERE attempt.id = $1 FOR UPDATE OF attempt`,
@@ -565,6 +582,15 @@ export class PostgresProviderPipelineRepository implements ProviderPipelineRepos
                  jsonb_build_object('errorClass', $2::text))`,
         [input.attemptId, input.errorClass],
       );
+      await this.checkIntents.write(client, {
+        revisionId: row.revision_id,
+        headSha: row.head_sha,
+        status: "completed",
+        conclusion: "neutral",
+        summary: `technical retry required for head ${row.head_sha}`,
+        reason: "technical_retry",
+        idempotencyKey: input.idempotencyKey,
+      });
       await client.query("COMMIT");
       return "updated";
     } catch (error) {

@@ -5,6 +5,7 @@ import {
 } from "@slopproof/providers";
 import { issueEvidenceCapability } from "./evidence-capability";
 import { WORKER_REVIEW_CONTEXT_PATH } from "./evidence-worker-contract";
+import type { MaintainerAuthorizationDependencies } from "./maintainer-authorization";
 import { requireEvidenceAccess, writeReviewAudit } from "./maintainer-review";
 import type { WebRuntime } from "./runtime";
 
@@ -12,14 +13,23 @@ const MAX_CONTEXT_BYTES = 8 * 1024 * 1024;
 
 export async function loadPrivateReviewContext(
   app: WebRuntime,
+  request: Request,
   session: AuthenticatedSession,
   attemptId: string,
+  authorizationDependencies: MaintainerAuthorizationDependencies = {},
 ): Promise<PrivateReviewContextV1 | null> {
   const client = await app.database.pool.connect();
   let token: string;
   try {
     await client.query("BEGIN");
-    const access = await requireEvidenceAccess(app, session, attemptId, client);
+    const access = await requireEvidenceAccess(
+      app,
+      request,
+      session,
+      attemptId,
+      client,
+      authorizationDependencies,
+    );
     const issued = issueEvidenceCapability(
       {
         attemptId,

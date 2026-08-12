@@ -3,9 +3,9 @@ import {
   parseJobPayload,
   type JobPayload,
 } from "@slopproof/db";
-import type { FakeGithubCheckAdapter } from "@slopproof/github";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
+import type { CheckIntentWriter } from "./revision-preparation";
 
 const EXPIRABLE_STATUSES = ["preparing", "ready", "active", "uploading"];
 
@@ -16,7 +16,7 @@ export interface ExpiryMultipartAbortPort {
 export type AttemptExpiryDependencies = {
   pool: Pool;
   storage: ExpiryMultipartAbortPort;
-  checks: FakeGithubCheckAdapter;
+  checkIntents: CheckIntentWriter;
   clock?: { now(): Date };
 };
 
@@ -112,17 +112,15 @@ export async function expireAttempt(
         multipartAborted: upload !== undefined,
       },
     });
-    await dependencies.checks.upsert(
-      {
-        revisionId: attempt.revision_id,
-        headSha: attempt.head_sha,
-        status: "completed",
-        conclusion: "neutral",
-        summary: `proof attempt expired for head ${attempt.head_sha}`,
-        detailsUrl: dependencies.checks.detailsUrl(attempt.revision_id),
-      },
-      client,
-    );
+    await dependencies.checkIntents.write(client, {
+      revisionId: attempt.revision_id,
+      headSha: attempt.head_sha,
+      status: "completed",
+      conclusion: "neutral",
+      summary: `proof attempt expired for head ${attempt.head_sha}`,
+      reason: "attempt_expired",
+      idempotencyKey: payload.idempotencyKey,
+    });
     await client.query("COMMIT");
     return { outcome: "expired" };
   } catch (error) {

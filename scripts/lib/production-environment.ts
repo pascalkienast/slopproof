@@ -1,4 +1,9 @@
-import { createHash, createPrivateKey, createPublicKey } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  createPrivateKey,
+  createPublicKey,
+} from "node:crypto";
 import {
   chmodSync,
   closeSync,
@@ -89,6 +94,7 @@ export function compileProductionEnvironment(
   );
   const r2AccessKeyId = required(environment, "CLOUDFLARE_R2_AK");
   const r2ApiToken = required(environment, "CLOUDFLARE_R2_API");
+  const workerInternalSecret = required(environment, "WORKER_INTERNAL_SECRET");
 
   return Object.freeze({
     NODE_ENV: "production",
@@ -107,6 +113,8 @@ export function compileProductionEnvironment(
     GITHUB_WEBHOOK_SECRET: required(environment, "GITHUB_WEBHOOK_SECRET"),
     GITHUB_CLIENT_ID: required(environment, "GITHUB_CLIENT_ID"),
     GITHUB_CLIENT_SECRET: required(environment, "GITHUB_CLIENT_SECRET"),
+    OAUTH_TRUSTED_PROXY_SECRET:
+      deriveOAuthTrustedProxySecret(workerInternalSecret),
 
     GENERATION_PROVIDER: "hetzner",
     GENERATION_BASE_URL: required(environment, "GENERATION_BASE_URL"),
@@ -147,7 +155,7 @@ export function compileProductionEnvironment(
     KEY_WRAPPING_PRIVATE_KEY_CONTAINER_PATH: wrappingPrivateKeyPath,
 
     WORKER_INTERNAL_URL: required(environment, "WORKER_INTERNAL_URL"),
-    WORKER_INTERNAL_SECRET: required(environment, "WORKER_INTERNAL_SECRET"),
+    WORKER_INTERNAL_SECRET: workerInternalSecret,
     PROVIDER_PAYLOAD_KEY_BASE64: required(
       environment,
       "PROVIDER_PAYLOAD_KEY_BASE64",
@@ -157,6 +165,20 @@ export function compileProductionEnvironment(
     FFMPEG_PATH: required(environment, "FFMPEG_PATH"),
     FFPROBE_PATH: required(environment, "FFPROBE_PATH"),
   });
+}
+
+export function deriveOAuthTrustedProxySecret(
+  workerInternalSecret: string,
+): string {
+  if (
+    workerInternalSecret.length < 32 ||
+    /[\0\r\n]/u.test(workerInternalSecret)
+  ) {
+    throw new ProductionEnvironmentError(["WORKER_INTERNAL_SECRET"]);
+  }
+  return createHmac("sha256", workerInternalSecret)
+    .update("slopproof-oauth-trusted-proxy-v1", "utf8")
+    .digest("base64url");
 }
 
 function quoteEnvironmentValue(value: string): string {
@@ -185,6 +207,7 @@ const webEnvironmentNames = [
   "GITHUB_WEBHOOK_SECRET",
   "GITHUB_CLIENT_ID",
   "GITHUB_CLIENT_SECRET",
+  "OAUTH_TRUSTED_PROXY_SECRET",
   "EVIDENCE_STORAGE_PROVIDER",
   "S3_CONTROL_ENDPOINT",
   "S3_PUBLIC_ENDPOINT",
@@ -254,6 +277,8 @@ const githubControlEnvironmentNames = [
   "GITHUB_PRIVATE_KEY_CONTAINER_PATH",
 ] as const;
 
+const proxyEnvironmentNames = ["OAUTH_TRUSTED_PROXY_SECRET"] as const;
+
 function selectEnvironment(
   environment: Readonly<Record<string, string>>,
   names: readonly string[],
@@ -269,6 +294,7 @@ export function partitionProductionEnvironment(
   web: Readonly<Record<string, string>>;
   worker: Readonly<Record<string, string>>;
   githubControl: Readonly<Record<string, string>>;
+  proxy: Readonly<Record<string, string>>;
   migrate: Readonly<Record<string, string>>;
 }> {
   return Object.freeze({
@@ -278,6 +304,7 @@ export function partitionProductionEnvironment(
       environment,
       githubControlEnvironmentNames,
     ),
+    proxy: selectEnvironment(environment, proxyEnvironmentNames),
     migrate: selectEnvironment(environment, [
       "NODE_ENV",
       "DEPLOYMENT_PROFILE",

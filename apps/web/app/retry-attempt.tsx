@@ -5,9 +5,11 @@ import { useState } from "react";
 export function RetryAttempt({
   attemptId,
   headSha,
+  establishDemoSession = false,
 }: {
   attemptId: string;
   headSha: string;
+  establishDemoSession?: boolean;
 }) {
   const [state, setState] = useState<
     { kind: "idle" } | { kind: "loading" } | { kind: "error"; message: string }
@@ -16,13 +18,15 @@ export function RetryAttempt({
   async function retry(): Promise<void> {
     setState({ kind: "loading" });
     try {
-      const login = await fetch("/api/demo/session", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ role: "author", attemptId }),
-      });
-      if (!login.ok)
-        throw new Error("The local author session could not be created.");
+      if (establishDemoSession) {
+        const login = await fetch("/api/demo/session", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ role: "author", attemptId }),
+        });
+        if (!login.ok)
+          throw new Error("The local author session could not be created.");
+      }
       const csrf = readCookie("slopproof_csrf");
       if (!csrf) throw new Error("The CSRF credential was not issued.");
       const response = await fetch(`/api/attempts/${attemptId}/retry`, {

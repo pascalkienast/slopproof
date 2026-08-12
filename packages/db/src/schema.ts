@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  bigserial,
   boolean,
   check,
   index,
@@ -57,12 +58,46 @@ export const jobStateEnum = pgEnum("deletion_job_state", [
   "failed",
 ]);
 
+export const githubLifecycleStatusEnum = pgEnum("github_lifecycle_status", [
+  "active",
+  "suspended",
+  "removed",
+]);
+export const githubOauthPurposeEnum = pgEnum("github_oauth_purpose", [
+  "contributor_login",
+  "maintainer_reauth",
+]);
+export const githubCheckIntentReasonEnum = pgEnum(
+  "github_check_intent_reason",
+  [
+    "webhook_ingested",
+    "analysis_ready",
+    "proof_started",
+    "review_required",
+    "maintainer_decision",
+    "revision_invalidated",
+    "manual_reconcile",
+    "technical_retry",
+    "attempt_expired",
+    "contributor_retry",
+  ],
+);
+export const githubCheckSyncStatusEnum = pgEnum("github_check_sync_status", [
+  "pending",
+  "syncing",
+  "synchronized",
+  "retry_required",
+  "permanent_failure",
+]);
+
 export const installations = pgTable("installations", {
   id: uuid("id").defaultRandom().primaryKey(),
   githubInstallationId: text("github_installation_id").notNull().unique(),
   accountId: text("account_id").notNull(),
   accountLogin: text("account_login").notNull(),
-  status: text("status").notNull().default("active"),
+  status: githubLifecycleStatusEnum("status").notNull().default("active"),
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+  removedAt: timestamp("removed_at", { withTimezone: true }),
   ...timestamps,
 });
 
@@ -72,17 +107,94 @@ export const repositories = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     installationId: uuid("installation_id")
       .notNull()
-      .references(() => installations.id, { onDelete: "cascade" }),
+      .references(() => installations.id, { onDelete: "restrict" }),
     githubRepositoryId: text("github_repository_id").notNull(),
     owner: text("owner").notNull(),
     name: text("name").notNull(),
-    defaultBranch: text("default_branch").notNull(),
+    defaultBranch: text("default_branch"),
     activePolicyVersion: integer("active_policy_version").notNull().default(1),
+    status: githubLifecycleStatusEnum("status").notNull().default("active"),
+    suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
     uniqueIndex("repositories_github_id_uq").on(table.githubRepositoryId),
     uniqueIndex("repositories_owner_name_uq").on(table.owner, table.name),
+  ],
+);
+
+export const githubOauthFlows = pgTable(
+  "github_oauth_flows",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    stateHash: text("state_hash").notNull(),
+    purpose: githubOauthPurposeEnum("purpose").notNull(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "restrict" }),
+    redirectPath: text("redirect_path").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("github_oauth_flows_state_hash_uq").on(table.stateHash),
+    index("github_oauth_flows_expiry_idx")
+      .on(table.expiresAt)
+      .where(sql`${table.consumedAt} IS NULL`),
+    index("github_oauth_flows_cleanup_idx").on(table.expiresAt, table.id),
+    index("github_oauth_flows_created_idx").on(table.createdAt),
+    index("github_oauth_flows_repository_active_idx")
+      .on(table.repositoryId, table.expiresAt)
+      .where(sql`${table.consumedAt} IS NULL`),
+    index("github_oauth_flows_repository_created_idx").on(
+      table.repositoryId,
+      table.createdAt,
+    ),
+    check(
+      "github_oauth_flows_state_hash_format",
+      sql`${table.stateHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "github_oauth_flows_redirect_allowlist",
+      sql`${table.redirectPath} ~ '^/(review(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})?|revisions/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(/contribute(/practice)?)?)$'`,
+    ),
+    check(
+      "github_oauth_flows_expiry_after_creation",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+    check(
+      "github_oauth_flows_consumption_window",
+      sql`${table.consumedAt} IS NULL OR (${table.consumedAt} >= ${table.createdAt} AND ${table.consumedAt} < ${table.expiresAt})`,
+    ),
+  ],
+);
+
+export const oauthStartRateLimits = pgTable(
+  "oauth_start_rate_limits",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    clientKeyHash: text("client_key_hash").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("oauth_start_rate_limits_client_window_idx").on(
+      table.clientKeyHash,
+      table.occurredAt,
+    ),
+    index("oauth_start_rate_limits_cleanup_idx").on(table.expiresAt, table.id),
+    check(
+      "oauth_start_rate_limits_client_key_hash_format",
+      sql`${table.clientKeyHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "oauth_start_rate_limits_expiry_after_occurrence",
+      sql`${table.expiresAt} > ${table.occurredAt}`,
+    ),
   ],
 );
 
@@ -127,6 +239,10 @@ export const pullRequests = pgTable(
     number: integer("number").notNull(),
     authorId: text("author_id").notNull(),
     state: text("state").notNull(),
+    nextGithubRefreshAt: timestamp("next_github_refresh_at", {
+      withTimezone: true,
+    }),
+    githubRecoveryBinding: jsonb("github_recovery_binding"),
     ...timestamps,
   },
   (table) => [
@@ -134,8 +250,37 @@ export const pullRequests = pgTable(
       table.repositoryId,
       table.number,
     ),
+    index("pull_requests_github_refresh_due_idx")
+      .on(table.nextGithubRefreshAt, table.id)
+      .where(
+        sql`${table.state} = 'open' AND ${table.nextGithubRefreshAt} IS NOT NULL`,
+      ),
     uniqueIndex("pull_requests_github_id_uq").on(table.githubPullRequestId),
     check("pull_requests_number_positive", sql`${table.number} > 0`),
+  ],
+);
+
+export const githubRecoveryCandidates = pgTable(
+  "github_recovery_candidates",
+  {
+    pullRequestId: uuid("pull_request_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    githubInstallationId: text("github_installation_id").notNull(),
+    accountId: text("account_id").notNull(),
+    accountLogin: text("account_login").notNull(),
+    owner: text("owner").notNull(),
+    repositoryName: text("repository_name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.pullRequestId, table.githubInstallationId] }),
+    index("github_recovery_candidates_installation_idx").on(
+      table.githubInstallationId,
+      table.pullRequestId,
+    ),
   ],
 );
 
@@ -158,6 +303,7 @@ export const pullRequestRevisions = pgTable(
     uniqueIndex("pull_request_revisions_sha_uq").on(
       table.pullRequestId,
       table.headSha,
+      table.baseSha,
     ),
     uniqueIndex("pull_request_revisions_one_current_uq")
       .on(table.pullRequestId)
@@ -177,16 +323,89 @@ export const pullRequestRevisions = pgTable(
   ],
 );
 
-export const webhookDeliveries = pgTable("webhook_deliveries", {
-  deliveryId: text("delivery_id").primaryKey(),
-  eventName: text("event_name").notNull(),
-  payloadHash: text("payload_hash").notNull(),
-  processingStatus: text("processing_status").notNull().default("reserved"),
-  receivedAt: timestamp("received_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-  processedAt: timestamp("processed_at", { withTimezone: true }),
-});
+export const githubRevisionSources = pgTable(
+  "github_revision_sources",
+  {
+    revisionId: uuid("revision_id")
+      .primaryKey()
+      .references(() => pullRequestRevisions.id, { onDelete: "restrict" }),
+    headSha: text("head_sha").notNull(),
+    baseSha: text("base_sha").notNull(),
+    source: jsonb("source").$type<Record<string, unknown>>().notNull(),
+    sourceHash: text("source_hash").notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    check(
+      "github_revision_sources_head_sha_format",
+      sql`${table.headSha} ~ '^[0-9a-f]{40}$'`,
+    ),
+    check(
+      "github_revision_sources_base_sha_format",
+      sql`${table.baseSha} ~ '^[0-9a-f]{40}$'`,
+    ),
+    check(
+      "github_revision_sources_hash_format",
+      sql`${table.sourceHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "github_revision_sources_object",
+      sql`jsonb_typeof(${table.source}) = 'object'`,
+    ),
+    check(
+      "github_revision_sources_sha_binding",
+      sql`${table.source}->>'headSha' = ${table.headSha} AND ${table.source}->>'baseSha' = ${table.baseSha}`,
+    ),
+    check(
+      "github_revision_sources_size_bound",
+      sql`octet_length(${table.source}::text) <= 3145728`,
+    ),
+  ],
+);
+
+export const webhookDeliveries = pgTable(
+  "webhook_deliveries",
+  {
+    deliveryId: text("delivery_id").primaryKey(),
+    eventName: text("event_name").notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    processingStatus: text("processing_status").notNull().default("reserved"),
+    queuedAt: timestamp("queued_at", { withTimezone: true }),
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    retryAttempts: integer("retry_attempts").default(0).notNull(),
+    jobPayload: jsonb("job_payload").$type<Record<string, unknown>>(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("webhook_deliveries_stale_queue_idx")
+      .on(
+        sql`COALESCE(${table.nextRetryAt}, ${table.queuedAt})`,
+        table.deliveryId,
+      )
+      .where(
+        sql`${table.processingStatus} = 'queued' AND ${table.jobPayload} IS NOT NULL`,
+      ),
+    check(
+      "webhook_deliveries_retry_attempts_nonnegative",
+      sql`${table.retryAttempts} >= 0`,
+    ),
+    check(
+      "webhook_deliveries_pr_job_payload_shape",
+      sql`${table.jobPayload} IS NULL OR (${table.eventName} = 'pull_request' AND jsonb_typeof(${table.jobPayload}) = 'object' AND octet_length(${table.jobPayload}::text) <= 8192)`,
+    ),
+    check(
+      "webhook_deliveries_retry_schedule_state",
+      sql`${table.nextRetryAt} IS NULL OR ${table.processingStatus} = 'queued'`,
+    ),
+    check(
+      "webhook_deliveries_processing_status",
+      sql`${table.processingStatus} IN ('reserved', 'queued', 'processed', 'ignored', 'permanent_failure')`,
+    ),
+  ],
+);
 
 export const analysisSnapshots = pgTable(
   "analysis_snapshots",
@@ -614,7 +833,7 @@ export const checkRuns = pgTable(
     revisionId: uuid("revision_id")
       .notNull()
       .references(() => pullRequestRevisions.id, { onDelete: "cascade" }),
-    githubCheckRunId: text("github_check_run_id").notNull(),
+    githubCheckRunId: text("github_check_run_id"),
     name: text("name").notNull(),
     status: checkStatusEnum("status").notNull(),
     conclusion: checkConclusionEnum("conclusion"),
@@ -622,14 +841,55 @@ export const checkRuns = pgTable(
     detailsUrl: text("details_url").notNull(),
     lastSynchronizedAt: timestamp("last_synchronized_at", {
       withTimezone: true,
-    })
+    }),
+    syncStatus: githubCheckSyncStatusEnum("sync_status")
+      .default("synchronized")
+      .notNull(),
+    syncAttempts: integer("sync_attempts").default(0).notNull(),
+    lastSyncErrorClass: text("last_sync_error_class"),
+    syncRequestedAt: timestamp("sync_requested_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    nextSyncAfter: timestamp("next_sync_after", { withTimezone: true }),
+    intentIdempotencyKey: text("intent_idempotency_key"),
+    intentHash: text("intent_hash"),
+    intentReason: githubCheckIntentReasonEnum("intent_reason"),
     ...timestamps,
   },
   (table) => [
     uniqueIndex("check_runs_revision_uq").on(table.revisionId),
     uniqueIndex("check_runs_github_id_uq").on(table.githubCheckRunId),
+    index("check_runs_pending_sync_idx")
+      .on(table.syncStatus, table.nextSyncAfter, table.syncRequestedAt)
+      .where(sql`${table.syncStatus} IN ('pending', 'retry_required')`),
+    check(
+      "check_runs_sync_attempts_nonnegative",
+      sql`${table.syncAttempts} >= 0`,
+    ),
+    check(
+      "check_runs_error_class_format",
+      sql`${table.lastSyncErrorClass} IS NULL OR ${table.lastSyncErrorClass} ~ '^[A-Za-z][A-Za-z0-9_.:-]{0,127}$'`,
+    ),
+    check(
+      "check_runs_next_sync_after_state",
+      sql`${table.nextSyncAfter} IS NULL OR ${table.syncStatus} = 'retry_required'`,
+    ),
+    check(
+      "check_runs_intent_pair",
+      sql`(${table.intentIdempotencyKey} IS NULL AND ${table.intentHash} IS NULL AND ${table.intentReason} IS NULL) OR (${table.intentIdempotencyKey} IS NOT NULL AND ${table.intentHash} IS NOT NULL AND ${table.intentReason} IS NOT NULL)`,
+    ),
+    check(
+      "check_runs_intent_key_format",
+      sql`${table.intentIdempotencyKey} IS NULL OR ${table.intentIdempotencyKey} ~ '^[A-Za-z0-9._:-]{8,200}$'`,
+    ),
+    check(
+      "check_runs_intent_hash_format",
+      sql`${table.intentHash} IS NULL OR ${table.intentHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "check_runs_status_conclusion_consistent",
+      sql`(${table.status} = 'completed' AND ${table.conclusion} IS NOT NULL) OR (${table.status} <> 'completed' AND ${table.conclusion} IS NULL)`,
+    ),
   ],
 );
 

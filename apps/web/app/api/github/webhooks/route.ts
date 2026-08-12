@@ -2,32 +2,30 @@ import {
   InvalidWebhookPayloadError,
   InvalidWebhookSignatureError,
   WebhookDeliveryConflictError,
-  ingestPullRequestWebhook,
+  ingestGithubWebhook,
 } from "@slopproof/github";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
+import {
+  RequestBodyTooLargeError,
+  readBoundedBody,
+} from "../../../../lib/bounded-body";
 import { getWebRuntime } from "../../../../lib/runtime";
 
 export const runtime = "nodejs";
 const MAX_WEBHOOK_BYTES = 2 * 1024 * 1024;
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const declaredLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_WEBHOOK_BYTES) {
-    return NextResponse.json({ error: "payload_too_large" }, { status: 413 });
-  }
-
-  const rawBody = new Uint8Array(await request.arrayBuffer());
-  if (rawBody.byteLength === 0 || rawBody.byteLength > MAX_WEBHOOK_BYTES) {
-    return NextResponse.json(
-      { error: "invalid_payload_size" },
-      { status: 400 },
-    );
-  }
-
   try {
+    const rawBody = await readBoundedBody(request, MAX_WEBHOOK_BYTES);
+    if (rawBody.byteLength === 0) {
+      return NextResponse.json(
+        { error: "invalid_payload_size" },
+        { status: 400 },
+      );
+    }
     const app = await getWebRuntime();
-    const result = await ingestPullRequestWebhook({
+    const result = await ingestGithubWebhook({
       pool: app.database.pool,
       queue: app.githubQueue,
       secret: app.config.GITHUB_WEBHOOK_SECRET,
@@ -39,10 +37,17 @@ export async function POST(request: Request): Promise<NextResponse> {
       },
     });
     return NextResponse.json(
-      { accepted: result.accepted, duplicate: result.duplicate },
+      {
+        accepted: result.accepted,
+        duplicate: result.duplicate,
+        ignored: result.ignored,
+      },
       { status: 202 },
     );
   } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return NextResponse.json({ error: "payload_too_large" }, { status: 413 });
+    }
     if (error instanceof InvalidWebhookSignatureError) {
       return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
     }

@@ -146,6 +146,28 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  github-control:
+    image: *app-image
+    build: *app-build
+    command: ["node", "apps/github-control/dist/index.cjs"]
+    init: true
+    cpus: 0.25
+    mem_limit: 256m
+    pids_limit: 64
+    environment:
+      NODE_ENV: production
+      DEPLOYMENT_PROFILE: local
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      DATABASE_URL: postgres://slopproof:${POSTGRES_PASSWORD:-slopproof-local-only}@postgres:5432/slopproof
+      GITHUB_ADAPTER: fake
+      LOG_LEVEL: info
+      DEMO_MODE: "true"
+      DEMO_FAKE_MEDIA: "false"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   worker:
     image: *app-image
     build: *app-build

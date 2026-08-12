@@ -19,15 +19,20 @@ import {
 import {
   abortAttemptForTechnicalRetry,
   createReplacementAttempt,
+  type CheckIntentWriter,
+  type CheckIntentWriterInput,
   type MultipartAbortPort,
 } from "../../apps/web/lib/attempt-lifecycle";
 import { expireAttempt } from "../../apps/worker/src/attempt-expiry";
 import {
+  createWorkerCheckIntentWriter,
   prepareRevision,
+  type CheckIntentWriter as WorkerCheckIntentWriter,
   type RevisionPatchRequest,
   type RevisionPatchSource,
 } from "../../apps/worker/src/revision-preparation";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { PoolClient } from "pg";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const databaseDescribe = databaseUrl ? describe : describe.skip;
@@ -67,22 +72,40 @@ class FakeAbortStorage implements MultipartAbortPort {
   }
 }
 
+class RecordingCheckIntentWriter implements CheckIntentWriter {
+  readonly calls: CheckIntentWriterInput[] = [];
+
+  async write(
+    _client: PoolClient,
+    input: CheckIntentWriterInput,
+  ): Promise<void> {
+    this.calls.push(input);
+  }
+}
+
 databaseDescribe("complete current-SHA product flow", () => {
   let connection: DatabaseConnection;
   let jobQueue: Awaited<ReturnType<typeof startJobQueue>>;
   let githubQueue: PgBossPullRequestQueue;
   let checks: FakeGithubCheckAdapter;
+  let checkIntents: RecordingCheckIntentWriter;
+  let workerCheckIntents: WorkerCheckIntentWriter;
   let storage: FakeAbortStorage;
 
   beforeAll(async () => {
     connection = connectDatabase(databaseUrl!);
     await migrateDatabase(connection.pool);
     jobQueue = await startJobQueue(databaseUrl!);
+    workerCheckIntents = createWorkerCheckIntentWriter(
+      jobQueue,
+      "https://slopproof.test",
+    );
     githubQueue = new PgBossPullRequestQueue(databaseUrl!);
     checks = new FakeGithubCheckAdapter(
       connection.pool,
       "https://slopproof.test",
     );
+    checkIntents = new RecordingCheckIntentWriter();
     storage = new FakeAbortStorage();
     await registerJobWorker(
       jobQueue,
@@ -91,7 +114,7 @@ databaseDescribe("complete current-SHA product flow", () => {
         await prepareRevision(job.data, {
           pool: connection.pool,
           queue: jobQueue,
-          checks,
+          checkIntents: workerCheckIntents,
           patchSource: new TestPatchSource(),
         });
       },
@@ -100,7 +123,7 @@ databaseDescribe("complete current-SHA product flow", () => {
       await expireAttempt(job.data, {
         pool: connection.pool,
         storage,
-        checks,
+        checkIntents: workerCheckIntents,
       });
     });
     await githubQueue.start();
@@ -132,6 +155,7 @@ databaseDescribe("complete current-SHA product flow", () => {
 
   beforeEach(async () => {
     storage.calls.length = 0;
+    checkIntents.calls.length = 0;
     await connection.pool.query(`
       TRUNCATE TABLE
         audit_events, deletion_jobs, check_runs, review_decisions, evaluations,
@@ -253,7 +277,7 @@ databaseDescribe("complete current-SHA product flow", () => {
       pool: connection.pool,
       queue: jobQueue,
       storage,
-      checks,
+      checkIntents,
     };
     const abortInput = {
       attemptId: attempt.id,
@@ -317,6 +341,72 @@ databaseDescribe("complete current-SHA product flow", () => {
       replay: true,
     });
     expect(await count(connection, "attempts")).toBe(2);
+    expect(checkIntents.calls).toMatchObject([
+      {
+        revisionId: attempt.revision_id,
+        headSha: attempt.head_sha,
+        status: "completed",
+        conclusion: "neutral",
+        reason: "technical_retry",
+        idempotencyKey: abortInput.idempotencyKey,
+      },
+      {
+        revisionId: attempt.revision_id,
+        headSha: attempt.head_sha,
+        status: "in_progress",
+        conclusion: null,
+        reason: "contributor_retry",
+        idempotencyKey: retryInput.idempotencyKey,
+      },
+    ]);
+  });
+
+  it("rolls back a lifecycle transition when its check intent cannot be persisted", async () => {
+    const attempt = await createReadyFlow(
+      connection,
+      githubQueue,
+      "71000000-0000-4000-8000-000000000012",
+      "9".repeat(40),
+    );
+    const failingCheckIntents: CheckIntentWriter = {
+      async write() {
+        throw new Error("simulated check-intent persistence failure");
+      },
+    };
+
+    await expect(
+      abortAttemptForTechnicalRetry(
+        {
+          pool: connection.pool,
+          queue: jobQueue,
+          storage,
+          checkIntents: failingCheckIntents,
+        },
+        {
+          attemptId: attempt.id,
+          expectedHeadSha: attempt.head_sha,
+          reason: "recorder_error",
+          idempotencyKey: `technical-abort:${attempt.id}`,
+          session: authorSession(attempt),
+        },
+      ),
+    ).rejects.toThrow("simulated check-intent persistence failure");
+
+    const persisted = await connection.pool.query<{
+      status: string;
+      transition_count: number;
+    }>(
+      `SELECT attempt.status,
+              (SELECT count(*)::int FROM attempt_transitions transition
+                WHERE transition.attempt_id = attempt.id
+                  AND transition.to_status = 'technical_retry') AS transition_count
+         FROM attempts attempt WHERE attempt.id = $1`,
+      [attempt.id],
+    );
+    expect(persisted.rows[0]).toEqual({
+      status: "ready",
+      transition_count: 0,
+    });
   });
 
   it("does not abort a finalization that already advanced to processing, and expires due uploads", async () => {
@@ -338,7 +428,7 @@ databaseDescribe("complete current-SHA product flow", () => {
     );
     await expect(
       abortAttemptForTechnicalRetry(
-        { pool: connection.pool, queue: jobQueue, storage, checks },
+        { pool: connection.pool, queue: jobQueue, storage, checkIntents },
         {
           attemptId: processing.id,
           expectedHeadSha: processing.head_sha,
@@ -387,7 +477,7 @@ databaseDescribe("complete current-SHA product flow", () => {
         {
           pool: connection.pool,
           storage,
-          checks,
+          checkIntents: workerCheckIntents,
           clock: {
             now: () =>
               new Date(expiresAt.rows[0]!.expires_at.getTime() + 1_000),

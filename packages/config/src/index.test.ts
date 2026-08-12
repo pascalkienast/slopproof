@@ -214,6 +214,7 @@ describe("process-scoped configuration", () => {
       GITHUB_WEBHOOK_SECRET: "w".repeat(48),
       GITHUB_CLIENT_ID: "Iv1.production-client-id",
       GITHUB_CLIENT_SECRET: "c".repeat(40),
+      OAUTH_TRUSTED_PROXY_SECRET: "p".repeat(48),
       S3_PUBLIC_ENDPOINT: productionStorage.S3_CONTROL_ENDPOINT,
       KEY_WRAPPING_PROVIDER: "local",
       KEY_WRAPPING_PUBLIC_KEY_PATH: "/host/secrets/wrapping-public.pem",
@@ -225,6 +226,7 @@ describe("process-scoped configuration", () => {
 
     expect(config.GITHUB_ADAPTER).toBe("octokit");
     expect(config.DEMO_MODE).toBe(false);
+    expect(config.OAUTH_TRUSTED_PROXY_SECRET).toBe("p".repeat(48));
     expect(config).not.toHaveProperty("GITHUB_APP_ID");
   });
 
@@ -287,6 +289,7 @@ describe("process-scoped configuration", () => {
           GITHUB_WEBHOOK_SECRET: "w".repeat(48),
           GITHUB_CLIENT_ID: "Iv1.production-client-id",
           GITHUB_CLIENT_SECRET: "c".repeat(40),
+          OAUTH_TRUSTED_PROXY_SECRET: "p".repeat(48),
           GITHUB_PRIVATE_KEY_PATH: "/must-not-enter-web/github.pem",
           S3_PUBLIC_ENDPOINT: productionStorage.S3_CONTROL_ENDPOINT,
           KEY_WRAPPING_PROVIDER: "local",
@@ -387,6 +390,16 @@ describe("process-scoped configuration", () => {
       { WORKER_INTERNAL_URL: "https://attacker.example" },
       "WORKER_INTERNAL_URL",
     ],
+    [
+      "missing trusted OAuth proxy boundary",
+      { OAUTH_TRUSTED_PROXY_SECRET: undefined },
+      "OAUTH_TRUSTED_PROXY_SECRET",
+    ],
+    [
+      "malformed trusted OAuth proxy secret",
+      { OAUTH_TRUSTED_PROXY_SECRET: "contains spaces and punctuation!" },
+      "OAUTH_TRUSTED_PROXY_SECRET",
+    ],
   ])("rejects %s in the production web profile", (_name, override, field) => {
     expectConfigurationFields(
       () =>
@@ -398,6 +411,7 @@ describe("process-scoped configuration", () => {
           GITHUB_WEBHOOK_SECRET: "w".repeat(48),
           GITHUB_CLIENT_ID: "Iv1.production-client-id",
           GITHUB_CLIENT_SECRET: "c".repeat(40),
+          OAUTH_TRUSTED_PROXY_SECRET: "p".repeat(48),
           S3_PUBLIC_ENDPOINT: productionStorage.S3_CONTROL_ENDPOINT,
           KEY_WRAPPING_PROVIDER: "local",
           KEY_WRAPPING_PUBLIC_KEY_PATH: "/host/public.pem",

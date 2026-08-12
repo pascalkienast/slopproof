@@ -10,6 +10,20 @@ export async function readBoundedUtf8Body(
   request: Request,
   maximumBytes: number,
 ): Promise<string> {
+  const bytes = await readBoundedBody(request, maximumBytes);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new InvalidRequestBodyEncodingError("Request body is not UTF-8", {
+      cause: error,
+    });
+  }
+}
+
+export async function readBoundedBody(
+  request: Request,
+  maximumBytes: number,
+): Promise<Uint8Array> {
   if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
     throw new TypeError("maximumBytes must be a positive safe integer");
   }
@@ -24,7 +38,7 @@ export async function readBoundedUtf8Body(
       throw new RequestBodyTooLargeError();
     }
   }
-  if (!request.body) return "";
+  if (!request.body) return new Uint8Array();
 
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -50,11 +64,5 @@ export async function readBoundedUtf8Body(
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch (error) {
-    throw new InvalidRequestBodyEncodingError("Request body is not UTF-8", {
-      cause: error,
-    });
-  }
+  return bytes;
 }

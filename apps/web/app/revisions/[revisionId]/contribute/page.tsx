@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { RetryAttempt } from "../../../retry-attempt";
 import { ProofHandoff } from "../../../demo/pr/[number]/proof-handoff";
+import { readPageSession } from "../../../../lib/http-auth";
 import { getWebRuntime } from "../../../../lib/runtime";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +40,13 @@ export default async function ContributorPage({
     .safeParse((await params).revisionId);
   if (!revisionId.success) notFound();
   const app = await getWebRuntime();
+  const session = app.config.DEMO_MODE ? null : await readPageSession(app);
+  if (
+    !app.config.DEMO_MODE &&
+    (!session || session.actorRole !== "author" || !session.repositoryId)
+  ) {
+    return <ContributorLogin revisionId={revisionId.data} practice={false} />;
+  }
   const result = await app.database.pool.query<ContributorView>(
     `SELECT repository.owner, repository.name,
             pull_request.number AS pull_request_number,
@@ -56,8 +64,17 @@ export default async function ContributorPage({
      ) attempt ON true
      JOIN proof_plans proof_plan ON proof_plan.id = attempt.proof_plan_id
      WHERE revision.id = $1
+       AND ($2::boolean OR (
+         repository.id = $3::uuid
+         AND pull_request.author_id = $4
+       ))
      LIMIT 1`,
-    [revisionId.data],
+    [
+      revisionId.data,
+      app.config.DEMO_MODE,
+      session?.repositoryId ?? "00000000-0000-0000-0000-000000000000",
+      session?.actorId ?? "",
+    ],
   );
   const view = result.rows[0];
   if (!view) notFound();
@@ -112,12 +129,16 @@ export default async function ContributorPage({
               SHA.
             </p>
             {view.status === "ready" ? (
-              <ProofHandoff attemptId={view.attempt_id} />
+              <ProofHandoff
+                attemptId={view.attempt_id}
+                establishDemoSession={app.config.DEMO_MODE}
+              />
             ) : null}
             {RETRYABLE_STATUSES.has(view.status) ? (
               <RetryAttempt
                 attemptId={view.attempt_id}
                 headSha={view.head_sha}
+                establishDemoSession={app.config.DEMO_MODE}
               />
             ) : null}
             {["active", "uploading", "processing", "review_required"].includes(
@@ -135,6 +156,34 @@ export default async function ContributorPage({
         Browser recording data is encrypted before upload. Technical failures
         create a fresh attempt; they never become a model decision.
       </section>
+    </main>
+  );
+}
+
+function ContributorLogin({
+  revisionId,
+  practice,
+}: {
+  revisionId: string;
+  practice: boolean;
+}) {
+  const returnTo = `/revisions/${revisionId}/contribute${practice ? "/practice" : ""}`;
+  return (
+    <main className="shell flow-shell">
+      <p className="eyebrow">Contributor authorization</p>
+      <h1 className="flow-title">Continue with GitHub.</h1>
+      <p>
+        SlopProof verifies that your GitHub account is the author of this
+        current pull request before showing private proof material.
+      </p>
+      <div className="actions compact-actions">
+        <a
+          className="button primary"
+          href={`/api/auth/github/start?returnTo=${encodeURIComponent(returnTo)}`}
+        >
+          Authorize with GitHub
+        </a>
+      </div>
     </main>
   );
 }

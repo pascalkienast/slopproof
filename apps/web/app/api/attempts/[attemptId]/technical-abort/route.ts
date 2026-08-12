@@ -1,5 +1,4 @@
 import { IdempotencyKeySchema, UuidSchema } from "@slopproof/domain";
-import { FakeGithubCheckAdapter } from "@slopproof/github";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
@@ -17,6 +16,7 @@ import {
   requireMutationSession,
 } from "../../../../../lib/http-auth";
 import { getWebRuntime } from "../../../../../lib/runtime";
+import { createWebCheckIntentWriter } from "../../../../../lib/check-intent-writer";
 
 const MAX_BODY_BYTES = 2 * 1_024;
 
@@ -33,16 +33,12 @@ export async function POST(
     );
     const body = await readBoundedUtf8Body(request, MAX_BODY_BYTES);
     const input = TechnicalAbortRequestSchema.parse(JSON.parse(body));
-    const checks = new FakeGithubCheckAdapter(
-      app.database.pool,
-      app.config.APP_BASE_URL,
-    );
     const result = await abortAttemptForTechnicalRetry(
       {
         pool: app.database.pool,
         queue: app.jobQueue,
         storage: app.storage,
-        checks,
+        checkIntents: createWebCheckIntentWriter(app),
       },
       { attemptId, idempotencyKey, session, ...input },
     );

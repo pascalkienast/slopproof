@@ -80,6 +80,30 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@types/node@24.13.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.27.7)(tsx@4.23.12)(yaml@2.9.0))
 
+  apps/github-control:
+    dependencies:
+      "@slopproof/config":
+        specifier: workspace:*
+        version: link:../../packages/config
+      "@slopproof/db":
+        specifier: workspace:*
+        version: link:../../packages/db
+      "@slopproof/github":
+        specifier: workspace:*
+        version: link:../../packages/github
+      "@slopproof/observability":
+        specifier: workspace:*
+        version: link:../../packages/observability
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
+      pg-boss:
+        specifier: 12.27.0
+        version: 12.27.0
+      zod:
+        specifier: 4.3.6
+        version: 4.3.6
+
   apps/web:
     dependencies:
       "@slopproof/analysis":
@@ -5211,6 +5235,12 @@ packages:
       }
     engines: { node: ">= 14" }
 
+  zod@4.3.6:
+    resolution:
+      {
+        integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==,
+      }
+
   zod@4.4.3:
     resolution:
       {
@@ -7944,5 +7974,7 @@ snapshots:
       archiver-utils: 5.0.2
       compress-commons: 6.0.2
       readable-stream: 4.7.0
+
+  zod@4.3.6: {}
 
   zod@4.4.3: {}

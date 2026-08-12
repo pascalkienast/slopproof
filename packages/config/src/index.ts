@@ -71,6 +71,12 @@ const webSchema = z
     GITHUB_WEBHOOK_SECRET: z.string().min(32),
     GITHUB_CLIENT_ID: z.string().trim().min(1),
     GITHUB_CLIENT_SECRET: z.string().min(1),
+    OAUTH_TRUSTED_PROXY_SECRET: z
+      .string()
+      .min(32)
+      .max(256)
+      .regex(/^[A-Za-z0-9_-]+$/u)
+      .optional(),
     S3_PUBLIC_ENDPOINT: z.url(),
     KEY_WRAPPING_PROVIDER: z.enum(["local", "kms"]),
     KEY_WRAPPING_PUBLIC_KEY_PATH: z.string().min(1),
@@ -104,6 +110,12 @@ const webSchema = z
       value.GITHUB_CLIENT_SECRET,
       "GITHUB_CLIENT_SECRET",
       20,
+    );
+    requireSafeSecret(
+      context,
+      value.OAUTH_TRUSTED_PROXY_SECRET ?? "",
+      "OAUTH_TRUSTED_PROXY_SECRET",
+      32,
     );
     requireSafeSecret(
       context,
@@ -594,6 +606,7 @@ const baseForbiddenProductionFields = [
   "TRANSCRIPTION_API_KEY",
   "GITHUB_WEBHOOK_SECRET",
   "GITHUB_CLIENT_SECRET",
+  "OAUTH_TRUSTED_PROXY_SECRET",
   "GITHUB_PRIVATE_KEY_PATH",
   "GITHUB_PRIVATE_KEY_CONTAINER_PATH",
   "S3_SECRET_ACCESS_KEY",
@@ -621,6 +634,7 @@ const workerForbiddenProductionFields = [
   "GITHUB_WEBHOOK_SECRET",
   "GITHUB_CLIENT_ID",
   "GITHUB_CLIENT_SECRET",
+  "OAUTH_TRUSTED_PROXY_SECRET",
   "KEY_WRAPPING_PUBLIC_KEY_PATH",
   "KEY_WRAPPING_PUBLIC_KEY_CONTAINER_PATH",
 ] as const;
@@ -636,6 +650,7 @@ const githubControlForbiddenProductionFields = [
   "GITHUB_WEBHOOK_SECRET",
   "GITHUB_CLIENT_ID",
   "GITHUB_CLIENT_SECRET",
+  "OAUTH_TRUSTED_PROXY_SECRET",
   "S3_ACCESS_KEY_ID",
   "S3_SECRET_ACCESS_KEY",
   "KEY_WRAPPING_PUBLIC_KEY_PATH",

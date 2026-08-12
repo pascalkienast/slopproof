@@ -3,7 +3,13 @@
 import QRCode from "qrcode";
 import { useState } from "react";
 
-export function ProofHandoff({ attemptId }: { attemptId: string }) {
+export function ProofHandoff({
+  attemptId,
+  establishDemoSession = false,
+}: {
+  attemptId: string;
+  establishDemoSession?: boolean;
+}) {
   const [state, setState] = useState<
     | { kind: "idle" }
     | { kind: "loading" }
@@ -14,13 +20,15 @@ export function ProofHandoff({ attemptId }: { attemptId: string }) {
   async function create(): Promise<void> {
     setState({ kind: "loading" });
     try {
-      const login = await fetch("/api/demo/session", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ role: "author", attemptId }),
-      });
-      if (!login.ok)
-        throw new Error("The local author session could not be created.");
+      if (establishDemoSession) {
+        const login = await fetch("/api/demo/session", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ role: "author", attemptId }),
+        });
+        if (!login.ok)
+          throw new Error("The local author session could not be created.");
+      }
       const csrf = readCookie("slopproof_csrf");
       if (!csrf) throw new Error("The CSRF credential was not issued.");
       const response = await fetch(`/api/attempts/${attemptId}/handoff`, {

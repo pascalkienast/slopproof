@@ -36,6 +36,7 @@ if (!outputDirectory) {
       ["web.env", partitions.web],
       ["worker.env", partitions.worker],
       ["github-control.env", partitions.githubControl],
+      ["proxy.env", partitions.proxy],
       ["migrate.env", partitions.migrate],
     ] as const;
     for (const [fileName, environment] of files) {

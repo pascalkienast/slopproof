@@ -5,7 +5,7 @@ import {
   type IssuedSession,
 } from "@slopproof/auth";
 import type { WebRuntime } from "./runtime";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
 
 export const SESSION_COOKIE = "slopproof_session";
@@ -46,6 +46,9 @@ export async function requireSession(
     app.config.SESSION_SECRET,
   );
   if (!session) throw new HttpAuthError(401, "authentication_required");
+  if (!(await hasActiveRepositoryBinding(app, session))) {
+    throw new HttpAuthError(403, "forbidden");
+  }
   return session;
 }
 
@@ -53,11 +56,85 @@ export async function readPageSession(
   app: WebRuntime,
 ): Promise<AuthenticatedSession | null> {
   const cookieStore = await cookies();
-  return authenticateSession(
+  const session = await authenticateSession(
     app.database.pool,
     cookieStore.get(SESSION_COOKIE)?.value,
     app.config.SESSION_SECRET,
   );
+  if (!session || !(await hasActiveRepositoryBinding(app, session))) {
+    return null;
+  }
+  return session;
+}
+
+/**
+ * Reads one immutable incoming Cookie header for both the server-rendered page
+ * session and the request-near GitHub user-token check. Only the Cookie header
+ * is forwarded, and the synthetic request URL is restricted to an exact local
+ * path under the configured application origin.
+ */
+export async function readPageSessionRequest(
+  app: WebRuntime,
+  pathname: string,
+): Promise<Readonly<{
+  request: Request;
+  session: AuthenticatedSession;
+}> | null> {
+  const baseUrl = new URL(app.config.APP_BASE_URL);
+  if (
+    !pathname.startsWith("/") ||
+    pathname.startsWith("//") ||
+    /[\0\r\n]/u.test(pathname)
+  ) {
+    throw new HttpAuthError(403, "forbidden");
+  }
+  const requestUrl = new URL(pathname, baseUrl);
+  if (
+    requestUrl.origin !== baseUrl.origin ||
+    requestUrl.pathname !== pathname ||
+    requestUrl.search ||
+    requestUrl.hash
+  ) {
+    throw new HttpAuthError(403, "forbidden");
+  }
+
+  const incomingHeaders = await headers();
+  const cookieHeader = incomingHeaders.get("cookie");
+  const forwardedHeaders = new Headers();
+  if (cookieHeader) forwardedHeaders.set("cookie", cookieHeader);
+  const request = new Request(requestUrl, { headers: forwardedHeaders });
+  const session = await authenticateSession(
+    app.database.pool,
+    requestCookieValue(request, SESSION_COOKIE),
+    app.config.SESSION_SECRET,
+  );
+  if (!session || !(await hasActiveRepositoryBinding(app, session))) {
+    return null;
+  }
+  return Object.freeze({ request, session });
+}
+
+/**
+ * Rechecks the installation/repository trust boundary for every authenticated
+ * request. Attempt-specific handlers still compare this repository id with
+ * their locked aggregate before mutating it.
+ */
+async function hasActiveRepositoryBinding(
+  app: WebRuntime,
+  session: AuthenticatedSession,
+): Promise<boolean> {
+  if (!session.repositoryId) return true;
+  const active = await app.database.pool.query(
+    `SELECT 1
+       FROM repositories repository
+       JOIN installations installation ON installation.id = repository.installation_id
+      WHERE repository.id = $1
+        AND repository.status = 'active'
+        AND installation.status = 'active'
+      LIMIT 1`,
+    [session.repositoryId],
+  );
+  return active.rowCount === 1;
 }
 
 export async function requireMutationSession(

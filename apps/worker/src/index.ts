@@ -4,16 +4,9 @@ import { loadWorkerConfig } from "@slopproof/config";
 import {
   connectDatabase,
   enqueueJob,
-  enqueueJobInPgTransaction,
-  expediteJobInPgTransaction,
   registerJobWorker,
   startJobQueue,
 } from "@slopproof/db";
-import {
-  FakeGithubCheckAdapter,
-  PgBossPullRequestQueue,
-  processPullRequestJob,
-} from "@slopproof/github";
 import { createLogger } from "@slopproof/observability";
 import {
   LocalFakeMultimodalJudgeProvider,
@@ -34,6 +27,7 @@ import {
 } from "./provider-pipeline";
 import { PostgresProviderPipelineRepository } from "./provider-pipeline-repository";
 import {
+  createWorkerCheckIntentWriter,
   LocalFakeRevisionPatchSource,
   prepareRevision,
 } from "./revision-preparation";
@@ -47,7 +41,6 @@ const log = createLogger(
   config.LOG_LEVEL,
 );
 const database = connectDatabase(config.DATABASE_URL);
-const githubQueue = new PgBossPullRequestQueue(config.DATABASE_URL);
 const storage = new S3EvidenceStore({
   region: config.S3_REGION,
   bucket: config.S3_BUCKET,
@@ -131,13 +124,6 @@ async function handleHttpRequest(
 }
 
 async function start(): Promise<void> {
-  if (config.GITHUB_ADAPTER !== "fake") {
-    throw new Error(
-      "Only the local fake GitHub adapter is enabled in this MVP build",
-    );
-  }
-
-  const checks = new FakeGithubCheckAdapter(database.pool, config.APP_BASE_URL);
   if (!config.KEY_WRAPPING_PRIVATE_KEY_PATH) {
     throw new Error("The local worker requires a private wrapping key path");
   }
@@ -151,8 +137,17 @@ async function start(): Promise<void> {
       "Only local fake media providers are enabled in this MVP build",
     );
   }
-  const activeJobQueue = await startJobQueue(config.DATABASE_URL);
+  const activeJobQueue = await startJobQueue(config.DATABASE_URL, (error) => {
+    log.error(
+      { errorClass: error instanceof Error ? error.name : "UnknownError" },
+      "queue.error",
+    );
+  });
   jobQueue = activeJobQueue;
+  const checkIntents = createWorkerCheckIntentWriter(
+    activeJobQueue,
+    config.APP_BASE_URL,
+  );
   await registerJobWorker(
     activeJobQueue,
     "analysis.prepare-revision",
@@ -160,7 +155,7 @@ async function start(): Promise<void> {
       await prepareRevision(job.data, {
         pool: database.pool,
         queue: activeJobQueue,
-        checks,
+        checkIntents,
         patchSource: new LocalFakeRevisionPatchSource(),
       });
     },
@@ -172,7 +167,7 @@ async function start(): Promise<void> {
       await expireAttempt(job.data, {
         pool: database.pool,
         storage,
-        checks,
+        checkIntents,
       });
     },
   );
@@ -196,6 +191,7 @@ async function start(): Promise<void> {
       await finalizeMediaUpload(job.data, {
         database,
         queue: activeJobQueue,
+        checkIntents,
         storage,
         privateKeyPath: activePrivateKeyPath,
         ffprobePath: config.FFPROBE_PATH,
@@ -209,7 +205,10 @@ async function start(): Promise<void> {
   try {
     const activePayloadCipher = new PayloadCipher(providerPayloadKey);
     await registerProviderPipelineWorkers(activeJobQueue, {
-      repository: new PostgresProviderPipelineRepository(database),
+      repository: new PostgresProviderPipelineRepository(
+        database,
+        checkIntents,
+      ),
       payloadCipher: activePayloadCipher,
       transcriptionProvider: new LocalFakeTranscriptionProvider(providerClock),
       frameSelectionAdapter: new EncryptedFfmpegFrameSelectionAdapter({
@@ -259,25 +258,6 @@ async function start(): Promise<void> {
     });
   }, 60_000);
   retentionAuditTimer.unref();
-  await githubQueue.start();
-  await githubQueue.work(async (payload) => {
-    await processPullRequestJob(database.pool, checks, payload, {
-      publish: (client, analysisPayload) =>
-        enqueueJobInPgTransaction(
-          activeJobQueue,
-          client,
-          "analysis.prepare-revision",
-          analysisPayload,
-        ),
-      publishAttemptExpiry: (client, expiryPayload) =>
-        expediteJobInPgTransaction(
-          activeJobQueue,
-          client,
-          "proof.expire-attempt",
-          expiryPayload,
-        ),
-    });
-  });
   await new Promise<void>((resolve) => {
     server.listen(config.WORKER_PORT, config.WORKER_HOST, resolve);
   });
@@ -298,7 +278,6 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));
   });
-  await githubQueue.stop();
   if (jobQueue) await jobQueue.stop({ graceful: true, timeout: 5_000 });
   storage.destroy();
   await database.close();
@@ -323,5 +302,22 @@ start().catch((error: unknown) => {
     { errorClass: error instanceof Error ? error.name : "UnknownError" },
     "worker.start_failed",
   );
-  process.exitCode = 1;
+  void (async () => {
+    ready = false;
+    if (attemptExpiryTimer) clearInterval(attemptExpiryTimer);
+    if (retentionAuditTimer) clearInterval(retentionAuditTimer);
+    if (server.listening) {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    }
+    if (jobQueue) {
+      await jobQueue
+        .stop({ graceful: false, timeout: 1_000 })
+        .catch(() => undefined);
+    }
+    storage.destroy();
+    await database.close().catch(() => undefined);
+    process.exit(1);
+  })();
 });

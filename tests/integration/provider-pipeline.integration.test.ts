@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { analyzePullRequestPatch } from "@slopproof/analysis";
 import {
   connectDatabase,
@@ -21,12 +22,17 @@ import type {
   ProviderPipelineJobPayload,
 } from "../../apps/worker/src/provider-pipeline-contracts";
 import { PostgresProviderPipelineRepository } from "../../apps/worker/src/provider-pipeline-repository";
+import type {
+  CheckIntentWriter,
+  WorkerCheckIntentWriterInput,
+} from "../../apps/worker/src/revision-preparation";
 import {
   createProviderPipelineHandlers,
   decryptVersionedProviderPayload,
   type ProviderFrameSelectionAdapter,
 } from "../../apps/worker/src/provider-pipeline";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { PoolClient } from "pg";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const databaseDescribe = databaseUrl ? describe : describe.skip;
@@ -111,7 +117,11 @@ databaseDescribe("provider pipeline PostgreSQL persistence", () => {
       nonce += 1;
       return Buffer.alloc(length, nonce);
     });
-    const repository = new PostgresProviderPipelineRepository(database);
+    const checkIntents = new RecordingCheckIntentWriter();
+    const repository = new PostgresProviderPipelineRepository(
+      database,
+      checkIntents,
+    );
     const handlers = createProviderPipelineHandlers({
       repository,
       dispatcher,
@@ -337,9 +347,34 @@ databaseDescribe("provider pipeline PostgreSQL persistence", () => {
       "evaluation.apply-policy",
     ]);
     expect(dispatcher.names()).not.toContain("github.reconcile-check");
+    expect(checkIntents.calls).toEqual([
+      {
+        revisionId: ids.revision,
+        headSha,
+        status: "in_progress",
+        conclusion: null,
+        summary: `maintainer review required for head ${headSha}`,
+        reason: "review_required",
+        idempotencyKey: `provider-pipeline:policy-review:${createHash("sha256")
+          .update(policyJob.idempotencyKey)
+          .digest("hex")
+          .slice(0, 48)}`,
+      },
+    ]);
     expect(await loadCheckRun(database)).toEqual(checkBefore);
   });
 });
+
+class RecordingCheckIntentWriter implements CheckIntentWriter {
+  readonly calls: WorkerCheckIntentWriterInput[] = [];
+
+  async write(
+    _client: PoolClient,
+    input: WorkerCheckIntentWriterInput,
+  ): Promise<void> {
+    this.calls.push(input);
+  }
+}
 
 class RecordingDispatcher implements ProviderPipelineDispatcher {
   private readonly dispatched: Array<{

@@ -1,6 +1,5 @@
 import type { AuthenticatedSession } from "@slopproof/auth";
 import { enqueueJobInPgTransaction } from "@slopproof/db";
-import { FakeGithubCheckAdapter } from "@slopproof/github";
 import {
   RepositoryPolicyV1Schema,
   type RepositoryPolicyV1,
@@ -8,8 +7,10 @@ import {
 import { z } from "zod";
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
+import type { CheckIntentWriter } from "./attempt-lifecycle";
 import {
-  requireFreshMaintainerAuthorization,
+  requireRequestMaintainerAuthorization,
+  type MaintainerAuthorizationDependencies,
   type MaintainerAuthorization,
   type SqlExecutor,
 } from "./maintainer-authorization";
@@ -211,7 +212,9 @@ export async function writeReviewAudit(
 
 export async function loadReviewQueue(
   app: WebRuntime,
+  request: Request,
   session: AuthenticatedSession,
+  authorizationDependencies: MaintainerAuthorizationDependencies = {},
 ): Promise<{
   authorization: MaintainerAuthorization;
   items: ReviewQueueItem[];
@@ -219,10 +222,18 @@ export async function loadReviewQueue(
   const client = await app.database.pool.connect();
   try {
     await client.query("BEGIN");
-    const authorization = await requireFreshMaintainerAuthorization(
+    const authorization = await requireRequestMaintainerAuthorization(
       app,
-      session,
-      client,
+      {
+        request,
+        session,
+        binding: {
+          kind: "repository",
+          repositoryId: session.repositoryId!,
+        },
+        executor: client,
+      },
+      authorizationDependencies,
     );
     const result = await client.query<{
       attempt_id: string;
@@ -305,16 +316,23 @@ export async function loadReviewQueue(
 
 export async function loadReviewDetail(
   app: WebRuntime,
+  request: Request,
   session: AuthenticatedSession,
   attemptId: string,
+  authorizationDependencies: MaintainerAuthorizationDependencies = {},
 ): Promise<ReviewDetail> {
   const client = await app.database.pool.connect();
   try {
     await client.query("BEGIN");
-    const authorization = await requireFreshMaintainerAuthorization(
+    const authorization = await requireRequestMaintainerAuthorization(
       app,
-      session,
-      client,
+      {
+        request,
+        session,
+        binding: { kind: "attempt", attemptId },
+        executor: client,
+      },
+      authorizationDependencies,
     );
     const result = await client.query<{
       attempt_id: string;
@@ -434,17 +452,24 @@ export async function loadReviewDetail(
 
 export async function requireEvidenceAccess(
   app: WebRuntime,
+  request: Request,
   session: AuthenticatedSession,
   attemptId: string,
   executor: SqlExecutor = app.database.pool,
+  authorizationDependencies: MaintainerAuthorizationDependencies = {},
 ): Promise<{
   authorization: MaintainerAuthorization;
   evidence: EvidenceAccess;
 }> {
-  const authorization = await requireFreshMaintainerAuthorization(
+  const authorization = await requireRequestMaintainerAuthorization(
     app,
-    session,
-    executor,
+    {
+      request,
+      session,
+      binding: { kind: "attempt", attemptId },
+      executor,
+    },
+    authorizationDependencies,
   );
   const result = await executor.query<{
     attempt_id: string;
@@ -490,9 +515,12 @@ export async function requireEvidenceAccess(
 
 export async function decideReview(
   app: WebRuntime,
+  request: Request,
   session: AuthenticatedSession,
   attemptId: string,
   rawInput: unknown,
+  checkIntents: CheckIntentWriter,
+  authorizationDependencies: MaintainerAuthorizationDependencies = {},
 ): Promise<{
   replay: boolean;
   action: ReviewAction;
@@ -504,10 +532,15 @@ export async function decideReview(
   const client = await app.database.pool.connect();
   try {
     await client.query("BEGIN");
-    const authorization = await requireFreshMaintainerAuthorization(
+    const authorization = await requireRequestMaintainerAuthorization(
       app,
-      session,
-      client,
+      {
+        request,
+        session,
+        binding: { kind: "attempt", attemptId },
+        executor: client,
+      },
+      authorizationDependencies,
     );
     const attempt = await client.query<{
       status: string;
@@ -620,21 +653,15 @@ export async function decideReview(
     );
     if (updated.rowCount !== 1) throw new ReviewConflictError();
 
-    const checks = new FakeGithubCheckAdapter(
-      app.database.pool,
-      app.config.APP_BASE_URL,
-    );
-    await checks.upsert(
-      {
-        revisionId: row.revision_id,
-        headSha: row.head_sha,
-        status: "completed",
-        conclusion: plan.checkConclusion,
-        summary: plan.publicSummary,
-        detailsUrl: checks.detailsUrl(row.revision_id),
-      },
-      client,
-    );
+    await checkIntents.write(client, {
+      revisionId: row.revision_id,
+      headSha: row.head_sha,
+      status: "completed",
+      conclusion: plan.checkConclusion,
+      summary: plan.publicSummary,
+      reason: "maintainer_decision",
+      idempotencyKey: input.idempotencyKey,
+    });
     if (shouldAccelerateEvidenceDeletion(input.action, frozenPolicy)) {
       await accelerateEvidenceDeletionAfterPass(
         app.jobQueue,

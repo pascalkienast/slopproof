@@ -4,6 +4,7 @@ import {
   InvalidWebhookPayloadError,
   InvalidWebhookSignatureError,
   parsePullRequestWebhook,
+  parseSupportedGithubWebhook,
 } from "./webhook";
 import { PublicCheckInputSchema } from "./schemas";
 
@@ -38,10 +39,14 @@ function rawPayload(overrides: Record<string, unknown> = {}): Uint8Array {
   );
 }
 
-function headers(body: Uint8Array, signatureSecret = secret) {
+function headers(
+  body: Uint8Array,
+  signatureSecret = secret,
+  eventName = "pull_request",
+) {
   return {
     deliveryId,
-    eventName: "pull_request" as const,
+    eventName,
     signature: `sha256=${createHmac("sha256", signatureSecret).update(body).digest("hex")}`,
   };
 }
@@ -97,6 +102,92 @@ describe("GitHub pull_request webhook boundary", () => {
     expect(() => parsePullRequestWebhook(body, headers(body), secret)).toThrow(
       InvalidWebhookPayloadError,
     );
+  });
+
+  it("accepts signed unsupported event families and PR actions as ignored", () => {
+    const edited = rawPayload({ action: "edited" });
+    expect(
+      parseSupportedGithubWebhook(edited, headers(edited), secret),
+    ).toMatchObject({ kind: "ignored", eventName: "pull_request" });
+
+    const push = new TextEncoder().encode(
+      JSON.stringify({ ref: "refs/heads/main" }),
+    );
+    expect(
+      parseSupportedGithubWebhook(push, headers(push, secret, "push"), secret),
+    ).toMatchObject({ kind: "ignored", eventName: "push" });
+  });
+
+  it("parses installation lifecycle events with canonical numeric IDs", () => {
+    const body = new TextEncoder().encode(
+      JSON.stringify({
+        action: "suspend",
+        installation: {
+          id: 17,
+          account: { id: 7, login: "acme" },
+        },
+        repositories: [
+          {
+            id: 42,
+            name: "cachekit",
+            full_name: "acme/cachekit",
+            default_branch: "main",
+          },
+        ],
+      }),
+    );
+    expect(
+      parseSupportedGithubWebhook(
+        body,
+        headers(body, secret, "installation"),
+        secret,
+      ),
+    ).toMatchObject({
+      kind: "installation",
+      event: {
+        action: "suspend",
+        installation: {
+          githubInstallationId: "17",
+          accountId: "7",
+        },
+        repositories: [{ githubRepositoryId: "42" }],
+      },
+    });
+  });
+
+  it("rejects unsafe lifecycle IDs and non-canonical repository names", () => {
+    for (const repository of [
+      {
+        id: -1,
+        name: "cachekit",
+        full_name: "acme/cachekit",
+        default_branch: "main",
+      },
+      {
+        id: 42,
+        name: "cachekit",
+        full_name: "acme/cachekit/extra",
+        default_branch: "main",
+      },
+    ]) {
+      const body = new TextEncoder().encode(
+        JSON.stringify({
+          action: "created",
+          installation: {
+            id: 17,
+            account: { id: 7, login: "acme" },
+          },
+          repositories: [repository],
+        }),
+      );
+      expect(() =>
+        parseSupportedGithubWebhook(
+          body,
+          headers(body, secret, "installation"),
+          secret,
+        ),
+      ).toThrow(InvalidWebhookPayloadError);
+    }
   });
 
   it("keeps the public check output free of private evidence fields", () => {

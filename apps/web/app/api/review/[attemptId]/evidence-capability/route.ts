@@ -32,6 +32,7 @@ export async function POST(
       await client.query("BEGIN");
       const access = await requireEvidenceAccess(
         app,
+        request,
         session,
         attemptId,
         client,

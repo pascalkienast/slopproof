@@ -10,6 +10,7 @@ import {
   type MediaFinalizationFailureDependencies,
   type MediaFinalizationRow,
 } from "./media-finalize";
+import type { WorkerCheckIntentWriterInput } from "./revision-preparation";
 
 const row: MediaFinalizationRow = {
   upload_session_id: "10000000-0000-4000-8000-000000000001",
@@ -20,6 +21,7 @@ const row: MediaFinalizationRow = {
   finalize_envelope: {},
   attempt_id: "10000000-0000-4000-8000-000000000003",
   attempt_status: "processing",
+  revision_id: "10000000-0000-4000-8000-000000000005",
   head_sha: "a".repeat(40),
   is_current: true,
   material_id: "10000000-0000-4000-8000-000000000004",
@@ -85,6 +87,7 @@ describe("media finalization failure handling", () => {
       },
     };
     const deleted: string[] = [];
+    const checkIntents: WorkerCheckIntentWriterInput[] = [];
     const dependencies = {
       database: {
         pool: {
@@ -99,6 +102,11 @@ describe("media finalization failure handling", () => {
         },
         async abortMultipartUpload() {},
       },
+      checkIntents: {
+        async write(_client: unknown, input: WorkerCheckIntentWriterInput) {
+          checkIntents.push(input);
+        },
+      },
     } as unknown as MediaFinalizationFailureDependencies;
 
     await recordMediaFinalizationFailure(
@@ -109,6 +117,17 @@ describe("media finalization failure handling", () => {
     );
 
     expect(deleted).toEqual([row.object_key]);
+    expect(checkIntents).toEqual([
+      {
+        revisionId: row.revision_id,
+        headSha: row.head_sha,
+        status: "completed",
+        conclusion: "neutral",
+        summary: `technical retry required for head ${row.head_sha}`,
+        reason: "technical_retry",
+        idempotencyKey: `media-failed:${row.upload_session_id}`,
+      },
+    ]);
     expect(queries.some((query) => query.includes("$2::text"))).toBe(true);
     expect(queries.at(-1)).toBe("COMMIT");
     expect(released).toBe(true);

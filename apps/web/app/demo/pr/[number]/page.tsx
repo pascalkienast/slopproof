@@ -88,7 +88,10 @@ export default async function PullRequestPage({
             Continue on a phone, answer all questions in one uninterrupted take,
             then wait for review.
           </p>
-          <ProofHandoff attemptId={pullRequest.attempt_id} />
+          <ProofHandoff
+            attemptId={pullRequest.attempt_id}
+            establishDemoSession
+          />
         </section>
       </div>
       <section className="notice-card">

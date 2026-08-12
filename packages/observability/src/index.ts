@@ -7,6 +7,8 @@ const redactionPaths = [
   "request.headers.cookie",
   "req.headers.x-hub-signature-256",
   "request.headers.x-hub-signature-256",
+  "req.headers.x-slopproof-proxy-authenticator",
+  "request.headers.x-slopproof-proxy-authenticator",
   "authorization",
   "cookie",
   "token",
@@ -45,6 +47,7 @@ const redactionPaths = [
   "config.TRANSCRIPTION_API_KEY",
   "config.PROVIDER_PAYLOAD_KEY_BASE64",
   "config.WORKER_INTERNAL_SECRET",
+  "config.OAUTH_TRUSTED_PROXY_SECRET",
 ];
 
 const sensitiveLogKeys = new Set(
@@ -87,6 +90,7 @@ const sensitiveLogKeys = new Set(
     "TRANSCRIPTION_API_KEY",
     "PROVIDER_PAYLOAD_KEY_BASE64",
     "WORKER_INTERNAL_SECRET",
+    "OAUTH_TRUSTED_PROXY_SECRET",
   ].map((key) => key.toLowerCase()),
 );
 
@@ -135,7 +139,7 @@ function sanitizeLogValue(
 }
 
 export type LogIdentity = {
-  service: "web" | "worker" | "test";
+  service: "web" | "worker" | "github-control" | "test";
   version?: string;
 };
 

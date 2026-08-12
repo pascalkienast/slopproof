@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertSafeProductionOutputDirectory,
   compileProductionEnvironment,
+  deriveOAuthTrustedProxySecret,
   installProductionKeyFiles,
   partitionProductionEnvironment,
   ProductionEnvironmentError,
@@ -86,6 +87,18 @@ describe("production environment compiler", () => {
     expect(compiled.GITHUB_PRIVATE_KEY_PATH).toBe(
       "/run/secrets/github-app.pem",
     );
+    expect(compiled.OAUTH_TRUSTED_PROXY_SECRET).toBe(
+      deriveOAuthTrustedProxySecret(sourceEnvironment.WORKER_INTERNAL_SECRET),
+    );
+    expect(compiled.OAUTH_TRUSTED_PROXY_SECRET).not.toBe(
+      sourceEnvironment.WORKER_INTERNAL_SECRET,
+    );
+    expect(
+      compileProductionEnvironment({
+        ...sourceEnvironment,
+        OAUTH_TRUSTED_PROXY_SECRET: "operator-input-must-not-be-consumed",
+      }).OAUTH_TRUSTED_PROXY_SECRET,
+    ).toBe(compiled.OAUTH_TRUSTED_PROXY_SECRET);
   });
 
   it("fails closed without echoing a supplied secret", () => {
@@ -112,15 +125,26 @@ describe("production environment compiler", () => {
     );
 
     expect(partitions.web).toHaveProperty("GITHUB_CLIENT_SECRET");
+    expect(partitions.web).toHaveProperty("OAUTH_TRUSTED_PROXY_SECRET");
     expect(partitions.web).not.toHaveProperty("GENERATION_API_KEY");
     expect(partitions.web).not.toHaveProperty("GITHUB_PRIVATE_KEY_PATH");
     expect(partitions.web).not.toHaveProperty("KEY_WRAPPING_PRIVATE_KEY_PATH");
     expect(partitions.worker).toHaveProperty("GENERATION_API_KEY");
     expect(partitions.worker).not.toHaveProperty("GITHUB_CLIENT_SECRET");
+    expect(partitions.worker).not.toHaveProperty("OAUTH_TRUSTED_PROXY_SECRET");
     expect(partitions.worker).not.toHaveProperty("GITHUB_PRIVATE_KEY_PATH");
     expect(partitions.githubControl).toHaveProperty("GITHUB_PRIVATE_KEY_PATH");
     expect(partitions.githubControl).not.toHaveProperty("S3_SECRET_ACCESS_KEY");
     expect(partitions.githubControl).not.toHaveProperty("GENERATION_API_KEY");
+    expect(partitions.githubControl).not.toHaveProperty(
+      "OAUTH_TRUSTED_PROXY_SECRET",
+    );
+    expect(Object.keys(partitions.proxy)).toEqual([
+      "OAUTH_TRUSTED_PROXY_SECRET",
+    ]);
+    expect(partitions.proxy.OAUTH_TRUSTED_PROXY_SECRET).toBe(
+      partitions.web.OAUTH_TRUSTED_PROXY_SECRET,
+    );
     expect(Object.keys(partitions.migrate).sort()).toEqual([
       "DATABASE_URL",
       "DEPLOYMENT_PROFILE",

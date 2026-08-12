@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireMutationSession } from "../../../../../lib/http-auth";
 import { decideReview } from "../../../../../lib/maintainer-review";
+import { createWebCheckIntentWriter } from "../../../../../lib/check-intent-writer";
 import {
   jsonError,
   ReviewAttemptIdSchema,
@@ -27,7 +28,14 @@ export async function POST(
       (await context.params).attemptId,
     );
     const input = await readBoundedJson(request);
-    const result = await decideReview(app, session, attemptId, input);
+    const result = await decideReview(
+      app,
+      request,
+      session,
+      attemptId,
+      input,
+      createWebCheckIntentWriter(app),
+    );
     return NextResponse.json(result, {
       headers: { "cache-control": "no-store" },
     });

@@ -24,10 +24,12 @@ import {
   authenticateRecordingFinalization,
   streamDecryptedRecording,
 } from "./recording-reader";
+import type { CheckIntentWriter } from "./revision-preparation";
 
 export type MediaFinalizerDependencies = {
   database: DatabaseConnection;
   queue: PgBoss;
+  checkIntents: CheckIntentWriter;
   storage: S3EvidenceStore;
   privateKeyPath: string;
   ffprobePath: string;
@@ -35,7 +37,7 @@ export type MediaFinalizerDependencies = {
 
 export type MediaFinalizationFailureDependencies = Pick<
   MediaFinalizerDependencies,
-  "database" | "storage"
+  "checkIntents" | "database" | "storage"
 >;
 
 export type MediaFinalizationRow = {
@@ -47,6 +49,7 @@ export type MediaFinalizationRow = {
   finalize_envelope: unknown;
   attempt_id: string;
   attempt_status: string;
+  revision_id: string;
   head_sha: string;
   is_current: boolean;
   material_id: string;
@@ -143,7 +146,8 @@ async function loadFinalization(
     `SELECT upload.id AS upload_session_id, upload.state AS upload_state,
             upload.provider_upload_id, upload.object_key, upload.object_id,
             upload.finalize_envelope, attempt.id AS attempt_id,
-            attempt.status AS attempt_status, attempt.head_sha,
+            attempt.status AS attempt_status, attempt.revision_id,
+            attempt.head_sha,
             attempt.evidence_delete_after, revision.is_current,
             material.id AS material_id, material.key_id,
             repository_policy.policy
@@ -495,6 +499,15 @@ export async function recordMediaFinalizationFailure(
              updated_at = now() WHERE id = $1`,
         [row.attempt_id],
       );
+      await dependencies.checkIntents.write(client, {
+        revisionId: row.revision_id,
+        headSha: row.head_sha,
+        status: "completed",
+        conclusion: "neutral",
+        summary: `technical retry required for head ${row.head_sha}`,
+        reason: "technical_retry",
+        idempotencyKey: `media-failed:${row.upload_session_id}`,
+      });
     }
     await client.query(
       `UPDATE upload_sessions SET state = 'failed', updated_at = now() WHERE id = $1`,

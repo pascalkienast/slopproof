@@ -208,7 +208,201 @@ databaseDescribe("signed fake GitHub ingress", () => {
       }),
     ).rejects.toBeInstanceOf(WebhookDeliveryConflictError);
   });
+
+  it("keeps repository removals as ordered-independent tombstones", async () => {
+    const removed = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000020",
+      eventName: "installation_repositories",
+      body: {
+        action: "removed",
+        installation: {
+          id: 17,
+          account: { id: 7, login: "acme" },
+        },
+        repositories_added: [],
+        repositories_removed: [lifecycleRepository(42)],
+      },
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...removed,
+    });
+    const first = await repositoryLifecycle(connection, "42");
+    expect(first).toMatchObject({ status: "removed" });
+
+    const added = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000021",
+      eventName: "installation_repositories",
+      body: {
+        action: "added",
+        installation: {
+          id: 17,
+          account: { id: 7, login: "acme" },
+        },
+        repositories_added: [lifecycleRepository(42)],
+        repositories_removed: [],
+      },
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...added,
+    });
+    expect(await repositoryLifecycle(connection, "42")).toEqual(first);
+
+    const suspended = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000022",
+      eventName: "installation",
+      body: {
+        action: "suspend",
+        installation: {
+          id: 17,
+          account: { id: 7, login: "acme" },
+        },
+        repositories: [],
+      },
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...suspended,
+    });
+
+    const removedWhileSuspended = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000023",
+      eventName: "installation_repositories",
+      body: {
+        action: "removed",
+        installation: {
+          id: 17,
+          account: { id: 7, login: "acme" },
+        },
+        repositories_added: [],
+        repositories_removed: [lifecycleRepository(43)],
+      },
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...removedWhileSuspended,
+    });
+    expect(await repositoryLifecycle(connection, "43")).toMatchObject({
+      status: "removed",
+    });
+
+    const unsuspended = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000024",
+      eventName: "installation",
+      body: {
+        action: "unsuspend",
+        installation: {
+          id: 17,
+          account: { id: 7, login: "acme" },
+        },
+        repositories: [],
+      },
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...unsuspended,
+    });
+    const installation = await connection.pool.query<{ status: string }>(
+      "SELECT status FROM installations WHERE github_installation_id = '17'",
+    );
+    // Lifecycle deliveries have no ordering relation. Even an unsuspend event
+    // stays fail-closed until a repository-scoped fresh PR read reactivates the
+    // installation in the isolated control process.
+    expect(installation.rows[0]?.status).toBe("suspended");
+    expect(await repositoryLifecycle(connection, "43")).toMatchObject({
+      status: "removed",
+    });
+
+    const staleAddedFromAnotherInstallation = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000025",
+      eventName: "installation_repositories",
+      body: {
+        action: "added",
+        installation: {
+          id: 99,
+          account: { id: 7, login: "acme" },
+        },
+        repositories_added: [lifecycleRepository(42)],
+        repositories_removed: [],
+      },
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...staleAddedFromAnotherInstallation,
+    });
+    const binding = await connection.pool.query<{
+      github_installation_id: string;
+      status: string;
+    }>(
+      `SELECT installation.github_installation_id, repository.status
+         FROM repositories repository
+         JOIN installations installation ON installation.id = repository.installation_id
+        WHERE repository.github_repository_id = '42'`,
+    );
+    expect(binding.rows[0]).toMatchObject({
+      github_installation_id: "17",
+      status: "removed",
+    });
+  });
 });
+
+function lifecycleRepository(id: number) {
+  return {
+    id,
+    name: `repo-${id}`,
+    full_name: `acme/repo-${id}`,
+    default_branch: "main",
+  };
+}
+
+function lifecycleWebhook(input: {
+  deliveryId: string;
+  eventName: "installation" | "installation_repositories";
+  body: unknown;
+}) {
+  const rawBody = new TextEncoder().encode(JSON.stringify(input.body));
+  return {
+    rawBody,
+    headers: {
+      deliveryId: input.deliveryId,
+      eventName: input.eventName,
+      signature: `sha256=${createHmac("sha256", webhookSecret)
+        .update(rawBody)
+        .digest("hex")}`,
+    },
+  };
+}
+
+async function repositoryLifecycle(
+  connection: DatabaseConnection,
+  githubRepositoryId: string,
+): Promise<{ status: string; removedAt: string }> {
+  const result = await connection.pool.query<{
+    status: string;
+    removed_at: Date;
+  }>(
+    `SELECT status, removed_at
+       FROM repositories
+      WHERE github_repository_id = $1`,
+    [githubRepositoryId],
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("repository lifecycle row is missing");
+  return { status: row.status, removedAt: row.removed_at.toISOString() };
+}
 
 function webhook(input: {
   deliveryId: string;

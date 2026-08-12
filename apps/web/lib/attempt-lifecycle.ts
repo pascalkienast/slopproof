@@ -6,7 +6,6 @@ import {
   IdempotencyKeySchema,
   UuidSchema,
 } from "@slopproof/domain";
-import type { FakeGithubCheckAdapter } from "@slopproof/github";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { z } from "zod";
@@ -44,11 +43,26 @@ export interface MultipartAbortPort {
   abortMultipartUpload(objectKey: string, uploadId: string): Promise<void>;
 }
 
+export type CheckIntentWriterInput = {
+  revisionId: string;
+  headSha: string;
+  status: "queued" | "in_progress" | "completed";
+  conclusion: "action_required" | "success" | "neutral" | "cancelled" | null;
+  summary: string;
+  reason: "technical_retry" | "contributor_retry" | "maintainer_decision";
+  idempotencyKey: string;
+};
+
+/** A DB/outbox writer only. Implementations must not perform remote calls. */
+export interface CheckIntentWriter {
+  write(client: PoolClient, input: CheckIntentWriterInput): Promise<void>;
+}
+
 export type AttemptLifecycleDependencies = {
   pool: Pool;
   queue: PgBoss;
   storage: MultipartAbortPort;
-  checks: FakeGithubCheckAdapter;
+  checkIntents: CheckIntentWriter;
   clock?: { now(): Date };
 };
 
@@ -213,17 +227,15 @@ export async function abortAttemptForTechnicalRetry(
         multipartAborted: upload !== undefined,
       },
     });
-    await dependencies.checks.upsert(
-      {
-        revisionId: attempt.revision_id,
-        headSha: attempt.head_sha,
-        status: "completed",
-        conclusion: "neutral",
-        summary: `technical retry required for head ${attempt.head_sha}`,
-        detailsUrl: dependencies.checks.detailsUrl(attempt.revision_id),
-      },
-      client,
-    );
+    await dependencies.checkIntents.write(client, {
+      revisionId: attempt.revision_id,
+      headSha: attempt.head_sha,
+      status: "completed",
+      conclusion: "neutral",
+      summary: `technical retry required for head ${attempt.head_sha}`,
+      reason: "technical_retry",
+      idempotencyKey: command.idempotencyKey,
+    });
     await client.query("COMMIT");
     return {
       attemptId: attempt.id,
@@ -371,17 +383,15 @@ export async function createReplacementAttempt(
         headSha: source.head_sha,
       },
     });
-    await dependencies.checks.upsert(
-      {
-        revisionId: source.revision_id,
-        headSha: source.head_sha,
-        status: "in_progress",
-        conclusion: null,
-        summary: `proof ready for head ${source.head_sha}`,
-        detailsUrl: dependencies.checks.detailsUrl(source.revision_id),
-      },
-      client,
-    );
+    await dependencies.checkIntents.write(client, {
+      revisionId: source.revision_id,
+      headSha: source.head_sha,
+      status: "in_progress",
+      conclusion: null,
+      summary: `proof ready for head ${source.head_sha}`,
+      reason: "contributor_retry",
+      idempotencyKey,
+    });
     await client.query("COMMIT");
     return {
       sourceAttemptId,

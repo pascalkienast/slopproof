@@ -1,6 +1,6 @@
 import { MaintainerAuthorizationError } from "../../lib/maintainer-authorization";
 import { loadReviewQueue } from "../../lib/maintainer-review";
-import { readPageSession } from "../../lib/http-auth";
+import { readPageSessionRequest } from "../../lib/http-auth";
 import { getWebRuntime } from "../../lib/runtime";
 import { DemoMaintainerLogin } from "./demo-maintainer-login";
 
@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
 
 export default async function ReviewQueuePage() {
   const app = await getWebRuntime();
-  const session = await readPageSession(app);
-  if (!session) {
+  const pageAuth = await readPageSessionRequest(app, "/review");
+  if (!pageAuth) {
     return (
       <ReviewShell>
         <section className="notice-card review-empty">
@@ -20,14 +20,22 @@ export default async function ReviewQueuePage() {
             exposes a demo maintainer session only while offline demo mode is
             enabled.
           </p>
-          {app.config.DEMO_MODE ? <DemoMaintainerLogin /> : null}
+          {app.config.DEMO_MODE ? (
+            <DemoMaintainerLogin />
+          ) : (
+            <GithubMaintainerLogin />
+          )}
         </section>
       </ReviewShell>
     );
   }
 
   try {
-    const queue = await loadReviewQueue(app, session);
+    const queue = await loadReviewQueue(
+      app,
+      pageAuth.request,
+      pageAuth.session,
+    );
     return (
       <ReviewShell>
         <div className="check-header">
@@ -90,14 +98,29 @@ export default async function ReviewQueuePage() {
           <p className="eyebrow">Access denied</p>
           <h2>This session cannot review this repository.</h2>
           <p>
-            The offline MVP accepts only a freshly checked, repository-bound
-            local demo maintainer. No evidence metadata was returned.
+            A fresh, repository-bound GitHub maintainer authorization is
+            required. No evidence metadata was returned.
           </p>
-          {app.config.DEMO_MODE ? <DemoMaintainerLogin /> : null}
+          {app.config.DEMO_MODE ? (
+            <DemoMaintainerLogin />
+          ) : (
+            <GithubMaintainerLogin />
+          )}
         </section>
       </ReviewShell>
     );
   }
+}
+
+function GithubMaintainerLogin() {
+  return (
+    <a
+      className="button primary"
+      href="/api/auth/github/start?returnTo=%2Freview"
+    >
+      Authorize with GitHub
+    </a>
+  );
 }
 
 function ReviewShell({ children }: { children: React.ReactNode }) {

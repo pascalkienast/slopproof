@@ -8,7 +8,7 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @slopproof/web --filter @slopproof/worker dev",
+    "dev": "pnpm --parallel --filter @slopproof/web --filter @slopproof/worker --filter @slopproof/github-control dev",
     "dev:web": "pnpm --filter @slopproof/web dev",
     "dev:worker": "pnpm --filter @slopproof/worker dev",
     "dev:keys": "node scripts/generate-dev-keys.mjs",

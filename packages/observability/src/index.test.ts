@@ -27,10 +27,16 @@ describe("evidence-free logging", () => {
         headers: { authorization: "Bearer secret-provider-authorization" },
       },
       config: {
+        OAUTH_TRUSTED_PROXY_SECRET: "secret-proxy-authenticator",
         PROVIDER_PAYLOAD_KEY_BASE64: "secret-provider-key",
         GENERATION_API_KEY: "secret-generation-key",
         JUDGE_API_KEY: "secret-judge-key",
         TRANSCRIPTION_API_KEY: "secret-transcription-key",
+      },
+      req: {
+        headers: {
+          "x-slopproof-proxy-authenticator": "secret-proxy-header",
+        },
       },
     });
     await new Promise<void>((resolve) => destination.end(resolve));
@@ -48,6 +54,8 @@ describe("evidence-free logging", () => {
     expect(output).not.toContain("secret-top-level-generation-key");
     expect(output).not.toContain("secret-nested-judge-key");
     expect(output).not.toContain("secret-provider-authorization");
+    expect(output).not.toContain("secret-proxy-authenticator");
+    expect(output).not.toContain("secret-proxy-header");
   });
 
   it("serializes an error without its message or stack", async () => {

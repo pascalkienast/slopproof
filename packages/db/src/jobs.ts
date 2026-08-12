@@ -49,7 +49,7 @@ const GitHubOwnerSchema = z.string().trim().min(1).max(100);
 const GitHubRepositoryNameSchema = z.string().trim().min(1).max(100);
 const GitHubBranchSchema = z.string().trim().min(1).max(255);
 
-export const GithubIngestPrJobSchema = z
+export const GithubWebhookIngestPrJobSchema = z
   .object({
     ...JOB_ENVELOPE,
     deliveryId: UuidSchema,
@@ -89,6 +89,24 @@ export const GithubIngestPrJobSchema = z
   })
   .strict();
 
+export const GithubRefreshPrJobSchema = z
+  .object({
+    ...JOB_ENVELOPE,
+    eventName: z.literal("pull_request_refresh"),
+    installationId: GitHubNumericIdSchema,
+    repositoryId: GitHubNumericIdSchema,
+    owner: GitHubOwnerSchema,
+    repositoryName: GitHubRepositoryNameSchema,
+    pullNumber: z.number().int().positive().max(2_147_483_647),
+    expectedHeadSha: GitShaSchema,
+  })
+  .strict();
+
+export const GithubIngestPrJobSchema = z.union([
+  GithubWebhookIngestPrJobSchema,
+  GithubRefreshPrJobSchema,
+]);
+
 export const GithubReconcileCheckJobSchema = z
   .object({
     ...JOB_ENVELOPE,
@@ -102,6 +120,9 @@ export const GithubReconcileCheckJobSchema = z
       "maintainer_decision",
       "revision_invalidated",
       "manual_reconcile",
+      "technical_retry",
+      "attempt_expired",
+      "contributor_retry",
     ]),
   })
   .strict();
@@ -221,7 +242,9 @@ export function getJobSingletonKey<Name extends JobName>(
   switch (name) {
     case "github.ingest-pr": {
       const ingest = payload as JobPayload<"github.ingest-pr">;
-      return `${ingest.repository.githubRepositoryId}:${ingest.pullRequest.number}`;
+      return ingest.eventName === "pull_request"
+        ? `${ingest.repository.githubRepositoryId}:${ingest.pullRequest.number}`
+        : `${ingest.repositoryId}:${ingest.pullNumber}`;
     }
     case "github.reconcile-check":
     case "analysis.prepare-revision":
@@ -253,10 +276,15 @@ const COMMON_QUEUE_OPTIONS = {
 } as const satisfies Omit<Queue, "name">;
 
 export const JOB_QUEUE_DEFINITIONS = {
-  "github.ingest-pr": { ...COMMON_QUEUE_OPTIONS, expireInSeconds: 2 * 60 },
+  "github.ingest-pr": {
+    ...COMMON_QUEUE_OPTIONS,
+    expireInSeconds: 5 * 60,
+    heartbeatSeconds: 30,
+  },
   "github.reconcile-check": {
     ...COMMON_QUEUE_OPTIONS,
-    expireInSeconds: 2 * 60,
+    expireInSeconds: 5 * 60,
+    heartbeatSeconds: 30,
   },
   "analysis.prepare-revision": {
     ...COMMON_QUEUE_OPTIONS,
@@ -310,11 +338,25 @@ export async function registerJobQueues(queue: PgBoss): Promise<void> {
 
 export async function startJobQueue(
   connection: string | ConstructorOptions,
+  onError: (error: unknown) => void = () => undefined,
 ): Promise<PgBoss> {
   const queue = createJobQueue(connection);
-  await queue.start();
-  await registerJobQueues(queue);
-  return queue;
+  // pg-boss is an EventEmitter; without a listener Node treats an emitted
+  // error as uncaught and may print the full upstream error object to stderr.
+  queue.on("error", onError);
+  try {
+    await queue.start();
+    await registerJobQueues(queue);
+    return queue;
+  } catch (error) {
+    // A partially started pg-boss instance owns timers and database clients.
+    // Release them before surfacing startup failure so callers can retry or
+    // terminate without leaving a deceptively live process behind.
+    await queue
+      .stop({ graceful: false, timeout: 1_000 })
+      .catch(() => undefined);
+    throw error;
+  }
 }
 
 export type EnqueueJobOptions = Omit<SendOptions, "db" | "singletonKey">;
@@ -338,6 +380,21 @@ export async function enqueueJob<Name extends JobName>(
   }
 
   return jobId;
+}
+
+/** Upserts one immediately runnable aggregate job without growing a backlog. */
+export async function expediteJob<Name extends JobName>(
+  queue: PgBoss,
+  name: Name,
+  rawPayload: unknown,
+): Promise<string | null> {
+  const payload = parseJobPayload(name, rawPayload);
+  const result = await queue.upsert(name, payload, {
+    singletonKey: getJobSingletonKey(name, payload),
+    match: "oldest",
+    startAfter: new Date(),
+  });
+  return result.jobs[0] ?? null;
 }
 
 export async function enqueueJobInTransaction<Name extends JobName>(
@@ -403,8 +460,29 @@ export async function expediteJobInPgTransaction<Name extends JobName>(
       return { rows: result.rows };
     },
   };
+  const singletonKey = getJobSingletonKey(name, payload);
+  const existing = await queue.findJobs<unknown>(name, {
+    key: singletonKey,
+    db,
+  });
+  const failed = existing.filter((job) => job.state === "failed");
+  if (failed.length > 1) {
+    throw new Error(`Queue has multiple failed ${name} singleton jobs`);
+  }
+  if (failed[0]) {
+    await queue.retry(name, failed[0].id, { db });
+    const updated = await queue.update(name, payload, {
+      id: failed[0].id,
+      startAfter: new Date(),
+      db,
+    });
+    if (updated.updated !== 1) {
+      throw new Error(`Queue could not recover failed ${name} singleton job`);
+    }
+    return failed[0].id;
+  }
   const result = await queue.upsert(name, payload, {
-    singletonKey: getJobSingletonKey(name, payload),
+    singletonKey,
     match: "oldest",
     startAfter: new Date(),
     db,

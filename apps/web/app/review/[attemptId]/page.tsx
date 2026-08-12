@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { readPageSession } from "../../../lib/http-auth";
+import { readPageSessionRequest } from "../../../lib/http-auth";
 import { MaintainerAuthorizationError } from "../../../lib/maintainer-authorization";
 import {
   loadReviewDetail,
@@ -23,12 +23,20 @@ export default async function ReviewDetailPage({
   );
   if (!parsedAttemptId.success) notFound();
   const app = await getWebRuntime();
-  const session = await readPageSession(app);
-  if (!session) redirect("/review");
+  const pageAuth = await readPageSessionRequest(
+    app,
+    `/review/${parsedAttemptId.data}`,
+  );
+  if (!pageAuth) redirect("/review");
 
   let detail: Awaited<ReturnType<typeof loadReviewDetail>>;
   try {
-    detail = await loadReviewDetail(app, session, parsedAttemptId.data);
+    detail = await loadReviewDetail(
+      app,
+      pageAuth.request,
+      pageAuth.session,
+      parsedAttemptId.data,
+    );
   } catch (error) {
     if (error instanceof MaintainerAuthorizationError) redirect("/review");
     if (error instanceof ReviewNotFoundError) notFound();
@@ -42,9 +50,21 @@ export default async function ReviewDetailPage({
     detail.deletedAt === null &&
     detail.deleteAfter !== null &&
     detail.deleteAfter.getTime() > Date.now();
-  const privateContext = evidenceReviewable
-    ? await loadPrivateReviewContext(app, session, detail.attemptId)
-    : null;
+  let privateContext: Awaited<ReturnType<typeof loadPrivateReviewContext>> =
+    null;
+  if (evidenceReviewable) {
+    try {
+      privateContext = await loadPrivateReviewContext(
+        app,
+        pageAuth.request,
+        pageAuth.session,
+        detail.attemptId,
+      );
+    } catch (error) {
+      if (error instanceof MaintainerAuthorizationError) redirect("/review");
+      throw error;
+    }
+  }
 
   return (
     <main className="shell flow-shell review-shell">

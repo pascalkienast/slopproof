@@ -1,8 +1,9 @@
 # SlopProof
 
 Stand: 2026-08-12  
-Status: lokaler MVP einschließlich Compose-Medien-Smoke test-grün; physischer
-Smartphone-Smoke sowie produktive GitHub-/Modelladapter noch offen
+Status: lokaler MVP einschließlich Compose-Medien-Smoke test-grün; produktive
+GitHub-Control-/OAuth-Implementierung vorhanden, realer GitHub-App-Smoke,
+physischer Smartphone-Smoke und produktive Modelladapter noch offen
 
 ## Kurzform
 
@@ -64,8 +65,8 @@ Shadow-Betrieb und Dogfood.
 
 Der erste reale Schnitt umfasst:
 
-- GitHub-Webhook- und Check-Port mit lokalem Fake-Adapter; die produktive
-  GitHub-App bleibt austauschbar;
+- GitHub-Webhook-, OAuth-, PR- und Check-Ports mit lokalem Fake-Adapter sowie
+  getrenntem produktivem Octokit-Control-Prozess;
 - optionalen Practice-Deep-Dive;
 - risikoadaptive Fragenplanung;
 - QR-/Handoff-Flow zum Smartphone;
@@ -146,8 +147,11 @@ nach einer Änderung von `S3_PUBLIC_ENDPOINT` neu gebaut werden.
 - `packages/domain`, `packages/db`, `packages/policy`: SHA-gebundene
   Zustandsmaschine, Transaktionen, Constraints und ausschließlich manuelle
   Entscheidung;
-- `packages/github`, `packages/analysis`, `packages/questions`: signierter
-  Fake-Webhook, begrenzte Diffanalyse sowie getrennte Practice- und Proof-Pläne.
+- `apps/github-control` und `packages/github`: signierter bounded Webhook,
+  kurzlebige repositorygebundene App-Tokens, echte PR-/Check-Ports, durable
+  Reconciliation und weiterhin ein internetfreier Fake-Pfad;
+- `packages/analysis`, `packages/questions`: begrenzte Diffanalyse sowie
+  getrennte Practice- und Proof-Pläne.
 
 Der aktuelle Abnahmebefund und verbleibende externe Smokes stehen in
 [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
@@ -169,7 +173,8 @@ Der aktuelle Abnahmebefund und verbleibende externe Smokes stehen in
 - Golden Path mit Fake-Adaptern, realer Browserverschlüsselung,
   Maintainerentscheidung und physischer Evidence-Löschung im Compose-
   Referenzprofil verifiziert;
-- produktive GitHub-App-Interoperabilität, echte Modellqualität und ein
+- die produktive GitHub-App-Implementierung ist lokal und mit PostgreSQL-Races
+  abgenommen; reale App-Interoperabilität, echte Modellqualität und ein
   physischer Smartphone-Smoke sind bewusst noch nicht bestätigt;
 - noch kein GitHub-Repository angelegt;
 - `slopproof.paskie.me` liefert bereits eine temporäre HTTPS-Landingpage; die

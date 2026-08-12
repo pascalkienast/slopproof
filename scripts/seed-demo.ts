@@ -207,8 +207,7 @@ try {
       `INSERT INTO pull_request_revisions
         (id, pull_request_id, head_sha, base_sha, is_current)
        VALUES ($1, $2, $3, $4, true)
-       ON CONFLICT (pull_request_id, head_sha) DO UPDATE SET
-         base_sha = EXCLUDED.base_sha,
+       ON CONFLICT (pull_request_id, head_sha, base_sha) DO UPDATE SET
          is_current = true,
          invalidated_at = NULL
        RETURNING id`,

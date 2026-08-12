@@ -5,11 +5,12 @@ import {
   type PullRequestPatch,
 } from "@slopproof/analysis";
 import {
+  PgBossGithubCheckOutbox,
   parseJobPayload,
+  persistGithubCheckIntentInTransaction,
   scheduleJobInPgTransaction,
   type JobPayload,
 } from "@slopproof/db";
-import type { FakeGithubCheckAdapter } from "@slopproof/github";
 import {
   DEFAULT_REPOSITORY_POLICY_V1,
   RepositoryPolicyV1Schema,
@@ -27,6 +28,66 @@ const ACTIVE_ATTEMPT_STATUSES = [
   "processing",
   "review_required",
 ] as const;
+
+const GITHUB_CHECK_NAME = "SlopProof / understanding required";
+
+export type WorkerCheckIntentWriterInput = {
+  revisionId: string;
+  headSha: string;
+  status: "queued" | "in_progress" | "completed";
+  conclusion: "action_required" | "success" | "neutral" | "cancelled" | null;
+  summary: string;
+  reason:
+    | "analysis_ready"
+    | "review_required"
+    | "technical_retry"
+    | "attempt_expired";
+  idempotencyKey: string;
+};
+
+/** DB/outbox-only boundary. Implementations must never call GitHub remotely. */
+export interface CheckIntentWriter {
+  write(client: PoolClient, input: WorkerCheckIntentWriterInput): Promise<void>;
+}
+
+export function createWorkerCheckIntentWriter(
+  queue: PgBoss,
+  appBaseUrl: string,
+): CheckIntentWriter {
+  const baseUrl = new URL(appBaseUrl);
+  if (
+    baseUrl.username ||
+    baseUrl.password ||
+    baseUrl.search ||
+    baseUrl.hash ||
+    (baseUrl.protocol !== "https:" &&
+      !(
+        baseUrl.protocol === "http:" &&
+        ["localhost", "127.0.0.1", "[::1]"].includes(baseUrl.hostname)
+      ))
+  ) {
+    throw new Error("Worker check details URL must use HTTPS or loopback HTTP");
+  }
+  const outbox = new PgBossGithubCheckOutbox(queue);
+  return {
+    async write(client, input): Promise<void> {
+      await persistGithubCheckIntentInTransaction(client, outbox, {
+        revisionId: input.revisionId,
+        expectedHeadSha: input.headSha,
+        idempotencyKey: input.idempotencyKey,
+        reason: input.reason,
+        name: GITHUB_CHECK_NAME,
+        status: input.status,
+        conclusion: input.conclusion,
+        publicSummary: input.summary,
+        detailsUrl: new URL(
+          `/revisions/${input.revisionId}`,
+          baseUrl,
+        ).toString(),
+      });
+    },
+  };
+}
 
 export type RevisionPatchRequest = {
   revisionId: string;
@@ -71,7 +132,7 @@ export class LocalFakeRevisionPatchSource implements RevisionPatchSource {
 export type PrepareRevisionDependencies = {
   pool: Pool;
   queue: PgBoss;
-  checks: FakeGithubCheckAdapter;
+  checkIntents: CheckIntentWriter;
   patchSource: RevisionPatchSource;
   clock?: { now(): Date };
 };
@@ -192,17 +253,15 @@ export async function prepareRevision(
     );
 
     if (proof.status === "split_recommended") {
-      await dependencies.checks.upsert(
-        {
-          revisionId: current.revision_id,
-          headSha: current.head_sha,
-          status: "completed",
-          conclusion: "action_required",
-          summary: `split or narrow the pull request for head ${current.head_sha}`,
-          detailsUrl: dependencies.checks.detailsUrl(current.revision_id),
-        },
-        client,
-      );
+      await dependencies.checkIntents.write(client, {
+        revisionId: current.revision_id,
+        headSha: current.head_sha,
+        status: "completed",
+        conclusion: "action_required",
+        summary: `split or narrow the pull request for head ${current.head_sha}`,
+        reason: "analysis_ready",
+        idempotencyKey: payload.idempotencyKey,
+      });
       await insertAuditOnce(client, {
         action: "analysis.split_recommended",
         objectId: current.revision_id,
@@ -334,17 +393,15 @@ export async function prepareRevision(
       },
       expiresAt,
     );
-    await dependencies.checks.upsert(
-      {
-        revisionId: current.revision_id,
-        headSha: current.head_sha,
-        status: "in_progress",
-        conclusion: null,
-        summary: `proof ready for head ${current.head_sha}`,
-        detailsUrl: dependencies.checks.detailsUrl(current.revision_id),
-      },
-      client,
-    );
+    await dependencies.checkIntents.write(client, {
+      revisionId: current.revision_id,
+      headSha: current.head_sha,
+      status: "in_progress",
+      conclusion: null,
+      summary: `proof ready for head ${current.head_sha}`,
+      reason: "analysis_ready",
+      idempotencyKey: payload.idempotencyKey,
+    });
     await insertAuditOnce(client, {
       action: "analysis.proof_ready",
       objectId: attemptId,
