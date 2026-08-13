@@ -10,6 +10,7 @@ import {
 import { applyRepositoryPolicyV1 } from "@slopproof/policy";
 import {
   FrameSelectionMetadataV1Schema,
+  type InlineMultimodalJudgeProvider,
   LocalFakeMultimodalJudgeProvider,
   LocalFakeTranscriptionProvider,
   PayloadCipher,
@@ -34,6 +35,7 @@ import {
   FrameSelectionStageBundleV1Schema,
   PrivateProviderStageUnavailableError,
   ProviderPipelineStageResultV1Schema,
+  type EncryptedEvaluationBundleV1,
   type EvaluationRunContextV1,
   type ProviderPipelineDispatcher,
   type ProviderPipelineJobName,
@@ -46,6 +48,15 @@ import type {
   EncryptedRecordingAudioTranscriptionAdapter,
   RecordingCiphertextAccess,
 } from "./audio-transcription";
+import type { InlineFrameNormalizationDependencies } from "./inline-frame-normalization";
+import {
+  runMultimodalJudgeEvaluation,
+  type MultimodalProofEvaluationV1,
+} from "./multimodal-judge-service";
+import {
+  MultimodalEvaluationPersistenceError,
+  type MultimodalEvaluationRepository,
+} from "./multimodal-evaluation-repository";
 
 const StoredAnchorSchema = z
   .object({
@@ -106,7 +117,13 @@ export type ProviderPipelineDependencies = {
     ciphertextAccess(objectKey: string): RecordingCiphertextAccess;
   };
   frameSelectionAdapter: ProviderFrameSelectionAdapter;
-  judgeProvider: MultimodalJudgeProvider;
+  judgeProvider?: MultimodalJudgeProvider;
+  multimodalJudge?: {
+    provider: InlineMultimodalJudgeProvider;
+    repository: MultimodalEvaluationRepository;
+    frameStorage: InlineFrameNormalizationDependencies["storage"];
+    evaluate?: typeof runMultimodalJudgeEvaluation;
+  };
   clock: ProviderClock;
   providerTimeoutMs?: number;
   fakeTranscriptText?: (question: StoredProofQuestionV1) => string;
@@ -206,6 +223,170 @@ function evaluationAad(attemptId: string, evaluationId: string): string {
   return `slopproof:evaluation:v1:${attemptId}:${evaluationId}`;
 }
 
+export function createConservativeCompatibilityEvaluationBundle(input: {
+  evaluationInput: z.infer<typeof ProofEvaluationInputV1Schema>;
+  multimodalEvaluation: MultimodalProofEvaluationV1;
+  transcriptId: string;
+  deleteAfter: Date;
+  payloadCipher: PayloadCipher;
+}): EncryptedEvaluationBundleV1 {
+  const { evaluationInput, multimodalEvaluation } = input;
+  if (
+    multimodalEvaluation.attemptId !== evaluationInput.attemptId ||
+    multimodalEvaluation.revisionId !== evaluationInput.revisionId ||
+    multimodalEvaluation.headSha !== evaluationInput.headSha ||
+    multimodalEvaluation.workflowOutcome !== "review_required" ||
+    !multimodalEvaluation.manualReviewRequired
+  ) {
+    throw new ProviderError(
+      "INVALID_OUTPUT",
+      "review",
+      "Multimodal evaluation is not bound to its stored input",
+    );
+  }
+  const inputQuestions = new Map(
+    evaluationInput.questions.map((question) => [question.id, question]),
+  );
+  const seenQuestions = new Set<string>();
+  const questionEvaluations =
+    multimodalEvaluation.candidate.questionEvaluations.map((question) => {
+      const stored = inputQuestions.get(question.questionId);
+      if (stored === undefined || seenQuestions.has(question.questionId)) {
+        throw new ProviderError(
+          "UNKNOWN_QUESTION_ID",
+          "review",
+          "Multimodal evaluation references an unknown stored question",
+        );
+      }
+      seenQuestions.add(question.questionId);
+      const storedCriterionIds = new Set(
+        stored.rubric.map((criterion) => criterion.id),
+      );
+      const seenCriterionIds = new Set<string>();
+      for (const criterion of question.criterionResults) {
+        if (
+          !storedCriterionIds.has(criterion.criterionId) ||
+          seenCriterionIds.has(criterion.criterionId)
+        ) {
+          throw new ProviderError(
+            "RUBRIC_MISMATCH",
+            "review",
+            "Multimodal evaluation does not cover the exact stored rubric",
+          );
+        }
+        seenCriterionIds.add(criterion.criterionId);
+      }
+      if (
+        seenCriterionIds.size !== storedCriterionIds.size ||
+        [...storedCriterionIds].some(
+          (criterionId) => !seenCriterionIds.has(criterionId),
+        )
+      ) {
+        throw new ProviderError(
+          "RUBRIC_MISMATCH",
+          "review",
+          "Multimodal evaluation does not cover the exact stored rubric",
+        );
+      }
+
+      const hasNotEvaluable = question.criterionResults.some(
+        (criterion) => criterion.result === "not_evaluable",
+      );
+      const evaluable = question.criterionResults.filter(
+        (criterion) => criterion.result !== "not_evaluable",
+      );
+      const rubricFindings = evaluable.map((criterion) => ({
+        criterionId: criterion.criterionId,
+        result: criterion.result,
+        reason:
+          criterion.result === "met"
+            ? "Compatibility projection: stored criterion has bounded support; consult authoritative sidecar."
+            : "Compatibility projection: stored criterion lacks bounded support; consult authoritative sidecar.",
+      }));
+      if (rubricFindings.length === 0) {
+        rubricFindings.push({
+          criterionId: deterministicUuid(
+            `multimodal-compatibility-sentinel:${evaluationInput.attemptId}:${question.questionId}`,
+          ),
+          result: "met",
+          reason: "Compatibility-only sentinel; consult authoritative sidecar.",
+        });
+      }
+      const outcome = hasNotEvaluable
+        ? "not_evaluable"
+        : evaluable.every((criterion) => criterion.result === "met")
+          ? "met"
+          : evaluable.every((criterion) => criterion.result === "not_met")
+            ? "not_met"
+            : "partial";
+      return {
+        questionId: question.questionId,
+        outcome,
+        rubricFindings,
+        supportedPatchAnchorIds: [
+          ...new Set(
+            evaluable.flatMap((criterion) => criterion.supportedPatchAnchorIds),
+          ),
+        ],
+        reason:
+          "Compatibility-only manual-review projection; authoritative criterion results remain in the encrypted sidecar.",
+      };
+    });
+  if (seenQuestions.size !== inputQuestions.size) {
+    throw new ProviderError(
+      "UNKNOWN_QUESTION_ID",
+      "review",
+      "Multimodal evaluation omits a stored question",
+    );
+  }
+
+  const evaluationId = deterministicUuid(
+    [
+      "multimodal-compatibility-v1",
+      evaluationInput.attemptId,
+      evaluationInput.revisionId,
+      evaluationInput.headSha,
+      input.transcriptId,
+      multimodalEvaluation.invocationMetadata.inputHash,
+    ].join(":"),
+  );
+  const compatibility = ProofEvaluationV1Schema.parse({
+    schemaVersion: "1",
+    evaluationVersion: "proof-evaluation-v1",
+    attemptId: evaluationInput.attemptId,
+    revisionId: evaluationInput.revisionId,
+    headSha: evaluationInput.headSha,
+    provider: "multimodal-compatibility-v1",
+    model: "manual-review-projection-v1",
+    systemInstructionVersion: "proof-judge-system-v1",
+    recommendation: "review_required",
+    questionEvaluations,
+    privateReason:
+      "Compatibility-only projection; maintainer review and the authoritative encrypted multimodal sidecar are required.",
+    warnings: ["authoritative_multimodal_sidecar_required"],
+    createdAt: multimodalEvaluation.createdAt,
+  });
+  return EncryptedEvaluationBundleV1Schema.parse({
+    schemaVersion: "1",
+    payloadKind: "proof_evaluation",
+    evaluationId,
+    attemptId: evaluationInput.attemptId,
+    provider: compatibility.provider,
+    model: compatibility.model,
+    promptVersion: compatibility.systemInstructionVersion,
+    evaluationSchemaVersion: compatibility.evaluationVersion,
+    rubricVersion: "rubric-v1",
+    recommendation: "review_required",
+    encryptedPayload: JSON.stringify(
+      input.payloadCipher.encryptJson(
+        compatibility,
+        evaluationAad(evaluationInput.attemptId, evaluationId),
+      ),
+    ),
+    deleteAfter: input.deleteAfter,
+  });
+}
+
 function providerContext(
   attemptId: string,
   idempotencyKey: string,
@@ -270,14 +451,21 @@ async function routeProviderFailure(
   const providerError =
     error instanceof ProviderError
       ? error
-      : error instanceof z.ZodError
+      : error instanceof MultimodalEvaluationPersistenceError
         ? new ProviderError(
-            "INVALID_INPUT",
+            "INVALID_OUTPUT",
             "review",
-            "Persisted provider pipeline data failed its versioned schema",
+            "Authoritative multimodal evaluation persistence failed closed",
             { cause: error },
           )
-        : undefined;
+        : error instanceof z.ZodError
+          ? new ProviderError(
+              "INVALID_INPUT",
+              "review",
+              "Persisted provider pipeline data failed its versioned schema",
+              { cause: error },
+            )
+          : undefined;
   if (error instanceof PrivateProviderStageUnavailableError) {
     return result({ stage, outcome: "stale", attemptId: job.attemptId });
   }
@@ -749,16 +937,50 @@ export function createProviderPipelineHandlers(
             attemptId: job.attemptId,
           });
         }
-        if (context.existingEvaluation !== undefined) {
+        const downstreamJobBase = {
+          schemaVersion: "1" as const,
+          idempotencyKey: nextIdempotencyKey(
+            job.idempotencyKey,
+            "apply-policy",
+          ),
+          attemptId: job.attemptId,
+          expectedHeadSha: job.expectedHeadSha,
+        };
+        if (dependencies.multimodalJudge !== undefined) {
+          const existing =
+            await dependencies.multimodalJudge.repository.loadExistingAndSchedule(
+              {
+                attemptId: job.attemptId,
+                transcriptId: job.transcriptId,
+                expectedHeadSha: job.expectedHeadSha,
+                downstreamJobBase,
+              },
+            );
+          if (existing !== null) {
+            if (!existing.downstreamScheduled) {
+              await dependencies.dispatcher.enqueue("evaluation.apply-policy", {
+                ...downstreamJobBase,
+                evaluationId: existing.compatibilityEvaluation.evaluationId,
+              });
+            }
+            return result({
+              stage: "evaluation.run",
+              outcome: "replayed",
+              attemptId: job.attemptId,
+              artifactId: existing.compatibilityEvaluation.evaluationId,
+            });
+          }
+          if (context.existingEvaluation !== undefined) {
+            throw new ProviderError(
+              "INVALID_OUTPUT",
+              "review",
+              "A compatibility evaluation exists without its authoritative multimodal sidecar",
+            );
+          }
+        } else if (context.existingEvaluation !== undefined) {
           const downstreamJob = {
-            schemaVersion: "1",
-            idempotencyKey: nextIdempotencyKey(
-              job.idempotencyKey,
-              "apply-policy",
-            ),
-            attemptId: job.attemptId,
+            ...downstreamJobBase,
             evaluationId: context.existingEvaluation.evaluationId,
-            expectedHeadSha: job.expectedHeadSha,
           } as const;
           const downstreamScheduled =
             await dependencies.repository.schedulePersistedEvaluation(
@@ -797,6 +1019,79 @@ export function createProviderPipelineHandlers(
           transcript,
           frameSelection: context.frameSelection,
         });
+        if (dependencies.multimodalJudge !== undefined) {
+          const requestContext = providerContext(
+            job.attemptId,
+            job.idempotencyKey,
+            dependencies,
+            context.deleteAfter,
+          );
+          const evaluate =
+            dependencies.multimodalJudge.evaluate ??
+            runMultimodalJudgeEvaluation;
+          const multimodalEvaluation = await evaluate(
+            evaluationInput,
+            requestContext,
+            {
+              provider: dependencies.multimodalJudge.provider,
+              frameDependencies: {
+                storage: dependencies.multimodalJudge.frameStorage,
+                payloadCipher: dependencies.payloadCipher,
+              },
+              now: () => dependencies.clock.now(),
+            },
+          );
+          if (
+            !isPrivateStageEligible(
+              context,
+              job.expectedHeadSha,
+              dependencies.clock.now(),
+            )
+          ) {
+            throw new PrivateProviderStageUnavailableError();
+          }
+          const compatibilityEvaluation =
+            createConservativeCompatibilityEvaluationBundle({
+              evaluationInput,
+              multimodalEvaluation,
+              transcriptId: job.transcriptId,
+              deleteAfter: context.deleteAfter,
+              payloadCipher: dependencies.payloadCipher,
+            });
+          const persistence =
+            await dependencies.multimodalJudge.repository.persistPair({
+              multimodalEvaluation,
+              evaluationInputHash:
+                multimodalEvaluation.invocationMetadata.inputHash,
+              transcriptId: job.transcriptId,
+              deleteAfter: context.deleteAfter,
+              compatibilityEvaluation,
+              downstreamJob: {
+                ...downstreamJobBase,
+                evaluationId: compatibilityEvaluation.evaluationId,
+              },
+            });
+          if (!persistence.downstreamScheduled) {
+            await dependencies.dispatcher.enqueue("evaluation.apply-policy", {
+              ...downstreamJobBase,
+              evaluationId: persistence.compatibilityEvaluation.evaluationId,
+            });
+          }
+          return result({
+            stage: "evaluation.run",
+            outcome:
+              persistence.status === "created" ? "completed" : "replayed",
+            attemptId: job.attemptId,
+            artifactId: persistence.compatibilityEvaluation.evaluationId,
+          });
+        }
+        if (dependencies.judgeProvider === undefined) {
+          throw new ProviderError(
+            "INVALID_INPUT",
+            "review",
+            "No multimodal judge path is configured",
+          );
+        }
         let providerEvaluation: ProofEvaluationV1;
         try {
           providerEvaluation = await dependencies.judgeProvider.evaluate(
@@ -862,14 +1157,8 @@ export function createProviderPipelineHandlers(
           deleteAfter: context.deleteAfter,
         });
         const downstreamJob = {
-          schemaVersion: "1",
-          idempotencyKey: nextIdempotencyKey(
-            job.idempotencyKey,
-            "apply-policy",
-          ),
-          attemptId: job.attemptId,
+          ...downstreamJobBase,
           evaluationId,
-          expectedHeadSha: job.expectedHeadSha,
         } as const;
         const persistence =
           await dependencies.repository.persistEvaluation(bundle);

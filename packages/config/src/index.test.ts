@@ -263,6 +263,19 @@ describe("process-scoped configuration", () => {
     expect(config).not.toHaveProperty("GITHUB_CLIENT_SECRET");
   });
 
+  it("rejects judge model identifiers that cannot round-trip through persistence", () => {
+    expect(() =>
+      loadWorkerConfig({
+        ...localWorker,
+        MULTIMODAL_JUDGE_PROVIDER: "hetzner",
+        JUDGE_BASE_URL: "https://inference.example/api/v1",
+        JUDGE_API_KEY: "j".repeat(40),
+        JUDGE_MODEL: "m".repeat(101),
+        JUDGE_FALLBACK_MODEL: "vision-model",
+      }),
+    ).toThrow();
+  });
+
   it("accepts the production GitHub-control file-secret boundary", () => {
     const config = loadGithubControlConfig({
       ...productionCore,

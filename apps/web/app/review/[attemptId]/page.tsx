@@ -8,6 +8,7 @@ import {
 import { loadPrivateReviewContext } from "../../../lib/private-review-context";
 import { ReviewAttemptIdSchema } from "../../../lib/review-http";
 import { getWebRuntime } from "../../../lib/runtime";
+import { AuthoritativeEvaluation } from "./authoritative-evaluation";
 import { EvidencePlayer } from "./evidence-player";
 import { ReviewDecisionForm } from "./review-decision-form";
 
@@ -65,6 +66,22 @@ export default async function ReviewDetailPage({
       throw error;
     }
   }
+  const authoritativeEvaluation =
+    privateContext?.schemaVersion === "2"
+      ? privateContext.authoritativeEvaluation
+      : null;
+  const modelRecommendation =
+    privateContext?.schemaVersion === "2"
+      ? authoritativeEvaluation?.candidate.recommendation
+      : detail.recommendation;
+  const modelIdentity =
+    privateContext?.schemaVersion === "2"
+      ? authoritativeEvaluation === null
+        ? null
+        : `${authoritativeEvaluation.invocationMetadata.provider} · ${authoritativeEvaluation.invocationMetadata.model}`
+      : detail.evaluationProvider && detail.evaluationModel
+        ? `${detail.evaluationProvider} · ${detail.evaluationModel}`
+        : null;
 
   return (
     <main className="shell flow-shell review-shell">
@@ -131,12 +148,11 @@ export default async function ReviewDetailPage({
           <p className="eyebrow">Assistive context · never automatic</p>
           <h2>Model recommendation</h2>
           <strong>
-            {detail.recommendation ?? "No recommendation available"}
+            {modelRecommendation ?? "No recommendation available"}
           </strong>
           <p>
-            {detail.evaluationProvider && detail.evaluationModel
-              ? `${detail.evaluationProvider} · ${detail.evaluationModel}`
-              : "Provider output is unavailable; manual review remains possible."}
+            {modelIdentity ??
+              "Authoritative provider output is unavailable; manual review remains possible."}
           </p>
           <p className="review-help">
             This recommendation cannot update the attempt or GitHub check. Only
@@ -227,33 +243,27 @@ export default async function ReviewDetailPage({
           className="review-questions"
           aria-labelledby="evaluation-heading"
         >
-          <p className="eyebrow">Structured assistive evaluation</p>
-          <h2 id="evaluation-heading">Reasoning for maintainer review</h2>
-          <p>{privateContext.evaluation.privateReason}</p>
-          <div className="question-list evaluation-list">
-            {privateContext.evaluation.questionEvaluations.map((evaluation) => (
-              <article key={evaluation.questionId}>
-                <span>{evaluation.outcome}</span>
-                <div>
-                  <p>{evaluation.reason}</p>
-                  <ul>
-                    {evaluation.rubricFindings.map((finding) => (
-                      <li key={finding.criterionId}>
-                        <strong>{finding.result.replaceAll("_", " ")}</strong>
-                        {": "}
-                        {finding.reason}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </article>
-            ))}
-          </div>
-          {privateContext.evaluation.warnings.length > 0 ? (
-            <div className="notice-card reviewing-card">
-              {privateContext.evaluation.warnings.join(" · ")}
-            </div>
-          ) : null}
+          {privateContext.schemaVersion === "2" ? (
+            privateContext.authoritativeEvaluation === null ? (
+              <>
+                <p className="eyebrow">
+                  Authoritative private V2 evaluation unavailable
+                </p>
+                <h2 id="evaluation-heading">Manual review remains required</h2>
+                <p className="review-help">
+                  The legacy compatibility projection is intentionally not used
+                  as authoritative model reasoning. Review the transcript,
+                  frames, recording and stored rubric directly.
+                </p>
+              </>
+            ) : (
+              <AuthoritativeEvaluation
+                evaluation={privateContext.authoritativeEvaluation}
+              />
+            )
+          ) : (
+            <LegacyEvaluation evaluation={privateContext.evaluation} />
+          )}
         </section>
       ) : null}
 
@@ -292,6 +302,47 @@ export default async function ReviewDetailPage({
         </section>
       )}
     </main>
+  );
+}
+
+function LegacyEvaluation({
+  evaluation,
+}: {
+  evaluation: Extract<
+    NonNullable<Awaited<ReturnType<typeof loadPrivateReviewContext>>>,
+    { schemaVersion: "1" }
+  >["evaluation"];
+}) {
+  return (
+    <>
+      <p className="eyebrow">Legacy structured assistive evaluation</p>
+      <h2 id="evaluation-heading">Reasoning for maintainer review</h2>
+      <p>{evaluation.privateReason}</p>
+      <div className="question-list evaluation-list">
+        {evaluation.questionEvaluations.map((question) => (
+          <article key={question.questionId}>
+            <span>{question.outcome}</span>
+            <div>
+              <p>{question.reason}</p>
+              <ul>
+                {question.rubricFindings.map((finding) => (
+                  <li key={finding.criterionId}>
+                    <strong>{finding.result.replaceAll("_", " ")}</strong>
+                    {": "}
+                    {finding.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </article>
+        ))}
+      </div>
+      {evaluation.warnings.length > 0 ? (
+        <div className="notice-card reviewing-card">
+          {evaluation.warnings.join(" · ")}
+        </div>
+      ) : null}
+    </>
   );
 }
 

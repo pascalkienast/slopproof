@@ -1161,6 +1161,73 @@ export const evaluations = pgTable(
   ],
 );
 
+/**
+ * Worker-only authoritative multimodal result. Public checks continue to read
+ * the conservative `evaluations` compatibility row; this encrypted sidecar is
+ * never a public decision input.
+ */
+export const multimodalEvaluationSidecarsV1 = pgTable(
+  "multimodal_evaluation_sidecars_v1",
+  {
+    id: uuid("id").primaryKey(),
+    attemptId: uuid("attempt_id")
+      .notNull()
+      .references(() => attempts.id, { onDelete: "cascade" }),
+    revisionId: uuid("revision_id")
+      .notNull()
+      .references(() => pullRequestRevisions.id, { onDelete: "cascade" }),
+    headSha: text("head_sha").notNull(),
+    evaluationId: uuid("evaluation_id")
+      .notNull()
+      .references(() => evaluations.id, { onDelete: "cascade" }),
+    transcriptId: uuid("transcript_id")
+      .notNull()
+      .references(() => transcripts.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    evaluationVersion: text("evaluation_version").notNull(),
+    outputSchemaVersion: text("output_schema_version").notNull(),
+    inputHash: text("input_hash").notNull(),
+    outputHash: text("output_hash").notNull(),
+    encryptedPayload: jsonb("encrypted_payload").$type<Record<
+      string,
+      unknown
+    > | null>(),
+    providerCompletedAt: timestamp("provider_completed_at", {
+      withTimezone: true,
+    }).notNull(),
+    deleteAfter: timestamp("delete_after", { withTimezone: true }).notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("multimodal_evaluation_sidecars_v1_attempt_uq").on(
+      table.attemptId,
+    ),
+    uniqueIndex("multimodal_evaluation_sidecars_v1_evaluation_uq").on(
+      table.evaluationId,
+    ),
+    index("multimodal_evaluation_sidecars_v1_retention_idx")
+      .on(table.deleteAfter, table.id)
+      .where(sql`${table.deletedAt} IS NULL`),
+    check(
+      "multimodal_evaluation_sidecars_v1_head_sha",
+      sql`${table.headSha} ~ '^[0-9a-f]{40}$'`,
+    ),
+    check(
+      "multimodal_evaluation_sidecars_v1_hashes",
+      sql`${table.inputHash} ~ '^[0-9a-f]{64}$' AND ${table.outputHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "multimodal_evaluation_sidecars_v1_retention",
+      sql`${table.providerCompletedAt} <= ${table.createdAt} AND ${table.deleteAfter} > ${table.createdAt}`,
+    ),
+  ],
+);
+
 export const reviewDecisions = pgTable("review_decisions", {
   id: uuid("id").defaultRandom().primaryKey(),
   attemptId: uuid("attempt_id")

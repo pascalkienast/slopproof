@@ -17,8 +17,9 @@ import {
 } from "./attempt-expiry";
 import { EncryptedFfmpegFrameSelectionAdapter } from "./frame-selection";
 import { finalizeMediaUpload } from "./media-finalize";
+import { PostgresMultimodalEvaluationRepository } from "./multimodal-evaluation-repository";
+import { createMultimodalJudgeProvider } from "./multimodal-provider-factory";
 import {
-  createGate5MultimodalJudgeBoundary,
   decodeProviderPayloadKeyBase64,
   registerProviderPipelineWorkers,
 } from "./provider-pipeline";
@@ -294,6 +295,12 @@ async function start(): Promise<void> {
     checkIntents,
     activeJobQueue,
   );
+  const multimodalEvaluationRepository =
+    new PostgresMultimodalEvaluationRepository(
+      database,
+      activePayloadCipher,
+      activeJobQueue,
+    );
   await registerProviderPipelineWorkers(activeJobQueue, {
     repository: providerPipelineRepository,
     payloadCipher: activePayloadCipher,
@@ -309,10 +316,13 @@ async function start(): Promise<void> {
       ffmpegPath: config.FFMPEG_PATH,
       payloadCipher: activePayloadCipher,
     }),
-    judgeProvider: createGate5MultimodalJudgeBoundary(
-      config.MULTIMODAL_JUDGE_PROVIDER,
-      providerClock,
-    ),
+    multimodalJudge: {
+      provider: createMultimodalJudgeProvider(config, {
+        clock: providerClock,
+      }),
+      repository: multimodalEvaluationRepository,
+      frameStorage: storage,
+    },
     clock: providerClock,
   });
   const recoverProviderPipeline = async (): Promise<void> => {

@@ -368,6 +368,252 @@ export const ProofEvaluationV1Schema = z
 
 export type ProofEvaluationV1 = z.infer<typeof ProofEvaluationV1Schema>;
 
+const AuthoritativeCriterionReasonCodeV1Schema = z.enum([
+  "patch_evidence_supports_criterion",
+  "patch_evidence_conflicts_with_criterion",
+  "question_evidence_insufficient",
+  "question_evidence_unavailable",
+]);
+
+const AuthoritativeContradictionCodeV1Schema = z.enum([
+  "transcript_conflicts_with_patch_evidence",
+  "question_evidence_is_internally_inconsistent",
+]);
+
+const AuthoritativeUncertaintyCodeV1Schema = z.enum([
+  "transcript_evidence_incomplete",
+  "frame_evidence_unavailable",
+  "criterion_requires_maintainer_assessment",
+]);
+
+const AuthoritativePrivateReasonCodeV1Schema = z.enum([
+  "all_stored_criteria_supported",
+  "stored_criteria_not_fully_supported",
+  "automated_evaluation_unavailable",
+]);
+
+const AuthoritativeWarningCodeV1Schema = z.enum([
+  "frames_unavailable",
+  "frames_truncated",
+  "frame_metadata_invalid",
+  "frame_ciphertext_unavailable",
+  "frame_ciphertext_too_large",
+  "frame_ciphertext_hash_mismatch",
+  "frame_ciphertext_invalid",
+  "frame_decryption_failed",
+  "frame_jpeg_invalid",
+  "frame_dimensions_invalid",
+  "provider_evaluation_unavailable",
+  "local_fake_manual_review",
+]);
+
+const AuthoritativeFrameWarningCodeV1Schema = z.enum([
+  "frames_unavailable",
+  "frames_truncated",
+  "frame_metadata_invalid",
+  "frame_ciphertext_unavailable",
+  "frame_ciphertext_too_large",
+  "frame_ciphertext_hash_mismatch",
+  "frame_ciphertext_invalid",
+  "frame_decryption_failed",
+  "frame_jpeg_invalid",
+  "frame_dimensions_invalid",
+]);
+
+const ExactReviewDateSchema = z.preprocess((value) => {
+  if (value instanceof Date) return value;
+  if (typeof value !== "string") return value;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value
+    ? parsed
+    : value;
+}, z.date());
+
+export const AuthoritativeMultimodalEvaluationV1Schema = z
+  .object({
+    schemaVersion: z.literal("1"),
+    evaluationVersion: z.literal("multimodal-proof-evaluation-v1"),
+    attemptId: UuidSchema,
+    revisionId: UuidSchema,
+    headSha: GitShaSchema,
+    candidate: z
+      .object({
+        schemaVersion: z.literal("1"),
+        candidateVersion: z.literal("multimodal-judge-candidate-v1"),
+        recommendation: z.enum(["pass", "retry", "review_required"]),
+        questionEvaluations: z
+          .array(
+            z
+              .object({
+                questionId: UuidSchema,
+                criterionResults: z
+                  .array(
+                    z
+                      .object({
+                        criterionId: UuidSchema,
+                        result: z.enum(["met", "not_met", "not_evaluable"]),
+                        supportedPatchAnchorIds: z
+                          .array(z.string().regex(/^a[0-9]+$/u))
+                          .max(5),
+                        reason: AuthoritativeCriterionReasonCodeV1Schema,
+                      })
+                      .strict(),
+                  )
+                  .min(1)
+                  .max(8),
+                contradictions: z
+                  .array(AuthoritativeContradictionCodeV1Schema)
+                  .max(5),
+                uncertainty: z
+                  .array(AuthoritativeUncertaintyCodeV1Schema)
+                  .max(5),
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(5),
+        privateReason: AuthoritativePrivateReasonCodeV1Schema,
+        warnings: z.array(AuthoritativeWarningCodeV1Schema).max(20),
+      })
+      .strict()
+      .superRefine((candidate, context) => {
+        const questionIds = new Set<string>();
+        let containsNonPassingCriterion = false;
+        let containsUnresolvedEvidence = false;
+        for (const [
+          questionIndex,
+          question,
+        ] of candidate.questionEvaluations.entries()) {
+          if (questionIds.has(question.questionId)) {
+            context.addIssue({
+              code: "custom",
+              path: ["questionEvaluations", questionIndex, "questionId"],
+              message: "Authoritative question IDs must be unique",
+            });
+          }
+          questionIds.add(question.questionId);
+          if (
+            question.contradictions.length > 0 ||
+            question.uncertainty.length > 0
+          ) {
+            containsUnresolvedEvidence = true;
+          }
+          const criterionIds = new Set<string>();
+          for (const [
+            criterionIndex,
+            criterion,
+          ] of question.criterionResults.entries()) {
+            if (criterionIds.has(criterion.criterionId)) {
+              context.addIssue({
+                code: "custom",
+                path: [
+                  "questionEvaluations",
+                  questionIndex,
+                  "criterionResults",
+                  criterionIndex,
+                  "criterionId",
+                ],
+                message: "Authoritative criterion IDs must be unique",
+              });
+            }
+            criterionIds.add(criterion.criterionId);
+            if (criterion.result !== "met") containsNonPassingCriterion = true;
+            const validBinding =
+              (criterion.result === "met" &&
+                criterion.supportedPatchAnchorIds.length > 0 &&
+                criterion.reason === "patch_evidence_supports_criterion") ||
+              (criterion.result === "not_met" &&
+                criterion.supportedPatchAnchorIds.length > 0 &&
+                criterion.reason ===
+                  "patch_evidence_conflicts_with_criterion") ||
+              (criterion.result === "not_evaluable" &&
+                criterion.supportedPatchAnchorIds.length === 0 &&
+                (criterion.reason === "question_evidence_insufficient" ||
+                  criterion.reason === "question_evidence_unavailable"));
+            if (!validBinding) {
+              context.addIssue({
+                code: "custom",
+                path: [
+                  "questionEvaluations",
+                  questionIndex,
+                  "criterionResults",
+                  criterionIndex,
+                ],
+                message: "Authoritative criterion evidence is inconsistent",
+              });
+            }
+          }
+        }
+        if (
+          candidate.recommendation === "pass" &&
+          (containsNonPassingCriterion || containsUnresolvedEvidence)
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["recommendation"],
+            message: "Non-passing evidence cannot recommend pass",
+          });
+        }
+      }),
+    invocationMetadata: z
+      .object({
+        schemaVersion: z.literal("1"),
+        provider: z.string().trim().min(1).max(100),
+        model: z.string().trim().min(1).max(100),
+        promptVersion: z.literal("proof-judge-system-v2"),
+        outputSchemaVersion: z.literal("multimodal-judge-candidate-v1"),
+        inputHash: Sha256Schema,
+        outputHash: Sha256Schema,
+        tokenUsage: z
+          .object({
+            inputTokens: z.number().int().nonnegative().max(10_000_000),
+            outputTokens: z.number().int().nonnegative().max(10_000_000),
+          })
+          .strict()
+          .nullable(),
+        latencyMs: z
+          .number()
+          .int()
+          .nonnegative()
+          .max(15 * 60_000),
+        invocationCount: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+        outcome: z.enum(["generated", "repaired", "fallback"]),
+        degraded: z.boolean(),
+        completedAt: ExactReviewDateSchema,
+      })
+      .strict(),
+    frameWarnings: z.array(AuthoritativeFrameWarningCodeV1Schema).max(10),
+    workflowOutcome: z.literal("review_required"),
+    manualReviewRequired: z.literal(true),
+    createdAt: ExactReviewDateSchema,
+  })
+  .strict()
+  .superRefine((evaluation, context) => {
+    if (
+      new Set(evaluation.frameWarnings).size !== evaluation.frameWarnings.length
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["frameWarnings"],
+        message: "Authoritative frame warning codes must be unique",
+      });
+    }
+    if (
+      evaluation.invocationMetadata.completedAt.getTime() >
+      evaluation.createdAt.getTime()
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["invocationMetadata", "completedAt"],
+        message: "Provider completion cannot follow evaluation creation",
+      });
+    }
+  });
+
+export type AuthoritativeMultimodalEvaluationV1 = z.infer<
+  typeof AuthoritativeMultimodalEvaluationV1Schema
+>;
+
 export const PrivateReviewFrameV1Schema = z
   .object({
     id: UuidSchema,
@@ -407,6 +653,15 @@ const PrivateReviewEvaluationV1Schema = z.preprocess(
   ProofEvaluationV1Schema,
 );
 
+const PrivateReviewTranscriptV2Schema = z.preprocess(
+  reviveCreatedAt,
+  TranscriptV1Schema,
+);
+const PrivateReviewCompatibilityEvaluationV2Schema = z.preprocess(
+  reviveCreatedAt,
+  ProofEvaluationV1Schema,
+);
+
 export const PrivateReviewContextV1Schema = z
   .object({
     schemaVersion: z.literal("1"),
@@ -433,6 +688,47 @@ export const PrivateReviewContextV1Schema = z
 export type PrivateReviewContextV1 = z.infer<
   typeof PrivateReviewContextV1Schema
 >;
+
+export const PrivateReviewContextV2Schema = z
+  .object({
+    schemaVersion: z.literal("2"),
+    attemptId: UuidSchema,
+    transcript: PrivateReviewTranscriptV2Schema,
+    compatibilityEvaluation: PrivateReviewCompatibilityEvaluationV2Schema,
+    authoritativeEvaluation:
+      AuthoritativeMultimodalEvaluationV1Schema.nullable(),
+    frames: z.array(PrivateReviewFrameV1Schema).max(12),
+  })
+  .strict()
+  .superRefine((context, issues) => {
+    if (
+      context.transcript.attemptId !== context.attemptId ||
+      context.compatibilityEvaluation.attemptId !== context.attemptId ||
+      (context.authoritativeEvaluation !== null &&
+        (context.authoritativeEvaluation.attemptId !== context.attemptId ||
+          context.authoritativeEvaluation.revisionId !==
+            context.compatibilityEvaluation.revisionId ||
+          context.authoritativeEvaluation.headSha !==
+            context.compatibilityEvaluation.headSha))
+    ) {
+      issues.addIssue({
+        code: "custom",
+        path: ["attemptId"],
+        message: "Private V2 review artifacts must share one exact binding",
+      });
+    }
+  });
+
+export type PrivateReviewContextV2 = z.infer<
+  typeof PrivateReviewContextV2Schema
+>;
+
+export const PrivateReviewContextSchema = z.union([
+  PrivateReviewContextV2Schema,
+  PrivateReviewContextV1Schema,
+]);
+
+export type PrivateReviewContext = z.infer<typeof PrivateReviewContextSchema>;
 
 export const FakeTranscriptionRequestV1Schema = z
   .object({

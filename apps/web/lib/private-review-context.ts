@@ -1,7 +1,7 @@
 import type { AuthenticatedSession } from "@slopproof/auth";
 import {
-  PrivateReviewContextV1Schema,
-  type PrivateReviewContextV1,
+  PrivateReviewContextSchema,
+  type PrivateReviewContext,
 } from "@slopproof/providers";
 import { issueEvidenceCapability } from "./evidence-capability";
 import { WORKER_REVIEW_CONTEXT_PATH } from "./evidence-worker-contract";
@@ -17,7 +17,7 @@ export async function loadPrivateReviewContext(
   session: AuthenticatedSession,
   attemptId: string,
   authorizationDependencies: MaintainerAuthorizationDependencies = {},
-): Promise<PrivateReviewContextV1 | null> {
+): Promise<PrivateReviewContext | null> {
   const client = await app.database.pool.connect();
   let token: string;
   try {
@@ -85,8 +85,14 @@ export async function loadPrivateReviewContext(
     }
     const body = await response.text();
     if (Buffer.byteLength(body, "utf8") !== contentLength) return null;
-    return PrivateReviewContextV1Schema.parse(JSON.parse(body));
+    return parsePrivateReviewContextResponse(body);
   } catch {
     return null;
   }
+}
+
+export function parsePrivateReviewContextResponse(
+  body: string,
+): PrivateReviewContext {
+  return PrivateReviewContextSchema.parse(JSON.parse(body));
 }

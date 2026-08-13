@@ -474,6 +474,13 @@ export class PostgresRetentionPersistence implements RetentionPersistence {
          WHERE attempt_id = $1 AND deleted_at IS NULL`,
         [plan.attemptId, now],
       );
+      const shreddedMultimodalSidecars = await client.query(
+        `UPDATE multimodal_evaluation_sidecars_v1
+         SET encrypted_payload = NULL,
+             deleted_at = COALESCE(deleted_at, $2)
+         WHERE attempt_id = $1 AND deleted_at IS NULL`,
+        [plan.attemptId, now],
+      );
       await client.query(
         `UPDATE evaluations
          SET provider = 'deleted:' || id::text, model = 'deleted',
@@ -524,8 +531,16 @@ export class PostgresRetentionPersistence implements RetentionPersistence {
         `INSERT INTO audit_events
            (actor_id, action, object_type, object_id, metadata, occurred_at)
          VALUES ('worker', 'evidence.deleted', 'attempt', $1,
-                 jsonb_build_object('deletionJobId', $2::text), $3)`,
-        [plan.attemptId, plan.deletionJobId, now],
+                 jsonb_build_object(
+                   'deletionJobId', $2::text,
+                   'multimodalSidecarsShredded', $4::integer
+                 ), $3)`,
+        [
+          plan.attemptId,
+          plan.deletionJobId,
+          now,
+          shreddedMultimodalSidecars.rowCount ?? 0,
+        ],
       );
       await client.query("COMMIT");
     } catch (error) {
