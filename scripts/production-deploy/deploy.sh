@@ -42,6 +42,7 @@ RESTORE_CLEANUP_DATABASE=''
 RESTORE_CLEANUP_POSTGRES_IMAGE_ID=''
 CUTOVER_ROLLBACK_RELEASE_ID=''
 FINALIZE_ROLLBACK_RELEASE_ID=''
+MANAGED_ROLLBACK_RELEASE_ID=''
 
 die() {
   printf '%s\n' "$1" >&2
@@ -239,6 +240,20 @@ assert_release_container_images() {
   SLOPPROOF_IMAGE="$app_id" \
     SLOPPROOF_POSTGRES_IMAGE="$postgres_id" \
     "$source/scripts/production-deploy/verify-runtime-release.sh" containers "$@" >/dev/null
+}
+
+migration_fingerprint() {
+  local source=$1 migration_root="$source/packages/db/migrations"
+  [[ -d "$migration_root" && ! -L "$migration_root" ]] ||
+    die "Migration directory is absent or unsafe"
+  [[ -z $(find "$migration_root" -mindepth 1 ! -type f -print -quit) ]] ||
+    die "Migration directory contains a non-regular artifact"
+  (
+    cd "$source"
+    find packages/db/migrations -type f -print0 |
+      LC_ALL=C sort -z |
+      xargs -0 sha256sum
+  ) | sha256sum | awk '{print $1}'
 }
 
 verify_release() {
@@ -974,6 +989,213 @@ phase_initial_caddy_cutover() {
   printf '%s\n' "Caddy cutover and cohost smoke passed."
 }
 
+phase_managed_prepare() {
+  require_root
+  local release_id=${1:-} previous previous_release_id previous_secret backup boundary
+  local previous_migrations candidate_migrations caddy_sha256
+  require_release_id "$release_id"
+  verify_release "$release_id"
+  verify_secret_set "$release_id"
+  assert_staged_release_images "$release_id"
+  previous=$(realpath -e -- "$CURRENT_LINK")
+  [[ "$previous" =~ ^/opt/slopproof/releases/([0-9]{8}T[0-9]{6}Z)/source$ ]] ||
+    die "Managed upgrade requires one finalized current release"
+  previous_release_id=${BASH_REMATCH[1]}
+  [[ "$previous_release_id" != "$release_id" ]] ||
+    die "Managed upgrade candidate is already current"
+  [[ -L "$SECRET_ROOT/current" ]] || die "Current secret link is absent"
+  previous_secret=$(readlink "$SECRET_ROOT/current")
+  [[ "$previous_secret" == "$SECRET_ROOT/$previous_release_id" ]] ||
+    die "Current application and secret releases disagree"
+  [[ -f "$ETC_ROOT/release.env" && ! -L "$ETC_ROOT/release.env" &&
+    -f "$COMPOSE_UNIT" && ! -L "$COMPOSE_UNIT" ]] ||
+    die "Managed runtime boundary is incomplete"
+  cmp -s "$previous_secret/oauth-proxy-authenticator" \
+    "$SECRET_ROOT/$release_id/oauth-proxy-authenticator" ||
+    die "Managed upgrade requires an explicit Caddy credential rotation phase"
+  previous_migrations=$(migration_fingerprint "$previous")
+  candidate_migrations=$(migration_fingerprint "$(release_source "$release_id")")
+  [[ "$previous_migrations" == "$candidate_migrations" ]] ||
+    die "Managed automatic rollback requires an unchanged migration set"
+  caddy_sha256=$(sha256sum "$CADDYFILE" | awk '{print $1}')
+  grep -Fxq '# BEGIN SLOPPROOF MANAGED SITE v1' "$CADDYFILE" ||
+    die "Managed Caddy boundary is absent"
+  caddy validate --config "$CADDYFILE" --adapter caddyfile
+  backup="$SHARED_ROOT/managed-backup-$release_id"
+  boundary="$(release_incoming "$release_id")/.managed-rollback-boundary.json"
+  [[ ! -e "$backup" && ! -L "$backup" && ! -e "$boundary" && ! -L "$boundary" ]] ||
+    die "Managed rollback boundary already exists"
+  install -d -o root -g root -m 0700 "$backup"
+  install -o root -g root -m 0600 "$ETC_ROOT/release.env" "$backup/release.env"
+  install -o root -g root -m 0600 "$COMPOSE_UNIT" "$backup/slopproof-compose.service"
+  printf '%s\n' "$previous" > "$backup/previous-current"
+  printf '%s\n' "$previous_secret" > "$backup/previous-secret-current"
+  chmod 0600 "$backup/previous-current" "$backup/previous-secret-current"
+  set -o noclobber
+  jq -n --arg releaseId "$release_id" --arg previousReleaseId "$previous_release_id" \
+    --arg previousCurrent "$previous" --arg previousSecret "$previous_secret" \
+    --arg migrationSha256 "$candidate_migrations" --arg caddySha256 "$caddy_sha256" \
+    --arg backup "$backup" \
+    '{schema:"slopproof.managed-rollback-boundary.v1",releaseId:$releaseId,previousReleaseId:$previousReleaseId,previousCurrent:$previousCurrent,previousSecret:$previousSecret,migrationSha256:$migrationSha256,caddySha256:$caddySha256,backup:$backup}' \
+    > "$boundary"
+  set +o noclobber
+  chmod 0600 "$boundary"
+  sync -f "$backup"
+  sync -f "$boundary"
+  sync -f "$(release_incoming "$release_id")"
+  sync -f "$SHARED_ROOT"
+  printf '%s\n' "Prepared a no-schema-change managed rollback boundary."
+}
+
+restore_failed_managed_finalize() {
+  local exit_status=${1:-$?}
+  trap - EXIT HUP INT TERM
+  if [[ -n "$MANAGED_ROLLBACK_RELEASE_ID" ]]; then
+    (phase_managed_rollback "$MANAGED_ROLLBACK_RELEASE_ID") ||
+      printf '%s\n' "Automatic managed rollback failed; manual recovery is required." >&2
+  fi
+  exit "$exit_status"
+}
+
+phase_managed_finalize() {
+  require_root
+  local release_id=${1:-} source final boundary backup previous previous_release_id
+  local app_id postgres_id release_env_temporary unit_temporary caddy_sha256 migration_sha256
+  require_release_id "$release_id"
+  source=$(release_source "$release_id")
+  final=$(release_final "$release_id")
+  [[ ! -e "$final" ]] || die "Final release path already exists"
+  boundary="$(release_incoming "$release_id")/.managed-rollback-boundary.json"
+  [[ -f "$boundary" && ! -L "$boundary" ]] || die "Managed rollback boundary is absent"
+  previous=$(jq -er '.previousCurrent' "$boundary")
+  previous_release_id=$(jq -er '.previousReleaseId' "$boundary")
+  backup=$(jq -er '.backup' "$boundary")
+  caddy_sha256=$(jq -er '.caddySha256' "$boundary")
+  migration_sha256=$(jq -er '.migrationSha256' "$boundary")
+  jq -e --arg release_id "$release_id" \
+    --arg expected_backup "$SHARED_ROOT/managed-backup-$release_id" \
+    'keys == ["backup","caddySha256","migrationSha256","previousCurrent","previousReleaseId","previousSecret","releaseId","schema"] and
+     .schema == "slopproof.managed-rollback-boundary.v1" and
+     .releaseId == $release_id and .backup == $expected_backup and
+     (.previousReleaseId | test("^[0-9]{8}T[0-9]{6}Z$")) and
+     (.caddySha256 | test("^[0-9a-f]{64}$")) and
+     (.migrationSha256 | test("^[0-9a-f]{64}$"))' \
+    "$boundary" >/dev/null || die "Managed rollback boundary is invalid"
+  [[ "$previous" == "$RELEASES_ROOT/$previous_release_id/source" &&
+    -d "$previous" && ! -L "$previous" && -d "$backup" && ! -L "$backup" ]] ||
+    die "Previous managed release boundary is invalid"
+  [[ $(migration_fingerprint "$previous") == "$migration_sha256" &&
+    $(migration_fingerprint "$source") == "$migration_sha256" ]] ||
+    die "Migration set changed after managed preparation"
+  [[ $(sha256sum "$CADDYFILE" | awk '{print $1}') == "$caddy_sha256" ]] ||
+    die "Caddy changed after managed preparation"
+  cmp -s "$SECRET_ROOT/$previous_release_id/oauth-proxy-authenticator" \
+    "$SECRET_ROOT/$release_id/oauth-proxy-authenticator" ||
+    die "Caddy credential changed after managed preparation"
+  wait_release_stack "$release_id" 60
+  assert_release_container_images "$release_id" postgres migrate worker github-control web
+  MANAGED_ROLLBACK_RELEASE_ID=$release_id
+  trap 'restore_failed_managed_finalize $?' EXIT
+  trap 'restore_failed_managed_finalize 129' HUP
+  trap 'restore_failed_managed_finalize 130' INT
+  trap 'restore_failed_managed_finalize 143' TERM
+  mv -- "$(release_incoming "$release_id")" "$final"
+  sync -f "$(dirname "$final")"
+  ln -s "$final/source" "$CURRENT_LINK.next"
+  sync -f "$(dirname "$CURRENT_LINK")"
+  mv -Tf "$CURRENT_LINK.next" "$CURRENT_LINK"
+  sync -f "$(dirname "$CURRENT_LINK")"
+  ln -s "$SECRET_ROOT/$release_id" "$SECRET_ROOT/current.next"
+  sync -f "$SECRET_ROOT"
+  mv -Tf "$SECRET_ROOT/current.next" "$SECRET_ROOT/current"
+  sync -f "$SECRET_ROOT"
+  app_id=$(jq -er '.image.id' "$CURRENT_LINK/.slopproof-release.json")
+  postgres_id=$(jq -er '.postgresId' "$final/.image-stage-receipt.json")
+  release_env_temporary="$ETC_ROOT/.release.env.$release_id.tmp"
+  printf 'SLOPPROOF_SECRET_DIR=%s\nSLOPPROOF_DATA_DIR=%s\nSLOPPROOF_IMAGE=%s\nSLOPPROOF_POSTGRES_IMAGE=%s\nS3_PUBLIC_ENDPOINT=%s\n' \
+    "$SECRET_ROOT/$release_id" "$DATA_ROOT" "$app_id" "$postgres_id" \
+    'https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com' \
+    > "$release_env_temporary"
+  chown root:root "$release_env_temporary"
+  chmod 0600 "$release_env_temporary"
+  sync -f "$release_env_temporary"
+  mv -Tf "$release_env_temporary" "$ETC_ROOT/release.env"
+  sync -f "$ETC_ROOT"
+  unit_temporary="$(dirname "$COMPOSE_UNIT")/.slopproof-compose.$release_id.tmp"
+  install -o root -g root -m 0644 "$CURRENT_LINK/infra/systemd/slopproof-compose.service" "$unit_temporary"
+  sync -f "$unit_temporary"
+  mv -Tf "$unit_temporary" "$COMPOSE_UNIT"
+  sync -f "$(dirname "$COMPOSE_UNIT")"
+  systemctl daemon-reload
+  systemctl enable slopproof-compose.service
+  sync -f /etc/systemd/system
+  if [[ -d /etc/systemd/system/multi-user.target.wants ]]; then
+    sync -f /etc/systemd/system/multi-user.target.wants
+  fi
+  systemctl restart slopproof-compose.service
+  timeout --signal=TERM --kill-after=5s 300 systemctl is-active --quiet slopproof-compose.service
+  assert_release_container_images "$release_id" postgres migrate worker github-control web
+  "$CURRENT_LINK/scripts/production-deploy/smoke-production.sh" final
+  trap - EXIT HUP INT TERM
+  MANAGED_ROLLBACK_RELEASE_ID=''
+  printf '%s\n' "Finalized managed immutable release $release_id."
+}
+
+phase_managed_rollback() {
+  require_root
+  local release_id=${1:-} bundle boundary previous previous_release_id previous_secret backup
+  local caddy_sha256 migration_sha256
+  require_release_id "$release_id"
+  bundle=$(release_bundle "$release_id")
+  boundary="$bundle/.managed-rollback-boundary.json"
+  [[ -f "$boundary" && ! -L "$boundary" ]] || die "Managed rollback boundary is absent"
+  previous=$(jq -er '.previousCurrent' "$boundary")
+  previous_release_id=$(jq -er '.previousReleaseId' "$boundary")
+  previous_secret=$(jq -er '.previousSecret' "$boundary")
+  backup=$(jq -er '.backup' "$boundary")
+  caddy_sha256=$(jq -er '.caddySha256' "$boundary")
+  migration_sha256=$(jq -er '.migrationSha256' "$boundary")
+  jq -e --arg release_id "$release_id" \
+    --arg expected_backup "$SHARED_ROOT/managed-backup-$release_id" \
+    'keys == ["backup","caddySha256","migrationSha256","previousCurrent","previousReleaseId","previousSecret","releaseId","schema"] and
+     .schema == "slopproof.managed-rollback-boundary.v1" and
+     .releaseId == $release_id and .backup == $expected_backup and
+     (.previousReleaseId | test("^[0-9]{8}T[0-9]{6}Z$")) and
+     (.caddySha256 | test("^[0-9a-f]{64}$")) and
+     (.migrationSha256 | test("^[0-9a-f]{64}$"))' \
+    "$boundary" >/dev/null || die "Managed rollback boundary is invalid"
+  [[ "$previous" == "$RELEASES_ROOT/$previous_release_id/source" &&
+    "$previous_secret" == "$SECRET_ROOT/$previous_release_id" &&
+    -d "$previous" && ! -L "$previous" && -d "$backup" && ! -L "$backup" ]] ||
+    die "Managed rollback identity is invalid"
+  [[ $(migration_fingerprint "$previous") == "$migration_sha256" &&
+    $(migration_fingerprint "$(release_source "$release_id")") == "$migration_sha256" ]] ||
+    die "Managed rollback migration proof failed"
+  [[ $(sha256sum "$CADDYFILE" | awk '{print $1}') == "$caddy_sha256" ]] ||
+    die "Managed rollback refuses a changed Caddy boundary"
+  install -o root -g root -m 0600 "$backup/release.env" "$ETC_ROOT/.release.env.managed-rollback"
+  sync -f "$ETC_ROOT/.release.env.managed-rollback"
+  mv -Tf "$ETC_ROOT/.release.env.managed-rollback" "$ETC_ROOT/release.env"
+  sync -f "$ETC_ROOT"
+  install -o root -g root -m 0644 "$backup/slopproof-compose.service" \
+    "$(dirname "$COMPOSE_UNIT")/.slopproof-compose.managed-rollback"
+  sync -f "$(dirname "$COMPOSE_UNIT")/.slopproof-compose.managed-rollback"
+  mv -Tf "$(dirname "$COMPOSE_UNIT")/.slopproof-compose.managed-rollback" "$COMPOSE_UNIT"
+  sync -f "$(dirname "$COMPOSE_UNIT")"
+  ln -sfn "$previous" "$CURRENT_LINK.next"
+  mv -Tf "$CURRENT_LINK.next" "$CURRENT_LINK"
+  sync -f "$(dirname "$CURRENT_LINK")"
+  ln -sfn "$previous_secret" "$SECRET_ROOT/current.rollback"
+  mv -Tf "$SECRET_ROOT/current.rollback" "$SECRET_ROOT/current"
+  sync -f "$SECRET_ROOT"
+  systemctl daemon-reload
+  systemctl restart slopproof-compose.service
+  timeout --signal=TERM --kill-after=5s 300 systemctl is-active --quiet slopproof-compose.service
+  assert_release_container_images "$previous_release_id" postgres migrate worker github-control web
+  "$previous/scripts/production-deploy/smoke-production.sh" rollback-managed
+  printf '%s\n' "Restored managed release $previous_release_id without changing Caddy or PostgreSQL schema."
+}
+
 restore_failed_finalize() {
   local exit_status=${1:-$?}
   trap - EXIT HUP INT TERM
@@ -1167,8 +1389,11 @@ case "${1:-}" in
   restore-exec) [[ $# -ge 5 ]] || die "Usage: deploy.sh restore-exec RELEASE_ID DATABASE COMMAND ..."; shift; phase_restore_exec "$@" ;;
   restore-stop) [[ $# -eq 3 ]] || die "Usage: deploy.sh restore-stop RELEASE_ID DATABASE"; phase_restore_stop "$2" "$3" ;;
   restore-absent) [[ $# -eq 3 ]] || die "Usage: deploy.sh restore-absent RELEASE_ID DATABASE"; phase_restore_absent "$2" "$3" ;;
+  managed-prepare) [[ $# -eq 2 ]] || die "Usage: deploy.sh managed-prepare RELEASE_ID"; phase_managed_prepare "$2" ;;
+  managed-finalize) [[ $# -eq 2 ]] || die "Usage: deploy.sh managed-finalize RELEASE_ID"; phase_managed_finalize "$2" ;;
+  managed-rollback) [[ $# -eq 2 ]] || die "Usage: deploy.sh managed-rollback RELEASE_ID"; phase_managed_rollback "$2" ;;
   initial-caddy-cutover) [[ $# -eq 2 ]] || die "Usage: deploy.sh initial-caddy-cutover RELEASE_ID"; phase_initial_caddy_cutover "$2" ;;
   finalize) [[ $# -eq 2 ]] || die "Usage: deploy.sh finalize RELEASE_ID"; phase_finalize "$2" ;;
   rollback) [[ $# -eq 2 ]] || die "Usage: deploy.sh rollback RELEASE_ID"; phase_rollback "$2" ;;
-  *) die "Expected preflight, prepare-remote, install, image-stage, postgres-only, backup-compose, restore-start, restore-exec, restore-stop, restore-absent, migrate-start, initial-caddy-cutover, finalize or rollback" ;;
+  *) die "Expected preflight, prepare-remote, install, image-stage, postgres-only, backup-compose, restore-start, restore-exec, restore-stop, restore-absent, migrate-start, managed-prepare, managed-finalize, managed-rollback, initial-caddy-cutover, finalize or rollback" ;;
 esac

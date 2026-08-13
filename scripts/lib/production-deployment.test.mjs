@@ -144,6 +144,9 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
     "restore-stop",
     "restore-absent",
     "migrate-start",
+    "managed-prepare",
+    "managed-finalize",
+    "managed-rollback",
     "initial-caddy-cutover",
     "finalize",
     "rollback",
@@ -210,6 +213,7 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
   }
   assert.match(deploy, /^CUTOVER_ROLLBACK_RELEASE_ID=''$/mu);
   assert.match(deploy, /^FINALIZE_ROLLBACK_RELEASE_ID=''$/mu);
+  assert.match(deploy, /^MANAGED_ROLLBACK_RELEASE_ID=''$/mu);
   assert.match(deploy, /^RESTORE_CLEANUP_CREATION_ATTEMPTED=false$/mu);
   assert.doesNotMatch(
     deploy,
@@ -418,6 +422,61 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
   assert.match(deploy, /bootstrap-\[0-9\]/u);
   assert.match(wait, /10#\$1 <= 900/u);
   assert.match(wait, /api\/health\/ready/u);
+});
+
+test("managed upgrades are reversible only across an unchanged schema and Caddy boundary", () => {
+  const deploy = read("scripts/production-deploy/deploy.sh");
+  const prepare = deploy.slice(
+    deploy.indexOf("phase_managed_prepare()"),
+    deploy.indexOf("restore_failed_managed_finalize()"),
+  );
+  const finalize = deploy.slice(
+    deploy.indexOf("phase_managed_finalize()"),
+    deploy.indexOf("phase_managed_rollback()"),
+  );
+  const rollback = deploy.slice(
+    deploy.indexOf("phase_managed_rollback()"),
+    deploy.indexOf("restore_failed_finalize()"),
+  );
+  assert.match(
+    prepare,
+    /Managed automatic rollback requires an unchanged migration set/u,
+  );
+  assert.match(prepare, /cmp -s "\$previous_secret\/oauth-proxy-authenticator"/u);
+  assert.match(prepare, /slopproof\.managed-rollback-boundary\.v1/u);
+  assert.match(prepare, /sync -f "\$boundary"/u);
+  assert.match(finalize, /trap 'restore_failed_managed_finalize \$\?' EXIT/u);
+  assert.match(finalize, /Caddy changed after managed preparation/u);
+  assert.match(finalize, /systemctl restart slopproof-compose\.service/u);
+  assert.match(finalize, /smoke-production\.sh" final/u);
+  assert.doesNotMatch(`${prepare}\n${finalize}`, /systemctl (?:restart|reload) caddy/u);
+  assert.match(rollback, /Managed rollback migration proof failed/u);
+  assert.match(rollback, /Managed rollback refuses a changed Caddy boundary/u);
+  assert.match(rollback, /assert_release_container_images "\$previous_release_id"/u);
+  assert.match(rollback, /smoke-production\.sh" rollback-managed/u);
+
+  const finalRename = finalize.indexOf(
+    'mv -- "$(release_incoming "$release_id")" "$final"',
+  );
+  const currentRename = finalize.indexOf(
+    'mv -Tf "$CURRENT_LINK.next" "$CURRENT_LINK"',
+  );
+  const secretRename = finalize.indexOf(
+    'mv -Tf "$SECRET_ROOT/current.next" "$SECRET_ROOT/current"',
+  );
+  const envRename = finalize.indexOf(
+    'mv -Tf "$release_env_temporary" "$ETC_ROOT/release.env"',
+  );
+  const restart = finalize.indexOf(
+    "systemctl restart slopproof-compose.service",
+  );
+  assert.ok(
+    finalRename !== -1 &&
+      finalRename < currentRename &&
+      currentRename < secretRename &&
+      secretRename < envRename &&
+      envRename < restart,
+  );
 });
 
 test("restore rehearsal uses only a release-bound disposable tmpfs PostgreSQL", () => {

@@ -30,6 +30,13 @@ const NO_STORE_HEADERS = Object.freeze({
   "referrer-policy": "no-referrer",
   "x-content-type-options": "nosniff",
 });
+const CALLBACK_FAILURE_CSP = [
+  "default-src 'none'",
+  "style-src 'unsafe-inline'",
+  "base-uri 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'none'",
+].join("; ");
 
 export async function handleGithubOAuthStart(
   request: Request,
@@ -116,13 +123,58 @@ export async function handleGithubOAuthCallback(
     clearFlowCookie(response);
     return response;
   } catch (error) {
-    const response = oauthFailure(
+    const response = oauthCallbackFailure(
       error instanceof GithubOAuthRejectedError ? 400 : 503,
     );
     clearFlowCookie(response);
     clearUserTokenCookie(response);
     return response;
   }
+}
+
+function oauthCallbackFailure(status: 400 | 503): NextResponse {
+  const unavailable = status === 503;
+  const title = unavailable
+    ? "GitHub is temporarily unavailable"
+    : "GitHub authorization did not finish";
+  const detail = unavailable
+    ? "SlopProof could not complete the secure GitHub exchange. Nothing was submitted. Please try again from the current GitHub Check in a moment."
+    : "Nothing was submitted. Return to the current GitHub Check and start authorization again when you are ready.";
+  const body = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${title} · SlopProof</title>
+    <style>
+      :root { color-scheme: light; font-family: ui-sans-serif, system-ui, sans-serif; background: #f5f2ea; color: #171717; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+      main { width: min(100%, 680px); border: 3px solid currentColor; border-radius: 24px; padding: clamp(28px, 7vw, 56px); background: #fffdf7; box-shadow: 8px 8px 0 #171717; }
+      p:first-child { margin: 0 0 18px; font: 700 13px/1.2 ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; color: #d65332; }
+      h1 { margin: 0; font-size: clamp(38px, 8vw, 68px); line-height: .98; letter-spacing: -.04em; }
+      p { font-size: 18px; line-height: 1.55; }
+      a { display: inline-block; margin-top: 12px; border: 2px solid currentColor; border-radius: 999px; padding: 12px 18px; color: inherit; font-weight: 750; text-decoration: none; background: #e9ff70; }
+      a:focus-visible { outline: 4px solid #2f72ff; outline-offset: 4px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p>SlopProof · GitHub authorization</p>
+      <h1>${title}</h1>
+      <p>${detail}</p>
+      <a href="/">Return to SlopProof</a>
+    </main>
+  </body>
+</html>`;
+  return new NextResponse(body, {
+    status,
+    headers: {
+      ...NO_STORE_HEADERS,
+      "content-type": "text/html; charset=utf-8",
+      "content-security-policy": CALLBACK_FAILURE_CSP,
+    },
+  });
 }
 
 export async function handleGithubOAuthLogout(

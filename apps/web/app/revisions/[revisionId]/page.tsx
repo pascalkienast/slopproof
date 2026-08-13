@@ -74,12 +74,20 @@ export default async function PublicRevisionPage({
         </div>
         <p>{revision.public_summary}</p>
         {revision.is_current && revision.has_contributor_flow ? (
-          <a
-            className="button primary"
-            href={`/revisions/${revisionId.data}/contribute`}
-          >
-            Open contributor proof
-          </a>
+          <div className="actions compact-actions">
+            <a
+              className="button primary"
+              href={`/revisions/${revisionId.data}/contribute`}
+            >
+              Open contributor proof
+            </a>
+            <a
+              className="button"
+              href={`/revisions/${revisionId.data}/contribute/practice`}
+            >
+              Practice first (optional)
+            </a>
+          </div>
         ) : null}
         <a className="button" href="/review">
           Open protected maintainer review

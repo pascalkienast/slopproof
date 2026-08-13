@@ -175,7 +175,7 @@ describe("GitHub OAuth route handlers", () => {
     expect(await response.text()).toBe("");
   });
 
-  it("maps provider denial and duplicate callback parameters to value-free errors", async () => {
+  it("renders provider denial and duplicate callback parameters as value-free recovery pages", async () => {
     const test = harness();
     const denied = await handleGithubOAuthCallback(
       new Request(
@@ -185,7 +185,12 @@ describe("GitHub OAuth route handlers", () => {
     );
     expect(denied.status).toBe(400);
     const deniedBody = await denied.text();
-    expect(JSON.parse(deniedBody)).toEqual({ error: "oauth_rejected" });
+    expect(denied.headers.get("content-type")).toContain("text/html");
+    expect(denied.headers.get("content-security-policy")).toContain(
+      "default-src 'none'",
+    );
+    expect(deniedBody).toContain("GitHub authorization did not finish");
+    expect(deniedBody).toContain("Return to SlopProof");
     expect(deniedBody).not.toContain("provider-private-marker");
     expect(test.oauth.callback).not.toHaveBeenCalled();
     expect(setCookies(denied).join("\n")).toContain(
@@ -199,7 +204,35 @@ describe("GitHub OAuth route handlers", () => {
       test.resolve,
     );
     expect(duplicate.status).toBe(400);
-    expect(await duplicate.json()).toEqual({ error: "oauth_rejected" });
+    expect(await duplicate.text()).toContain(
+      "GitHub authorization did not finish",
+    );
+  });
+
+  it("renders provider outages without leaking internal failures", async () => {
+    const test = harness();
+    test.oauth.callback.mockRejectedValueOnce(
+      new Error("provider-private-upstream-marker"),
+    );
+    const response = await handleGithubOAuthCallback(
+      new Request(
+        "https://slopproof.example/api/auth/github/callback?code=one-use-code&state=one-use-state",
+        {
+          headers: {
+            cookie: `${GITHUB_OAUTH_FLOW_COOKIE}=v1.sealed-pkce-cookie`,
+          },
+        },
+      ),
+      test.resolve,
+    );
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    const body = await response.text();
+    expect(body).toContain("GitHub is temporarily unavailable");
+    expect(body).not.toContain("provider-private-upstream-marker");
+    expect(setCookies(response).join("\n")).toContain(
+      `${GITHUB_USER_TOKEN_COOKIE}=`,
+    );
   });
 
   it("revokes with exact Origin and session-bound CSRF, then clears every auth cookie", async () => {

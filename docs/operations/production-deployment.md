@@ -9,9 +9,9 @@ release symlink is changed.
 The executable procedure is `scripts/production-deploy/deploy.sh`; it exposes
 small, fail-closed phases rather than one opaque deploy. Do not skip or reorder
 them. Every wait is bounded to at most 900 seconds. The initial Caddy phase is
-deliberately named `initial-caddy-cutover`: later releases require a fresh,
-explicitly reviewed current-Caddy snapshot instead of reusing the bootstrap
-hashes compiled into that phase.
+deliberately named `initial-caddy-cutover`. Subsequent releases use the
+separate managed path below and do not mutate Caddy unless an explicit
+credential or configuration rotation is reviewed.
 
 ## Invariants
 
@@ -176,6 +176,30 @@ the nonsecret release environment, install/enable the Compose unit and repeat
 the smoke. The unit mounts secret files through Compose; no raw secret file is
 an `EnvironmentFile`.
 
+### Managed release upgrade
+
+For a release after the first finalized deployment, run
+`deploy.sh managed-prepare <release-id>` before the fresh backup rehearsal. It
+accepts only a timestamped finalized `current` release, an unchanged complete
+migration-file fingerprint and an identical Caddy proxy authenticator. It
+snapshots the exact current symlinks, release environment and Compose unit into
+a root-only rollback boundary, records the current Caddy hash, and fsyncs that
+boundary before migration is allowed.
+
+After the release-bound backup/restore receipt is verified, run
+`migrate-start` and immediately `managed-finalize`. Finalization rechecks the
+schema, Caddy and credential boundaries, verifies the candidate containers,
+then atomically publishes the release, current/secret symlinks, release
+environment and unit. A final service restart and external smoke must pass.
+Caddy is not restarted or rewritten.
+
+Any finalization failure invokes `managed-rollback`. That phase again proves
+the unchanged migration fingerprint and Caddy hash, restores the previous
+runtime boundary, restarts the previous exact image and smokes it. A changed
+migration set or proxy credential is deliberately rejected: it needs a
+separately designed database or Caddy transition, not this no-schema-change
+path.
+
 ### Rollback boundary
 
 `deploy.sh rollback` stops the candidate without `down` or volume deletion,
@@ -187,11 +211,13 @@ Caddy, and never downgrades the database or deletes R2. This first Gate-9
 deployment may point back only to the exact audited
 `bootstrap-YYYYMMDD-HHMM`; in that case it keeps the SlopProof unit disabled
 and externally re-smokes the landing and every cohost. A later managed release
-is never started against a forward-migrated shared database without an
-explicit schema-compatibility attestation or a separately restored database
-cutover. Database rollback means restoring the encrypted
-pre-migration backup into a separate database and a planned connection
-cutover—never `migrate down` and never overwrite the only copy.
+is automatically reversible only when `managed-prepare` proves the complete
+migration set unchanged. Otherwise it is never started against a
+forward-migrated shared database without an explicit schema-compatibility
+attestation or a separately restored database cutover. Database rollback means
+restoring the encrypted pre-migration backup into a separate database and a
+planned connection cutover—never `migrate down` and never overwrite the only
+copy.
 
 The operator must retain the release manifest, image-stage receipt, encrypted
 backup receipt/local verifier evidence, rollback boundary and smoke result.
