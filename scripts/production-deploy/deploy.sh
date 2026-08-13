@@ -247,8 +247,8 @@ migration_fingerprint() {
   migration_root="$source/packages/db/migrations"
   [[ -d "$migration_root" && ! -L "$migration_root" ]] ||
     die "Migration directory is absent or unsafe"
-  [[ -z $(find "$migration_root" -mindepth 1 ! -type f -print -quit) ]] ||
-    die "Migration directory contains a non-regular artifact"
+  [[ -z $(find "$migration_root" -mindepth 1 ! -type f ! -type d -print -quit) ]] ||
+    die "Migration directory contains an unsafe artifact"
   (
     cd "$source"
     find packages/db/migrations -type f -print0 |

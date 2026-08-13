@@ -431,6 +431,11 @@ test("managed upgrades are reversible only across an unchanged schema and Caddy 
     /local source=\$1 migration_root="\$source\//u,
     "set -u requires dependent local assignments to happen after declaration",
   );
+  assert.match(
+    deploy,
+    /find "\$migration_root" -mindepth 1 ! -type f ! -type d -print -quit/u,
+    "the migration tree may contain directories but no symlinks or special files",
+  );
   const prepare = deploy.slice(
     deploy.indexOf("phase_managed_prepare()"),
     deploy.indexOf("restore_failed_managed_finalize()"),
