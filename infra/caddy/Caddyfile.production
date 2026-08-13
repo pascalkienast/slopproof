@@ -1,7 +1,9 @@
 # Import this site block from the host Caddy configuration only after the
-# production Compose readiness check succeeds. Gate 8 owns the live backup,
-# validation, reload and rollback. SLOPPROOF_SITE, LANDING_ROOT and
-# OAUTH_TRUSTED_PROXY_SECRET are host-side environment values.
+# production Compose readiness check succeeds. Gate 9 owns the live backup,
+# validation, reload and rollback. SLOPPROOF_SITE and LANDING_ROOT are
+# non-secret render-time values. The proxy authenticator remains a runtime
+# file placeholder backed by a systemd credential; it must never be expanded
+# while adapting this Caddyfile to the admin API's JSON configuration.
 {$SLOPPROOF_SITE} {
 	log {
 		format filter {
@@ -35,6 +37,7 @@
 		method GET HEAD
 		path /
 	}
+	header @landing >Content-Security-Policy "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; connect-src 'self' https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'"
 	handle @landing {
 		root * {$LANDING_ROOT}
 		try_files /index.html
@@ -50,7 +53,7 @@
 			header_up -X-SlopProof-Client-IP
 			header_up -X-SlopProof-Proxy-Authenticator
 			header_up X-SlopProof-Client-IP {remote_host}
-			header_up X-SlopProof-Proxy-Authenticator {$OAUTH_TRUSTED_PROXY_SECRET}
+			header_up X-SlopProof-Proxy-Authenticator {file./run/credentials/caddy.service/oauth-proxy-authenticator}
 		}
 	}
 

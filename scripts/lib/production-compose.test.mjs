@@ -9,6 +9,24 @@ const composePath = fileURLToPath(
   new URL("../../compose.production.yaml", import.meta.url),
 );
 
+const MEBIBYTE = 1024 * 1024;
+const MOBILEUP_HOST_BUDGET = Object.freeze({
+  cpu: 2,
+  memoryMiB: Math.floor(3.73 * 1024),
+  swapMiB: 0,
+  reservedCpu: 0.25,
+  reservedMemoryMiB: 1024,
+});
+const STEADY_STATE_SERVICES = ["postgres", "worker", "github-control", "web"];
+const MINIMUM_SERVICE_BUDGETS = Object.freeze({
+  postgres: { cpu: 0.25, memoryMiB: 512 },
+  migrate: { cpu: 0.125, memoryMiB: 256 },
+  worker: { cpu: 0.5, memoryMiB: 768 },
+  "github-control": { cpu: 0.1, memoryMiB: 192 },
+  web: { cpu: 0.25, memoryMiB: 384 },
+});
+const STAGED_POSTGRES_ID = `sha256:${"b".repeat(64)}`;
+
 function loadProductionCompose() {
   const rendered = execFileSync(
     "docker",
@@ -20,8 +38,9 @@ function loadProductionCompose() {
         ...process.env,
         COMPOSE_PROJECT_NAME: "slopproof-production",
         S3_PUBLIC_ENDPOINT: "https://r2.contract.invalid",
-        SLOPPROOF_DATA_DIR: "/var/lib/slopproof",
+        SLOPPROOF_DATA_DIR: "/var/lib/slopproof-production",
         SLOPPROOF_IMAGE: "slopproof-app:production",
+        SLOPPROOF_POSTGRES_IMAGE: STAGED_POSTGRES_ID,
         SLOPPROOF_SECRET_DIR: "/etc/slopproof/secrets",
       },
     },
@@ -40,6 +59,7 @@ test("production Compose source parses without interpolation", () => {
 test("production Compose is isolated from the local demo topology", () => {
   const compose = loadProductionCompose();
   assert.equal(compose.name, "slopproof-production");
+  assert.equal(compose.services.postgres.image, STAGED_POSTGRES_ID);
   assert.deepEqual(Object.keys(compose.services).sort(), [
     "github-control",
     "migrate",
@@ -79,7 +99,10 @@ test("production Compose is isolated from the local demo topology", () => {
   const postgresVolume = compose.services.postgres.volumes;
   assert.equal(postgresVolume.length, 1);
   assert.equal(postgresVolume[0].type, "bind");
-  assert.equal(postgresVolume[0].source, "/var/lib/slopproof/postgres");
+  assert.equal(
+    postgresVolume[0].source,
+    "/var/lib/slopproof-production/postgres",
+  );
   assert.equal(postgresVolume[0].target, "/var/lib/postgresql");
 });
 
@@ -178,12 +201,90 @@ test("migrate gates restartable hardened services", () => {
     assert.equal(service.logging.options["max-size"], "10m");
     assert.equal(service.logging.options["max-file"], "3");
   }
-  assert.equal(compose.services.postgres.user, "70:70");
-  assert.equal(
-    compose.services.postgres.image,
-    "postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15",
+  const rendered = execFileSync(
+    "docker",
+    ["compose", "-f", composePath, "config"],
+    {
+      cwd: workspaceDirectory,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        S3_PUBLIC_ENDPOINT: "https://r2.contract.invalid",
+        SLOPPROOF_DATA_DIR: "/var/lib/slopproof-production",
+        SLOPPROOF_IMAGE: "slopproof-app:production",
+        SLOPPROOF_POSTGRES_IMAGE: STAGED_POSTGRES_ID,
+        SLOPPROOF_SECRET_DIR: "/etc/slopproof/secrets",
+      },
+    },
   );
+  assert.equal(rendered.match(/core:\n\s+soft: 0\n\s+hard: 0/gmu)?.length, 5);
+  assert.equal(compose.services.postgres.user, "70:70");
+  assert.equal(compose.services.postgres.image, STAGED_POSTGRES_ID);
   for (const name of ["web", "worker", "github-control", "migrate"]) {
     assert.equal(compose.services[name].user, "1000:1000");
   }
+});
+
+test("production resource ceilings fit the no-swap Mobileup host during migration overlap", () => {
+  const compose = loadProductionCompose();
+
+  assert.equal(MOBILEUP_HOST_BUDGET.memoryMiB, 3819);
+  assert.equal(MOBILEUP_HOST_BUDGET.swapMiB, 0);
+
+  for (const [name, minimum] of Object.entries(MINIMUM_SERVICE_BUDGETS)) {
+    const service = compose.services[name];
+    assert.ok(
+      service.cpus >= minimum.cpu,
+      `${name} retains its conservative CPU floor`,
+    );
+    assert.ok(
+      service.mem_limit >= minimum.memoryMiB * MEBIBYTE,
+      `${name} retains its conservative memory floor`,
+    );
+    assert.equal(
+      service.memswap_limit,
+      service.mem_limit,
+      `${name} cannot begin using swap if host policy later drifts`,
+    );
+    assert.ok(
+      service.tmpfs.every((mount) => /(?:^|,)size=\d+m(?:,|$)/u.test(mount)),
+      `${name} tmpfs mounts are explicitly bounded inside its memory cgroup`,
+    );
+  }
+  assert.equal(Number(compose.services.postgres.shm_size), 128 * MEBIBYTE);
+  assert.ok(
+    Number(compose.services.postgres.shm_size) <
+      compose.services.postgres.mem_limit,
+    "PostgreSQL shared memory remains bounded inside its memory cgroup",
+  );
+
+  const aggregate = (names) =>
+    names.reduce(
+      (total, name) => ({
+        cpu: total.cpu + compose.services[name].cpus,
+        memoryMiB:
+          total.memoryMiB + compose.services[name].mem_limit / MEBIBYTE,
+      }),
+      { cpu: 0, memoryMiB: 0 },
+    );
+  const steadyState = aggregate(STEADY_STATE_SERVICES);
+  const migrationOverlap = aggregate([...STEADY_STATE_SERVICES, "migrate"]);
+
+  assert.deepEqual(steadyState, { cpu: 1.5, memoryMiB: 2368 });
+  assert.deepEqual(migrationOverlap, { cpu: 1.75, memoryMiB: 2752 });
+  assert.ok(
+    migrationOverlap.cpu <=
+      MOBILEUP_HOST_BUDGET.cpu - MOBILEUP_HOST_BUDGET.reservedCpu,
+    "migration overlap preserves the host CPU reserve",
+  );
+  assert.ok(
+    migrationOverlap.memoryMiB <=
+      MOBILEUP_HOST_BUDGET.memoryMiB - MOBILEUP_HOST_BUDGET.reservedMemoryMiB,
+    "migration overlap preserves at least 1 GiB for host and cohosted services",
+  );
+  assert.ok(
+    compose.services.worker.cpus > compose.services.web.cpus &&
+      compose.services.worker.mem_limit > compose.services.web.mem_limit,
+    "the FFmpeg worker remains the highest-budget application service",
+  );
 });

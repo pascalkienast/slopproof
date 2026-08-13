@@ -103,19 +103,21 @@ test("production runbooks cover the irreversible operator boundaries", () => {
   assert.match(combined, /current-SHA/iu);
 });
 
-test("the restore rehearsal uses the unpublished Compose database service", () => {
+test("the backup reads the unpublished database and restores only into tmpfs", () => {
   const runbook = read("docs/operations/database-backup-restore.md");
+  const workflow = read("scripts/production-backup/run-backup-rehearsal.sh");
 
+  assert.match(workflow, /backup-compose[\s\S]*pg_dump/u);
+  assert.match(workflow, /restore-start[\s\S]*restore-exec[\s\S]*pg_restore/u);
+  assert.match(workflow, /restore-stop[\s\S]*restore-absent/u);
+  assert.doesNotMatch(workflow, /\bcreatedb\b|\bdropdb\b/u);
+  assert.match(workflow, /psql[\s\S]*--file=-/u);
   assert.match(
     runbook,
-    /docker compose -f compose\.production\.yaml exec -T postgres \\\n\s+createdb/u,
+    /must therefore never be[\s\S]*redirected to a VM path/iu,
   );
   assert.match(
     runbook,
-    /docker compose -f compose\.production\.yaml exec -T postgres \\\n\s+pg_restore/u,
-  );
-  assert.match(
-    runbook,
-    /docker compose -f compose\.production\.yaml exec -T postgres \\\n\s+dropdb/u,
+    /streams authenticated CMS decryption[\s\S]*directly into its `pg_restore`/u,
   );
 });

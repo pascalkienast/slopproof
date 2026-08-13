@@ -1,0 +1,49 @@
+[Unit]
+Description=SlopProof production Compose application
+Documentation=file:/opt/slopproof/current/docs/operations/production-deployment.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathIsSymbolicLink=/opt/slopproof/current
+ConditionPathExists=/opt/slopproof/current/compose.production.yaml
+ConditionPathExists=/etc/slopproof/release.env
+ConditionPathIsDirectory=/etc/slopproof/secrets/current
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/slopproof/current
+
+# This file contains release paths, the public R2 endpoint and the exact staged
+# application and PostgreSQL image IDs only. Runtime secrets are mounted from the protected secret
+# directory by compose.production.yaml; no raw secret is an EnvironmentFile.
+EnvironmentFile=/etc/slopproof/release.env
+Environment=COMPOSE_PROJECT_NAME=slopproof-production
+
+ExecStartPre=/usr/bin/docker compose -f compose.production.yaml config --no-interpolate --quiet
+ExecStartPre=/usr/bin/docker compose -f compose.production.yaml config --quiet
+ExecStartPre=/usr/bin/bash /opt/slopproof/current/scripts/production-deploy/verify-runtime-release.sh images
+ExecStart=/usr/bin/docker compose -f compose.production.yaml up -d --no-build --pull never --remove-orphans --wait --wait-timeout 240
+ExecStartPost=/usr/bin/bash /opt/slopproof/current/scripts/production-deploy/verify-runtime-release.sh containers postgres migrate worker github-control web
+ExecStartPost=/usr/bin/bash /opt/slopproof/current/scripts/production-deploy/wait-ready.sh stack 240
+ExecReload=/usr/bin/bash /opt/slopproof/current/scripts/production-deploy/verify-runtime-release.sh images
+ExecReload=/usr/bin/docker compose -f compose.production.yaml up -d --no-build --pull never --remove-orphans --wait --wait-timeout 240
+ExecReload=/usr/bin/bash /opt/slopproof/current/scripts/production-deploy/verify-runtime-release.sh containers postgres migrate worker github-control web
+ExecReload=/usr/bin/bash /opt/slopproof/current/scripts/production-deploy/wait-ready.sh stack 240
+ExecStop=/usr/bin/docker compose -f compose.production.yaml stop --timeout 60
+
+TimeoutStartSec=300
+TimeoutStopSec=120
+Restart=no
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadOnlyPaths=/etc/slopproof /opt/slopproof
+ReadWritePaths=/var/lib/slopproof-production /run
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

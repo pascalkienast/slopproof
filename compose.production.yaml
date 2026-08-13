@@ -25,9 +25,24 @@ x-logging: &bounded-logging
     max-size: "10m"
     max-file: "3"
 
+x-no-core: &no-core
+  core:
+    soft: 0
+    hard: 0
+
+# Gate 9 Mobileup envelope, observed read-only on 2026-08-13: 2 vCPU,
+# 3.73 GiB RAM (3,819 MiB rounded down), no swap, with native Caddy and other
+# sites sharing the host. Long-running hard limits total 1.5 CPU/2,368 MiB.
+# Counting migrate as a deliberately conservative upgrade overlap raises that
+# to 1.75 CPU/2,752 MiB, leaving 0.25 CPU and 1,067 MiB for the host, Docker and
+# cohosted services. tmpfs and PostgreSQL shm usage are charged inside these
+# cgroup ceilings, and memswap_limit equals mem_limit for every service. The
+# dependency graph completes migrate before any new-release long-running
+# application process starts; the overlap budget covers the old release.
+
 services:
   postgres:
-    image: postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+    image: ${SLOPPROOF_POSTGRES_IMAGE:-postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15}
     user: "70:70"
     environment:
       POSTGRES_DB: slopproof
@@ -38,7 +53,7 @@ services:
         target: postgres-password
     volumes:
       - type: bind
-        source: ${SLOPPROOF_DATA_DIR:-/var/lib/slopproof}/postgres
+        source: ${SLOPPROOF_DATA_DIR:-/var/lib/slopproof-production}/postgres
         target: /var/lib/postgresql
         bind:
           create_host_path: false
@@ -61,11 +76,13 @@ services:
     restart: unless-stopped
     stop_signal: SIGTERM
     stop_grace_period: 60s
-    cpus: 1.0
-    mem_limit: 1g
+    cpus: 0.375
+    mem_limit: 640m
+    memswap_limit: 640m
     pids_limit: 256
     shm_size: 128m
     logging: *bounded-logging
+    ulimits: *no-core
 
   migrate:
     <<: *app-hardening
@@ -84,10 +101,12 @@ services:
         condition: service_healthy
     restart: "no"
     stop_grace_period: 30s
-    cpus: 0.5
-    mem_limit: 512m
+    cpus: 0.25
+    mem_limit: 384m
+    memswap_limit: 384m
     pids_limit: 128
     logging: *bounded-logging
+    ulimits: *no-core
 
   worker:
     <<: *app-hardening
@@ -103,7 +122,7 @@ services:
       - backend
       - egress
     tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=512m,uid=1000,gid=1000,mode=1770
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,uid=1000,gid=1000,mode=1770
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -122,10 +141,12 @@ services:
       start_period: 30s
     restart: unless-stopped
     stop_grace_period: 45s
-    cpus: 1.5
-    mem_limit: 1536m
+    cpus: 0.75
+    mem_limit: 896m
+    memswap_limit: 896m
     pids_limit: 256
     logging: *bounded-logging
+    ulimits: *no-core
 
   github-control:
     <<: *app-hardening
@@ -160,10 +181,12 @@ services:
       start_period: 30s
     restart: unless-stopped
     stop_grace_period: 30s
-    cpus: 0.5
-    mem_limit: 512m
+    cpus: 0.125
+    mem_limit: 256m
+    memswap_limit: 256m
     pids_limit: 128
     logging: *bounded-logging
+    ulimits: *no-core
 
   web:
     <<: *app-hardening
@@ -205,10 +228,12 @@ services:
       start_period: 30s
     restart: unless-stopped
     stop_grace_period: 30s
-    cpus: 1.0
-    mem_limit: 1g
+    cpus: 0.25
+    mem_limit: 576m
+    memswap_limit: 576m
     pids_limit: 256
     logging: *bounded-logging
+    ulimits: *no-core
 
 networks:
   backend:
