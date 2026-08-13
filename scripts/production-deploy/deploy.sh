@@ -495,7 +495,10 @@ phase_backup_compose() {
   shift
   require_release_id "$release_id"
   require_bootstrapped_host
-  verify_release "$release_id"
+  # This phase is a byte-transparent transport for psql/pg_dump stdout.
+  # Keep release verification fail-closed without mixing its status line into
+  # the database stream consumed by the local validator or CMS encryptor.
+  verify_release "$release_id" >/dev/null
   verify_secret_set "$release_id"
   assert_staged_release_images "$release_id"
   [[ $# -ge 4 && $1 == exec && $2 == -T && $3 == postgres ]] ||

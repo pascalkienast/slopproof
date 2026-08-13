@@ -155,6 +155,7 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
     deploy.indexOf("assert_restore_container()"),
   );
   assert.match(backupCompose, /require_bootstrapped_host/u);
+  assert.match(backupCompose, /verify_release "\$release_id" >\/dev\/null/u);
   assert.match(backupCompose, /assert_staged_release_images "\$release_id"/u);
   assert.match(
     backupCompose,
