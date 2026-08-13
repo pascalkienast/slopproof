@@ -17,7 +17,8 @@ expected_sha256=$2
 encoded_boundary=$3
 [[ "$release_id" =~ ^[0-9]{8}T[0-9]{6}Z$ &&
   "$expected_sha256" =~ ^[0-9a-f]{64}$ &&
-  "$encoded_boundary" =~ ^[A-Za-z0-9+/=]{1,4096}$ ]] ||
+  ${#encoded_boundary} -ge 1 && ${#encoded_boundary} -le 4096 &&
+  "$encoded_boundary" =~ ^[A-Za-z0-9+/=]+$ ]] ||
   die "Invalid backup-boundary tuple"
 
 readonly shared_root=/opt/slopproof/shared

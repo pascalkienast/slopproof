@@ -89,7 +89,8 @@ jq -n --arg releaseId "$release_id" --arg commit "$commit" \
 chmod 0600 "$boundary"
 boundary_sha256=$(shasum -a 256 "$boundary" | awk '{print $1}')
 boundary_base64=$(/usr/bin/base64 < "$boundary" | tr -d '\n')
-[[ "$boundary_base64" =~ ^[A-Za-z0-9+/=]{1,4096}$ ]] ||
+[[ ${#boundary_base64} -ge 1 && ${#boundary_base64} -le 4096 &&
+  "$boundary_base64" =~ ^[A-Za-z0-9+/=]+$ ]] ||
   die "Backup boundary encoding is invalid"
 ssh_options=(-i "$identity" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=yes)
 perl -e 'alarm shift; exec @ARGV or exit 127' 120 \

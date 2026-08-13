@@ -504,6 +504,9 @@ test("backup boundary transfer uses a clean trusted verifier and bounded exact c
   const transfer = read(
     "scripts/production-deploy/verify-and-transfer-backup.sh",
   );
+  const installer = read(
+    "scripts/production-deploy/install-backup-boundary-remote.sh",
+  );
   assert.match(transfer, /--trusted-checkout/u);
   assert.match(transfer, /git -C "\$trusted_checkout" status --porcelain/u);
   assert.match(transfer, /trusted_release_verifier" verify --bundle/u);
@@ -512,10 +515,15 @@ test("backup boundary transfer uses a clean trusted verifier and bounded exact c
   assert.match(transfer, /alarm shift; exec @ARGV or exit 127' 120/u);
   assert.match(transfer, /ServerAliveInterval=10/u);
   assert.match(transfer, /trap 'rm -f -- "\$boundary"' EXIT/u);
+  for (const script of [transfer, installer]) {
+    assert.match(script, /\$\{#(?:boundary_base64|encoded_boundary)\} -ge 1/u);
+    assert.match(
+      script,
+      /\$\{#(?:boundary_base64|encoded_boundary)\} -le 4096/u,
+    );
+    assert.doesNotMatch(script, /\{1,4096\}/u);
+  }
   assert.doesNotMatch(transfer, /\bscp\b|find .* -delete/u);
-  const installer = read(
-    "scripts/production-deploy/install-backup-boundary-remote.sh",
-  );
   assert.match(installer, /set -o noclobber/u);
   assert.match(installer, /ln -- "\$incoming" "\$target"/u);
   assert.match(installer, /sync -f "\$target"/u);
