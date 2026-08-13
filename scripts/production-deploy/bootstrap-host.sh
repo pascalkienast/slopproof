@@ -208,8 +208,8 @@ require_effective_core_limit() {
 install_pinned_host_tools() {
   local node_candidate jq_candidate node_package jq_package node_runtime jq_runtime
   bounded 300 env DEBIAN_FRONTEND=noninteractive apt-get update
-  node_candidate=$(apt-cache policy nodejs | awk '/Candidate:/ { print $2; exit }')
-  jq_candidate=$(apt-cache policy jq | awk '/Candidate:/ { print $2; exit }')
+  node_candidate=$(apt-cache policy nodejs | awk '$1 == "Candidate:" { count += 1; candidate = $2 } END { if (count == 1) print candidate; else exit 1 }')
+  jq_candidate=$(apt-cache policy jq | awk '$1 == "Candidate:" { count += 1; candidate = $2 } END { if (count == 1) print candidate; else exit 1 }')
   [[ "$node_candidate" == "$EXPECTED_NODEJS_PACKAGE" ]] || die "Unexpected nodejs apt candidate"
   [[ "$jq_candidate" == "$EXPECTED_JQ_PACKAGE" ]] || die "Unexpected jq apt candidate"
   bounded 300 env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \

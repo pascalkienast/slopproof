@@ -555,6 +555,11 @@ test("trusted host bootstrap pins apt provenance, tools and zero-core service li
     bootstrap,
     /bounded 300 env DEBIAN_FRONTEND=noninteractive apt-get update/u,
   );
+  assert.match(
+    bootstrap,
+    /awk '\$1 == "Candidate:" \{ count \+= 1; candidate = \$2 \} END \{ if \(count == 1\) print candidate; else exit 1 \}'/u,
+  );
+  assert.doesNotMatch(bootstrap, /Candidate:.*print \$2; exit/u);
   assert.match(bootstrap, /docker ps -aq --no-trunc/u);
   assert.match(
     bootstrap,
