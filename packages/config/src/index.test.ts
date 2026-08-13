@@ -85,7 +85,8 @@ const productionGithubControlRuntime = {
 
 const productionStorage = {
   EVIDENCE_STORAGE_PROVIDER: "s3",
-  S3_CONTROL_ENDPOINT: "https://account.example-object-storage.com",
+  S3_CONTROL_ENDPOINT:
+    "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com",
   S3_REGION: "auto",
   S3_BUCKET: "slopproof-eu",
   S3_ACCESS_KEY_ID: "runtime-access-id",
@@ -307,6 +308,128 @@ describe("process-scoped configuration", () => {
     expect(config.TRANSCRIPTION_PROVIDER).toBe("openrouter");
     expect(config.MULTIMODAL_JUDGE_PROVIDER).toBe("hetzner");
     expect(config).not.toHaveProperty("GITHUB_CLIENT_SECRET");
+  });
+
+  it.each([
+    [
+      "path-bearing control endpoint",
+      {
+        S3_CONTROL_ENDPOINT:
+          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com/slopproof-eu",
+      },
+      "S3_CONTROL_ENDPOINT",
+    ],
+    [
+      "query-bearing control endpoint",
+      {
+        S3_CONTROL_ENDPOINT:
+          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com?region=auto",
+      },
+      "S3_CONTROL_ENDPOINT",
+    ],
+    [
+      "userinfo-bearing control endpoint",
+      {
+        S3_CONTROL_ENDPOINT:
+          "https://operator@bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com",
+      },
+      "S3_CONTROL_ENDPOINT",
+    ],
+    [
+      "port-bearing control endpoint",
+      {
+        S3_CONTROL_ENDPOINT:
+          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com:443",
+      },
+      "S3_CONTROL_ENDPOINT",
+    ],
+    [
+      "case-variant account endpoint",
+      {
+        S3_CONTROL_ENDPOINT:
+          "https://BF2F734C49E05A3ED1CBAD16F0049E6C.eu.r2.cloudflarestorage.com",
+      },
+      "S3_CONTROL_ENDPOINT",
+    ],
+    [
+      "other account endpoint",
+      {
+        S3_CONTROL_ENDPOINT:
+          "https://00000000000000000000000000000000.eu.r2.cloudflarestorage.com",
+      },
+      "S3_CONTROL_ENDPOINT",
+    ],
+    [
+      "non-EU account endpoint",
+      {
+        S3_CONTROL_ENDPOINT:
+          "https://bf2f734c49e05a3ed1cbad16f0049e6c.r2.cloudflarestorage.com",
+      },
+      "S3_CONTROL_ENDPOINT",
+    ],
+    ["non-auto region", { S3_REGION: "eu" }, "S3_REGION"],
+    ["other bucket", { S3_BUCKET: "slopproof-evidence" }, "S3_BUCKET"],
+  ])(
+    "rejects %s in the production worker R2 identity",
+    (_name, override, field) => {
+      expectConfigurationFields(
+        () =>
+          loadWorkerConfig({
+            ...localWorker,
+            ...productionCore,
+            ...productionStorage,
+            ...productionWorkerRuntime,
+            GITHUB_ADAPTER: "octokit",
+            KEY_WRAPPING_PROVIDER: "local",
+            KEY_WRAPPING_PRIVATE_KEY_PATH: "/host/secrets/wrapping-private.pem",
+            KEY_WRAPPING_PRIVATE_KEY_CONTAINER_PATH:
+              "/run/secrets/wrapping-private.pem",
+            WORKER_INTERNAL_SECRET: "i".repeat(48),
+            PROVIDER_PAYLOAD_KEY_BASE64: Buffer.alloc(32, 112).toString(
+              "base64",
+            ),
+            GENERATION_PROVIDER: "hetzner",
+            GENERATION_BASE_URL: "https://inference.example/api/v1",
+            GENERATION_API_KEY: "g".repeat(40),
+            LEARNING_MODEL: "text-model",
+            PRACTICE_MODEL: "text-model",
+            PROOF_QUESTION_MODEL: "text-model",
+            TRANSCRIPTION_PROVIDER: "openrouter",
+            TRANSCRIPTION_BASE_URL: "https://transcription.example/api/v1",
+            TRANSCRIPTION_API_KEY: "t".repeat(40),
+            TRANSCRIPTION_MODEL: "transcription-model",
+            MULTIMODAL_JUDGE_PROVIDER: "hetzner",
+            JUDGE_BASE_URL: "https://inference.example/api/v1",
+            JUDGE_API_KEY: "j".repeat(40),
+            JUDGE_MODEL: "judge-model",
+            JUDGE_FALLBACK_MODEL: "vision-model",
+            ...override,
+          }),
+        field,
+      );
+    },
+  );
+
+  it.each([
+    [
+      "mismatched public endpoint",
+      {
+        S3_PUBLIC_ENDPOINT:
+          "https://00000000000000000000000000000000.eu.r2.cloudflarestorage.com",
+      },
+    ],
+    [
+      "path-bearing public endpoint",
+      {
+        S3_PUBLIC_ENDPOINT:
+          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com/slopproof-eu",
+      },
+    ],
+  ])("rejects %s in the production web R2 identity", (_name, override) => {
+    expectConfigurationFields(
+      () => loadWebConfig({ ...productionWeb, ...override }),
+      "S3_PUBLIC_ENDPOINT",
+    );
   });
 
   it.each([

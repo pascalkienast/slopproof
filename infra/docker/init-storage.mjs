@@ -57,7 +57,7 @@ await client.send(
         {
           AllowedOrigins: [allowedOrigin],
           AllowedMethods: ["PUT"],
-          AllowedHeaders: ["content-type", "x-amz-*"],
+          AllowedHeaders: ["content-type"],
           ExposeHeaders: ["ETag"],
           MaxAgeSeconds: 300,
         },

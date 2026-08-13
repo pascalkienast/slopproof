@@ -1,0 +1,36 @@
+{
+  "rules": [
+    {
+      "id": "slopproof-evidence-v1-backstop",
+      "enabled": true,
+      "conditions": {
+        "prefix": "evidence/v1/"
+      },
+      "deleteObjectsTransition": {
+        "condition": {
+          "type": "Age",
+          "maxAge": 172800
+        }
+      },
+      "abortMultipartUploadsTransition": {
+        "condition": {
+          "type": "Age",
+          "maxAge": 86400
+        }
+      }
+    },
+    {
+      "id": "slopproof-provider-frame-backstop",
+      "enabled": true,
+      "conditions": {
+        "prefix": "provider-frame/"
+      },
+      "deleteObjectsTransition": {
+        "condition": {
+          "type": "Age",
+          "maxAge": 172800
+        }
+      }
+    }
+  ]
+}

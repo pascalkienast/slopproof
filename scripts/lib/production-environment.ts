@@ -22,6 +22,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
+import {
+  PRODUCTION_R2_BUCKET,
+  PRODUCTION_R2_ENDPOINT,
+  PRODUCTION_R2_REGION,
+} from "@slopproof/config";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -95,6 +100,26 @@ export function compileProductionEnvironment(
   );
   const r2AccessKeyId = required(environment, "CLOUDFLARE_R2_AK");
   const r2ApiToken = required(environment, "CLOUDFLARE_R2_API");
+  const r2ControlEndpoint = requiredExact(
+    environment,
+    "S3_CONTROL_ENDPOINT",
+    PRODUCTION_R2_ENDPOINT,
+  );
+  const r2PublicEndpoint = requiredExact(
+    environment,
+    "S3_PUBLIC_ENDPOINT",
+    PRODUCTION_R2_ENDPOINT,
+  );
+  const r2Region = requiredExact(
+    environment,
+    "S3_REGION",
+    PRODUCTION_R2_REGION,
+  );
+  const r2Bucket = requiredExact(
+    environment,
+    "S3_BUCKET",
+    PRODUCTION_R2_BUCKET,
+  );
   const workerInternalSecret = required(environment, "WORKER_INTERNAL_SECRET");
 
   return Object.freeze({
@@ -136,10 +161,10 @@ export function compileProductionEnvironment(
     TRANSCRIPTION_MODEL: required(environment, "TRANSCRIPTION_MODEL"),
 
     EVIDENCE_STORAGE_PROVIDER: "s3",
-    S3_CONTROL_ENDPOINT: required(environment, "S3_CONTROL_ENDPOINT"),
-    S3_PUBLIC_ENDPOINT: required(environment, "S3_PUBLIC_ENDPOINT"),
-    S3_REGION: required(environment, "S3_REGION"),
-    S3_BUCKET: required(environment, "S3_BUCKET"),
+    S3_CONTROL_ENDPOINT: r2ControlEndpoint,
+    S3_PUBLIC_ENDPOINT: r2PublicEndpoint,
+    S3_REGION: r2Region,
+    S3_BUCKET: r2Bucket,
     S3_ACCESS_KEY_ID: r2AccessKeyId,
     S3_SECRET_ACCESS_KEY: createHash("sha256")
       .update(r2ApiToken, "utf8")

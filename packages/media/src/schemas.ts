@@ -9,6 +9,7 @@ import {
   MAX_RECORDING_DURATION_MS,
   MAX_RECORDING_OBJECT_BYTES,
   MAX_UINT32,
+  MULTIPART_TARGET_BYTES,
   NONCE_PREFIX_BYTES,
   RECORD_HEADER_BYTES,
   RECORDING_CODEC,
@@ -146,6 +147,7 @@ export const RecordingManifestSchema = z
     let plaintextTotal = 0;
     let objectTotal = 0;
     const nonces = new Set<string>();
+    const chunkOffsets = [0];
 
     manifest.chunks.forEach((chunk, index) => {
       if (chunk.index !== index) {
@@ -182,6 +184,7 @@ export const RecordingManifestSchema = z
       nonces.add(chunk.nonce);
       plaintextTotal += chunk.plaintextBytes;
       objectTotal += RECORD_HEADER_BYTES + chunk.sealedBytes;
+      chunkOffsets.push(objectTotal);
     });
 
     if (manifest.totalPlaintextBytes !== plaintextTotal) {
@@ -199,7 +202,6 @@ export const RecordingManifestSchema = z
       });
     }
 
-    let expectedFirstChunk = 0;
     let partByteTotal = 0;
     manifest.parts.forEach((part, index) => {
       if (part.partNumber !== index + 1) {
@@ -209,52 +211,52 @@ export const RecordingManifestSchema = z
           path: ["parts", index, "partNumber"],
         });
       }
+      const partStart = partByteTotal;
+      const partEnd = partStart + part.byteLength;
+      const expectedFirstChunk = chunkOffsets.findIndex(
+        (offset, chunkIndex) =>
+          chunkIndex < manifest.chunks.length &&
+          (chunkOffsets[chunkIndex + 1] ?? offset) > partStart,
+      );
+      let expectedLastChunk = -1;
+      for (
+        let chunkIndex = 0;
+        chunkIndex < manifest.chunks.length;
+        chunkIndex += 1
+      ) {
+        const chunkStart = chunkOffsets[chunkIndex];
+        if (chunkStart !== undefined && chunkStart < partEnd) {
+          expectedLastChunk = chunkIndex;
+        }
+      }
       if (
+        partEnd > objectTotal ||
+        expectedFirstChunk < 0 ||
+        expectedLastChunk < expectedFirstChunk ||
         part.firstChunkIndex !== expectedFirstChunk ||
-        part.lastChunkIndex < part.firstChunkIndex ||
-        part.lastChunkIndex >= manifest.chunks.length
+        part.lastChunkIndex !== expectedLastChunk
       ) {
         context.addIssue({
           code: "custom",
-          message: "Part chunk ranges must be contiguous, unique and complete",
+          message:
+            "Part chunk ranges must exactly identify every record intersected by the byte range",
           path: ["parts", index],
-        });
-      }
-
-      const expectedPartBytes = manifest.chunks
-        .slice(part.firstChunkIndex, part.lastChunkIndex + 1)
-        .reduce(
-          (total, chunk) => total + RECORD_HEADER_BYTES + chunk.sealedBytes,
-          0,
-        );
-      if (part.byteLength !== expectedPartBytes) {
-        context.addIssue({
-          code: "custom",
-          message: "Part byte length does not match its complete records",
-          path: ["parts", index, "byteLength"],
         });
       }
       if (
         index < manifest.parts.length - 1 &&
-        part.byteLength < S3_MINIMUM_NONFINAL_PART_BYTES
+        (part.byteLength < S3_MINIMUM_NONFINAL_PART_BYTES ||
+          part.byteLength !== MULTIPART_TARGET_BYTES)
       ) {
         context.addIssue({
           code: "custom",
-          message: "A non-final multipart part is below the S3 minimum",
+          message:
+            "Every non-final multipart part must use the fixed target size",
           path: ["parts", index, "byteLength"],
         });
       }
-      expectedFirstChunk = part.lastChunkIndex + 1;
       partByteTotal += part.byteLength;
     });
-
-    if (expectedFirstChunk !== manifest.chunks.length) {
-      context.addIssue({
-        code: "custom",
-        message: "Part ranges do not cover every chunk exactly once",
-        path: ["parts"],
-      });
-    }
     if (partByteTotal !== manifest.totalObjectBytes) {
       context.addIssue({
         code: "custom",

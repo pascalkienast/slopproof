@@ -12,6 +12,8 @@ import {
   assertFinalizeJsonLimit,
   buildChunkNonce,
   buildChunkRecord,
+  bytesEqual,
+  concatBytes,
   encodeBase64Url,
   packChunkRecords,
   parseChunkRecordSequence,
@@ -35,8 +37,8 @@ function syntheticRecord(
 }
 
 function twoPartManifest(): RecordingManifest {
-  const firstPlaintext = 3 * 1024 * 1024;
-  const secondPlaintext = 2 * 1024 * 1024;
+  const firstPlaintext = MAX_PLAINTEXT_CHUNK_BYTES;
+  const secondPlaintext = MAX_PLAINTEXT_CHUNK_BYTES - 96;
   const finalPlaintext = 10;
   return {
     protocolVersion: 1,
@@ -113,19 +115,17 @@ describe("SP-RC1 multipart packing", () => {
       firstChunkIndex: 0,
       lastChunkIndex: 1,
     });
-    expect(parts[0]!.byteLength).toBeGreaterThanOrEqual(MULTIPART_TARGET_BYTES);
+    expect(parts[0]!.byteLength).toBe(MULTIPART_TARGET_BYTES);
     expect(parts[1]).toMatchObject({
       partNumber: 2,
-      firstChunkIndex: 2,
+      firstChunkIndex: 1,
       lastChunkIndex: 2,
-      byteLength: 65,
+      byteLength: 161,
     });
-    expect(parseChunkRecordSequence(parts[0]!.bytes)).toHaveLength(2);
-    expect(parseChunkRecordSequence(parts[1]!.bytes, 2)).toHaveLength(1);
+    expect(
+      parseChunkRecordSequence(concatBytes(...parts.map((part) => part.bytes))),
+    ).toHaveLength(3);
     expect(parts[0]!.bytes.slice(0, 4)).toEqual(
-      new TextEncoder().encode("SPC1"),
-    );
-    expect(parts[1]!.bytes.slice(0, 4)).toEqual(
       new TextEncoder().encode("SPC1"),
     );
 
@@ -137,11 +137,80 @@ describe("SP-RC1 multipart packing", () => {
     await expect(incremental.push(records[2]!)).resolves.toEqual([]);
     const final = await incremental.finish();
     expect(final).toHaveLength(1);
-    expect(final[0]!.firstChunkIndex).toBe(2);
+    expect(final[0]!.firstChunkIndex).toBe(1);
     await expect(incremental.push(records[2]!)).rejects.toMatchObject({
       code: "invalid_record",
     });
   });
+
+  it("uses equal fixed-size non-final parts while preserving variable authenticated records", async () => {
+    const plaintextSizes = [
+      MAX_PLAINTEXT_CHUNK_BYTES,
+      MAX_PLAINTEXT_CHUNK_BYTES - 1,
+      MAX_PLAINTEXT_CHUNK_BYTES - 2,
+      MAX_PLAINTEXT_CHUNK_BYTES - 3,
+      64,
+    ];
+    const records = plaintextSizes.map((size, index) =>
+      syntheticRecord(index, size, 0x20 + index),
+    );
+    const parts = await packChunkRecords(records);
+
+    expect(parts.length).toBeGreaterThanOrEqual(3);
+    for (const part of parts.slice(0, -1)) {
+      expect(part.byteLength).toBe(MULTIPART_TARGET_BYTES);
+    }
+    expect(parts[1]!.firstChunkIndex).toBe(parts[0]!.lastChunkIndex);
+
+    const reassembled = concatBytes(...parts.map((part) => part.bytes));
+    const parsed = parseChunkRecordSequence(reassembled);
+    expect(parsed).toHaveLength(records.length);
+    parsed.forEach((record, index) => {
+      expect(bytesEqual(record.bytes, records[index]!)).toBe(true);
+    });
+    const replay = await packChunkRecords(records);
+    replay.forEach((part, index) => {
+      const original = parts[index]!;
+      expect({ ...part, bytes: undefined }).toEqual({
+        ...original,
+        bytes: undefined,
+      });
+      expect(bytesEqual(part.bytes, original.bytes)).toBe(true);
+      part.bytes.fill(0);
+    });
+
+    const manifest = {
+      ...twoPartManifest(),
+      totalPlaintextBytes: plaintextSizes.reduce(
+        (total, size) => total + size,
+        0,
+      ),
+      totalObjectBytes: reassembled.byteLength,
+      chunks: parsed.map((record) => ({
+        index: record.chunkIndex,
+        nonce: encodeBase64Url(record.nonce),
+        plaintextBytes: record.plaintextLength,
+        sealedBytes: record.sealedLength,
+        ciphertextSha256: "c".repeat(64),
+      })),
+      parts: parts.map(({ bytes: _bytes, ...part }) => part),
+    } satisfies RecordingManifest;
+    expect(() => RecordingManifestSchema.parse(manifest)).not.toThrow();
+
+    const missingBoundaryIntersection = structuredClone(manifest);
+    missingBoundaryIntersection.parts[1]!.firstChunkIndex += 1;
+    expect(() =>
+      RecordingManifestSchema.parse(missingBoundaryIntersection),
+    ).toThrow();
+    const extraBoundaryIntersection = structuredClone(manifest);
+    extraBoundaryIntersection.parts[1]!.firstChunkIndex -= 1;
+    expect(() =>
+      RecordingManifestSchema.parse(extraBoundaryIntersection),
+    ).toThrow();
+    const unequalNonfinalPart = structuredClone(manifest);
+    unequalNonfinalPart.parts[0]!.byteLength -= 1;
+    expect(() => RecordingManifestSchema.parse(unequalNonfinalPart)).toThrow();
+  }, 20_000);
 
   it("makes same-number part replay idempotent but rejects different bytes", async () => {
     const [part] = await packChunkRecords([syntheticRecord(0, 32, 0x11)]);

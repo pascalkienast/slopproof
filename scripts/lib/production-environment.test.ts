@@ -53,8 +53,10 @@ const sourceEnvironment = {
   TRANSCRIPTION_API_KEY: "t".repeat(48),
   TRANSCRIPTION_MODEL: "stt-model",
   EVIDENCE_STORAGE_PROVIDER: "s3",
-  S3_CONTROL_ENDPOINT: "https://objects.example",
-  S3_PUBLIC_ENDPOINT: "https://objects.example",
+  S3_CONTROL_ENDPOINT:
+    "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com",
+  S3_PUBLIC_ENDPOINT:
+    "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com",
   S3_REGION: "auto",
   S3_BUCKET: "slopproof-eu",
   CLOUDFLARE_R2_AK: "bucket-scoped-access-id",
@@ -124,6 +126,82 @@ describe("production environment compiler", () => {
       expect(error).toBeInstanceOf(ProductionEnvironmentError);
       expect(String(error)).toContain("NODE_ENV");
       expect(String(error)).not.toContain(secret);
+    }
+  });
+
+  it.each([
+    [
+      "path-bearing control endpoint",
+      {
+        S3_CONTROL_ENDPOINT:
+          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com/slopproof-eu",
+      },
+      "S3_CONTROL_ENDPOINT",
+    ],
+    [
+      "query-bearing public endpoint",
+      {
+        S3_PUBLIC_ENDPOINT:
+          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com?region=auto",
+      },
+      "S3_PUBLIC_ENDPOINT",
+    ],
+    [
+      "userinfo-bearing control endpoint",
+      {
+        S3_CONTROL_ENDPOINT:
+          "https://operator@bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com",
+      },
+      "S3_CONTROL_ENDPOINT",
+    ],
+    [
+      "port-bearing public endpoint",
+      {
+        S3_PUBLIC_ENDPOINT:
+          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com:443",
+      },
+      "S3_PUBLIC_ENDPOINT",
+    ],
+    [
+      "case-variant account endpoint",
+      {
+        S3_CONTROL_ENDPOINT:
+          "https://BF2F734C49E05A3ED1CBAD16F0049E6C.eu.r2.cloudflarestorage.com",
+      },
+      "S3_CONTROL_ENDPOINT",
+    ],
+    [
+      "other account public endpoint",
+      {
+        S3_PUBLIC_ENDPOINT:
+          "https://00000000000000000000000000000000.eu.r2.cloudflarestorage.com",
+      },
+      "S3_PUBLIC_ENDPOINT",
+    ],
+    [
+      "non-EU control endpoint",
+      {
+        S3_CONTROL_ENDPOINT:
+          "https://bf2f734c49e05a3ed1cbad16f0049e6c.r2.cloudflarestorage.com",
+      },
+      "S3_CONTROL_ENDPOINT",
+    ],
+    [
+      "mismatched endpoints",
+      { S3_PUBLIC_ENDPOINT: "https://objects.example" },
+      "S3_PUBLIC_ENDPOINT",
+    ],
+    ["non-auto region", { S3_REGION: "eu" }, "S3_REGION"],
+    ["other bucket", { S3_BUCKET: "slopproof-evidence" }, "S3_BUCKET"],
+  ])("rejects a %s", (_name, override, field) => {
+    const rejectedValue = Object.values(override)[0];
+    try {
+      compileProductionEnvironment({ ...sourceEnvironment, ...override });
+      throw new Error("expected the R2 identity to be rejected");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProductionEnvironmentError);
+      expect(String(error)).toContain(field);
+      expect(String(error)).not.toContain(rejectedValue);
     }
   });
 

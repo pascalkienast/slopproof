@@ -8,6 +8,11 @@ export const GenerationProviderSchema = z.enum(["fake", "hetzner"]);
 export const TranscriptionProviderSchema = z.enum(["fake", "openrouter"]);
 export const MultimodalJudgeProviderSchema = z.enum(["fake", "hetzner"]);
 
+export const PRODUCTION_R2_ENDPOINT =
+  "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com";
+export const PRODUCTION_R2_REGION = "auto";
+export const PRODUCTION_R2_BUCKET = "slopproof-eu";
+
 const booleanFromEnv = z
   .enum(["true", "false"])
   .default("false")
@@ -126,16 +131,10 @@ const webSchema = z
       "WORKER_INTERNAL_SECRET",
       32,
     );
-    requireProductionEndpoint(
-      context,
-      value.S3_CONTROL_ENDPOINT,
-      "S3_CONTROL_ENDPOINT",
-    );
-    requireProductionEndpoint(
-      context,
-      value.S3_PUBLIC_ENDPOINT,
+    requireProductionR2ControlIdentity(context, value);
+    requireValue(context, value.S3_PUBLIC_ENDPOINT === PRODUCTION_R2_ENDPOINT, [
       "S3_PUBLIC_ENDPOINT",
-    );
+    ]);
     requireInternalWorkerEndpoint(context, value.WORKER_INTERNAL_URL);
     requireInternalGithubControlEndpoint(
       context,
@@ -230,11 +229,7 @@ const workerSchema = z
     requireValue(context, value.MULTIMODAL_JUDGE_PROVIDER === "hetzner", [
       "MULTIMODAL_JUDGE_PROVIDER",
     ]);
-    requireProductionEndpoint(
-      context,
-      value.S3_CONTROL_ENDPOINT,
-      "S3_CONTROL_ENDPOINT",
-    );
+    requireProductionR2ControlIdentity(context, value);
     requireSafeSecret(
       context,
       value.S3_SECRET_ACCESS_KEY,
@@ -542,6 +537,25 @@ function requireProductionEndpoint(
   field: string,
 ): void {
   requireValue(context, isProductionEndpoint(value), [field]);
+}
+
+function requireProductionR2ControlIdentity(
+  context: z.RefinementCtx,
+  value: {
+    S3_CONTROL_ENDPOINT: string;
+    S3_REGION: string;
+    S3_BUCKET: string;
+  },
+): void {
+  requireValue(context, value.S3_CONTROL_ENDPOINT === PRODUCTION_R2_ENDPOINT, [
+    "S3_CONTROL_ENDPOINT",
+  ]);
+  requireValue(context, value.S3_REGION === PRODUCTION_R2_REGION, [
+    "S3_REGION",
+  ]);
+  requireValue(context, value.S3_BUCKET === PRODUCTION_R2_BUCKET, [
+    "S3_BUCKET",
+  ]);
 }
 
 function requireInternalWorkerEndpoint(

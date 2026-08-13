@@ -6,7 +6,7 @@ import {
   MULTIPART_TARGET_BYTES,
   S3_MINIMUM_NONFINAL_PART_BYTES,
 } from "./constants";
-import { bytesEqual, concatBytes } from "./encoding";
+import { bytesEqual } from "./encoding";
 import { RecordingProtocolError } from "./errors";
 import { sha256Hex, type CryptoOptions } from "./crypto";
 import { parseChunkRecord } from "./records";
@@ -23,11 +23,16 @@ export type PackedMultipartPart = ManifestPart & {
   bytes: Uint8Array;
 };
 
+type PendingRecordSegment = {
+  chunkIndex: number;
+  bytes: Uint8Array;
+  offset: number;
+};
+
 export class MultipartRecordPacker {
   readonly #options: CryptoOptions;
-  #pending: Uint8Array[] = [];
+  #pending: PendingRecordSegment[] = [];
   #pendingBytes = 0;
-  #firstChunkIndex = 0;
   #chunkCount = 0;
   #partCount = 0;
   #objectBytes = 0;
@@ -72,15 +77,22 @@ export class MultipartRecordPacker {
       this.#pendingBytes + record.bytes.byteLength >
       MAX_ENCRYPTED_BUFFER_BYTES
     ) {
-      ready.push(await this.#flush(false));
+      throw new RecordingProtocolError(
+        "limit_exceeded",
+        "Multipart staging buffer exceeds the protocol limit",
+      );
     }
-    this.#pending.push(record.bytes);
+    this.#pending.push({
+      chunkIndex: record.chunkIndex,
+      bytes: record.bytes,
+      offset: 0,
+    });
     this.#pendingBytes += record.bytes.byteLength;
     this.#objectBytes += record.bytes.byteLength;
     this.#chunkCount += 1;
 
-    if (this.#pendingBytes >= MULTIPART_TARGET_BYTES) {
-      ready.push(await this.#flush(false));
+    while (this.#pendingBytes >= MULTIPART_TARGET_BYTES) {
+      ready.push(await this.#flush(MULTIPART_TARGET_BYTES, false));
     }
     return ready;
   }
@@ -99,19 +111,30 @@ export class MultipartRecordPacker {
         "Record sequence must not be empty",
       );
     }
-    return this.#pending.length === 0 ? [] : [await this.#flush(true)];
+    return this.#pending.length === 0
+      ? []
+      : [await this.#flush(this.#pendingBytes, true)];
   }
 
-  async #flush(finalPart: boolean): Promise<PackedMultipartPart> {
-    if (this.#pending.length === 0) {
+  async #flush(
+    byteLength: number,
+    finalPart: boolean,
+  ): Promise<PackedMultipartPart> {
+    if (
+      this.#pending.length === 0 ||
+      byteLength < 1 ||
+      byteLength > this.#pendingBytes
+    ) {
       throw new RecordingProtocolError(
         "invalid_record",
-        "Cannot flush an empty multipart buffer",
+        "Cannot flush outside the pending multipart buffer",
       );
     }
     if (
-      this.#pendingBytes > MAX_ENCRYPTED_BUFFER_BYTES ||
-      (!finalPart && this.#pendingBytes < S3_MINIMUM_NONFINAL_PART_BYTES)
+      byteLength > MAX_ENCRYPTED_BUFFER_BYTES ||
+      (!finalPart &&
+        (byteLength < S3_MINIMUM_NONFINAL_PART_BYTES ||
+          byteLength !== MULTIPART_TARGET_BYTES))
     ) {
       throw new RecordingProtocolError(
         "limit_exceeded",
@@ -125,18 +148,41 @@ export class MultipartRecordPacker {
       );
     }
 
-    const bytes = concatBytes(...this.#pending);
+    const firstChunkIndex = this.#pending[0]!.chunkIndex;
+    const bytes = new Uint8Array(byteLength);
+    let outputOffset = 0;
+    let lastChunkIndex = firstChunkIndex;
+    while (outputOffset < byteLength) {
+      const segment = this.#pending[0];
+      if (segment === undefined) {
+        throw new RecordingProtocolError(
+          "invalid_record",
+          "Multipart staging buffer ended before the requested part",
+        );
+      }
+      const available = segment.bytes.byteLength - segment.offset;
+      const take = Math.min(available, byteLength - outputOffset);
+      bytes.set(
+        segment.bytes.subarray(segment.offset, segment.offset + take),
+        outputOffset,
+      );
+      segment.bytes.fill(0, segment.offset, segment.offset + take);
+      segment.offset += take;
+      outputOffset += take;
+      lastChunkIndex = segment.chunkIndex;
+      if (segment.offset === segment.bytes.byteLength) {
+        this.#pending.shift();
+      }
+    }
+    this.#pendingBytes -= byteLength;
     const metadata = ManifestPartSchema.parse({
       partNumber: this.#partCount + 1,
-      firstChunkIndex: this.#firstChunkIndex,
-      lastChunkIndex: this.#firstChunkIndex + this.#pending.length - 1,
+      firstChunkIndex,
+      lastChunkIndex,
       byteLength: bytes.byteLength,
       sha256: await sha256Hex(bytes, this.#options),
     });
-    this.#firstChunkIndex += this.#pending.length;
     this.#partCount += 1;
-    this.#pending = [];
-    this.#pendingBytes = 0;
     return { ...metadata, bytes };
   }
 }

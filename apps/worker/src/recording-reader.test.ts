@@ -1,7 +1,11 @@
 import {
+  MULTIPART_TARGET_BYTES,
+  MAX_PLAINTEXT_CHUNK_BYTES,
+  bytesEqual,
   deriveRecordingKeys,
   encodeBase64Url,
   encryptRecordingChunk,
+  packChunkRecords,
   sha256Hex,
   type RecordingManifest,
 } from "@slopproof/media";
@@ -125,4 +129,84 @@ describe("worker recording reader", () => {
     ).rejects.toThrow("ciphertext part hash mismatch");
     expect(writes).toBe(0);
   });
+
+  it("decrypts variable records split across three or more equal multipart windows", async () => {
+    const masterKey = new Uint8Array(32).map((_, index) => index + 1);
+    const noncePrefix = new Uint8Array([8, 7, 6, 5, 4, 3, 2, 1]);
+    const keys = await deriveRecordingKeys(masterKey, binding);
+    masterKey.fill(0);
+    const plaintextSizes = [
+      MAX_PLAINTEXT_CHUNK_BYTES,
+      MAX_PLAINTEXT_CHUNK_BYTES - 1,
+      MAX_PLAINTEXT_CHUNK_BYTES - 2,
+      MAX_PLAINTEXT_CHUNK_BYTES - 3,
+      64,
+    ];
+    const plaintexts: Uint8Array[] = [];
+    const records: Uint8Array[] = [];
+    const chunks = [];
+    for (const [index, plaintextSize] of plaintextSizes.entries()) {
+      const plaintext = new Uint8Array(plaintextSize).fill(index + 1);
+      const encrypted = await encryptRecordingChunk({
+        plaintext,
+        chunkIndex: index,
+        noncePrefix,
+        binding,
+        encryptionKey: keys.encryptionKey,
+      });
+      plaintexts.push(plaintext);
+      records.push(encrypted.record);
+      chunks.push(encrypted.manifest);
+    }
+    const parts = await packChunkRecords(records);
+    records.forEach((record) => record.fill(0));
+    expect(parts.length).toBeGreaterThanOrEqual(3);
+    parts.slice(0, -1).forEach((part) => {
+      expect(part.byteLength).toBe(MULTIPART_TARGET_BYTES);
+    });
+
+    const manifest: RecordingManifest = {
+      protocolVersion: 1,
+      suiteId: "SP-RC1",
+      ...binding,
+      codec: "video/webm;codecs=vp8,opus",
+      noncePrefixBase64url: encodeBase64Url(noncePrefix),
+      wrapping: {
+        materialId: "33333333-3333-4333-8333-333333333333",
+        keyId: "local-test",
+        algorithm: "RSA-OAEP-256",
+        wrappedKeySha256: "a".repeat(64),
+      },
+      durationMs: 1_000,
+      totalPlaintextBytes: plaintextSizes.reduce(
+        (total, size) => total + size,
+        0,
+      ),
+      totalObjectBytes: parts.reduce(
+        (total, part) => total + part.byteLength,
+        0,
+      ),
+      chunks,
+      parts: parts.map(({ bytes: _bytes, ...part }) => part),
+    };
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        parts.forEach((part) => controller.enqueue(part.bytes));
+        controller.close();
+      },
+    });
+    let plaintextIndex = 0;
+    await streamDecryptedRecording(
+      stream,
+      manifest,
+      keys.encryptionKey,
+      async (bytes) => {
+        expect(bytesEqual(bytes, plaintexts[plaintextIndex]!)).toBe(true);
+        plaintextIndex += 1;
+      },
+    );
+    expect(plaintextIndex).toBe(plaintexts.length);
+    parts.forEach((part) => part.bytes.fill(0));
+    plaintexts.forEach((plaintext) => plaintext.fill(0));
+  }, 20_000);
 });

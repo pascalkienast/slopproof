@@ -64,8 +64,13 @@ Attempt; der MVP setzt eine Aufnahme nicht mit rekonstruiertem Zustand fort.
 
 ## Binäres Chunk-Record
 
-Ein verschlüsselter MediaRecorder-Chunk wird nie über zwei Multipart-Parts
-geteilt. Sein Record ist:
+Ein verschlüsselter MediaRecorder-Chunk wird als unveränderter `SPC1`-Record
+seriell an den Objektbytestrom angehängt. Die Verkettung aller Multipart-Parts
+muss exakt dieselbe lückenlose, byte-identische Recordfolge ohne Padding oder
+Trennbytes ergeben. Eine feste Transportgrenze darf einen Record an jeder
+Byteposition teilen, auch innerhalb von Header, Ciphertext oder GCM-Tag. Diese
+Teilung verändert weder Recordbytes noch Nonce, AAD, Längen oder Hashbindung.
+Der Record ist:
 
 | Offset | Größe | Inhalt                              |
 | ------ | ----- | ----------------------------------- |
@@ -111,20 +116,36 @@ Audit, nicht als Authentifizierung. Multipart-ETags bleiben opake
 Transportbelege und sind nicht Teil des HMAC.
 
 Vor dem Unwrap werden unter anderem lückenlose Indizes, korrekte Nonces,
-Längengleichungen, eindeutige und vollständige Partbereiche, Summen, Hashlängen
-und bekannte Versionen geprüft.
+Längengleichungen, exakte Partintersektionen, Summen, Hashlängen und bekannte
+Versionen geprüft. `firstChunkIndex` und `lastChunkIndex` eines Parts sind exakt
+der erste und letzte Recordindex, deren halboffene Bytebereiche den halboffenen
+Bytebereich des Parts schneiden. Für zwei benachbarte Parts ist der nächste
+`firstChunkIndex` deshalb entweder der vorherige `lastChunkIndex` — genau ein
+an der Transportgrenze geteilter Record — oder `lastChunkIndex + 1` — eine
+Grenze exakt zwischen Records. Lücken und ein Überlapp von mehr als einem
+Recordindex sind ungültig; abweichende, obwohl formal zusammenhängende Bereiche
+werden gegen die Recordoffsets ebenfalls abgelehnt.
 
 ## S3-Multipart-Packing
 
-- Nicht letzter Part: mindestens `5 * 1024 * 1024` Byte.
-- Zielgröße: `8 * 1024 * 1024` Byte.
+- Jedes nicht finale Transportfenster ist exakt `8 * 1024 * 1024` Byte. Damit
+  erfüllt es zugleich das S3-Minimum von `5 * 1024 * 1024` Byte.
+- Das verbleibende finale Fenster darf kleiner als 8 MiB und damit auch kleiner
+  als 5 MiB sein. Ist die Objektlänge exakt durch 8 MiB teilbar, entsteht kein
+  zusätzliches leeres Fenster.
 - Maximaler Klartextchunk: 4 MiB.
 - Maximaler verschlüsselter Puffer: 16 MiB.
 - Maximal 1024 Chunks, 32 Parts, 128 MiB Objektgröße, acht Minuten und
   512 KiB Finalize-JSON.
-- Ganze verschlüsselte Records werden im flüchtigen Speicher gesammelt. Ab der
-  Zielgröße wird genau ein sequenzieller Part hochgeladen. Der letzte Part darf
-  kleiner als 5 MiB sein.
+- Vollständige verschlüsselte Records werden geordnet in einen flüchtigen
+  Bytestrom übernommen. Sobald mindestens 8 MiB bereitstehen, werden die
+  nächsten exakt 8 MiB als sequenzieller Part entnommen; Recordgrenzen haben
+  für diese Transportfenster keine Sonderbedeutung. Die Partverkettung muss den
+  ursprünglichen `SPC1`-Bytestrom exakt rekonstruieren.
+- Jeder Manifest-Part nennt exakt alle Recordindizes, die sein Bytefenster
+  schneidet. Benachbarte Parts dürfen dadurch höchstens den einen an ihrer
+  gemeinsamen Grenze geteilten Chunkindex wiederholen; kein Index darf
+  übersprungen und kein Bereich um mehr als einen Index überlappt werden.
 - ETags gelten nie als kryptografische Hashes. Der Browser bildet für jeden
   kompletten Part zusätzlich SHA-256.
 - Verschiedene Bytes für dieselbe Partnummer invalidieren den Upload.
@@ -199,7 +220,9 @@ Browserstorage.
 - Manipulation jedes gebundenen AAD-/Manifestfelds;
 - vertauschte, fehlende, doppelte, gekürzte oder erweiterte Records;
 - falscher Key, Key-ID, Material-ID, Wrapped-Key-Hash oder Attempt-Replay;
-- zu kleine nicht letzte Parts und `ListParts`-Abweichungen;
+- von exakt 8 MiB abweichende nicht finale Parts, falsche
+  Record-/Partintersektionen, Lücken, Mehrfachüberlapp und
+  `ListParts`-Abweichungen;
 - alle Größen-, Zeit-, Chunk-, Part- und Backloglimits;
 - Nachweis, dass Storage nur `SPC1`-Records enthält und ein bekannter
   Klartextmarker nicht vorkommt;
