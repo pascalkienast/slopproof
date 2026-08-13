@@ -18,7 +18,10 @@ import {
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import { requestCookieValue, SESSION_COOKIE } from "./http-auth";
-import { GithubOAuthHttpClient } from "./github-oauth-client";
+import {
+  GithubOAuthHttpClient,
+  type GithubOAuthProviderFailureStage,
+} from "./github-oauth-client";
 import {
   GithubOAuthWiringError,
   GithubOAuthStartPolicyError,
@@ -82,6 +85,16 @@ const StateRowSchema = z
   .strict();
 
 type SqlPool = WebRuntime["database"]["pool"];
+type GithubOAuthOperationalFailureStage =
+  GithubOAuthProviderFailureStage | "session_persist" | "session_revoke";
+
+function reportGithubOAuthFailure(
+  stage: GithubOAuthOperationalFailureStage,
+): void {
+  process.stderr.write(
+    `${JSON.stringify({ event: "github.oauth.unavailable", stage })}\n`,
+  );
+}
 
 class GithubOAuthPersistenceError extends Error {
   constructor() {
@@ -273,6 +286,12 @@ export class PgGithubOAuthSessionPort implements GithubOAuthSessionPort {
   constructor(
     private readonly pool: SqlPool,
     private readonly sessionSecret: string,
+    private readonly onFailure: (
+      stage: Extract<
+        GithubOAuthOperationalFailureStage,
+        "session_persist" | "session_revoke"
+      >,
+    ) => void = () => undefined,
   ) {
     if (sessionSecret.length < 32 || /[\0\r\n]/u.test(sessionSecret)) {
       throw new GithubOAuthPersistenceError();
@@ -360,6 +379,7 @@ export class PgGithubOAuthSessionPort implements GithubOAuthSessionPort {
       };
     } catch {
       await client.query("ROLLBACK").catch(() => undefined);
+      this.reportFailure("session_persist");
       throw new GithubOAuthPersistenceError();
     } finally {
       client.release();
@@ -413,9 +433,18 @@ export class PgGithubOAuthSessionPort implements GithubOAuthSessionPort {
       await client.query("COMMIT");
     } catch {
       await client.query("ROLLBACK").catch(() => undefined);
+      this.reportFailure("session_revoke");
       throw new GithubOAuthPersistenceError();
     } finally {
       client.release();
+    }
+  }
+
+  private reportFailure(stage: "session_persist" | "session_revoke"): void {
+    try {
+      this.onFailure(stage);
+    } catch {
+      // Telemetry must never replace the fixed persistence error.
     }
   }
 }
@@ -445,10 +474,12 @@ export async function createGithubOAuthProductionRuntime(
     client: new GithubOAuthHttpClient({
       clientId: app.config.GITHUB_CLIENT_ID,
       clientSecret: app.config.GITHUB_CLIENT_SECRET,
+      onFailure: reportGithubOAuthFailure,
     }),
     sessions: new PgGithubOAuthSessionPort(
       app.database.pool,
       app.config.SESSION_SECRET,
+      reportGithubOAuthFailure,
     ),
     stateTtlMs: STATE_TTL_MS,
     sessionTtlMs: SESSION_TTL_MS,

@@ -59,69 +59,16 @@ const TokenResponseSchema = z
     }
   });
 
-const NullableStringSchema = z.string().max(65_536).nullable();
-const NullableDateTimeSchema = z.iso.datetime({ offset: true }).nullable();
-const UserPlanSchema = z
-  .object({
-    name: z.string().max(100),
-    space: z.number().int().nonnegative(),
-    collaborators: z.number().int().nonnegative(),
-    private_repos: z.number().int().nonnegative(),
-  })
-  .strict();
-
 /**
- * GitHub's authenticated-user REST shape validates every security-relevant
- * field we consume and tolerates additive GitHub response fields. The strict
- * local `GithubOAuthUserSchema` projection below admits only `id` and `login`
- * into authentication state.
+ * GitHub may omit or null profile fields according to the exact user-token
+ * permissions. Only the durable numeric id and login participate in our
+ * authentication boundary, so validate those two provider fields and project
+ * every other profile value away below.
  */
 export const GithubAuthenticatedUserResponseSchema = z
   .object({
     login: z.string().min(1).max(39),
     id: z.number().int().positive().safe(),
-    node_id: z.string().min(1).max(256),
-    avatar_url: z.url().max(2_048),
-    gravatar_id: z.string().max(256).nullable(),
-    url: z.url().max(2_048),
-    html_url: z.url().max(2_048),
-    followers_url: z.url().max(2_048),
-    following_url: z.string().min(1).max(2_048),
-    gists_url: z.string().min(1).max(2_048),
-    starred_url: z.string().min(1).max(2_048),
-    subscriptions_url: z.url().max(2_048),
-    organizations_url: z.url().max(2_048),
-    repos_url: z.url().max(2_048),
-    events_url: z.string().min(1).max(2_048),
-    received_events_url: z.url().max(2_048),
-    type: z.string().min(1).max(100),
-    user_view_type: z.string().min(1).max(100).optional(),
-    site_admin: z.boolean(),
-    name: NullableStringSchema,
-    company: NullableStringSchema,
-    blog: z.string().max(2_048),
-    location: NullableStringSchema,
-    email: NullableStringSchema,
-    hireable: z.boolean().nullable(),
-    bio: NullableStringSchema,
-    twitter_username: NullableStringSchema,
-    notification_email: NullableStringSchema.optional(),
-    public_repos: z.number().int().nonnegative(),
-    public_gists: z.number().int().nonnegative(),
-    followers: z.number().int().nonnegative(),
-    following: z.number().int().nonnegative(),
-    created_at: z.iso.datetime({ offset: true }),
-    updated_at: z.iso.datetime({ offset: true }),
-    private_gists: z.number().int().nonnegative().optional(),
-    total_private_repos: z.number().int().nonnegative().optional(),
-    owned_private_repos: z.number().int().nonnegative().optional(),
-    disk_usage: z.number().int().nonnegative().optional(),
-    collaborators: z.number().int().nonnegative().optional(),
-    two_factor_authentication: z.boolean().optional(),
-    plan: UserPlanSchema.optional(),
-    suspended_at: NullableDateTimeSchema.optional(),
-    ldap_dn: z.string().max(2_048).optional(),
-    business_plus: z.boolean().optional(),
   })
   .passthrough();
 
@@ -141,7 +88,10 @@ export type GithubOAuthHttpClientOptions = Readonly<{
   timeoutMs?: number;
   maxResponseBytes?: number;
   now?: () => number;
+  onFailure?: (stage: GithubOAuthProviderFailureStage) => void;
 }>;
+
+export type GithubOAuthProviderFailureStage = "token_exchange" | "user_fetch";
 
 export class GithubOAuthHttpClient implements GithubOAuthClient {
   readonly #clientId: string;
@@ -150,6 +100,7 @@ export class GithubOAuthHttpClient implements GithubOAuthClient {
   readonly #timeoutMs: number;
   readonly #maxResponseBytes: number;
   readonly #now: () => number;
+  readonly #onFailure: (stage: GithubOAuthProviderFailureStage) => void;
 
   constructor(options: GithubOAuthHttpClientOptions) {
     if (
@@ -179,9 +130,26 @@ export class GithubOAuthHttpClient implements GithubOAuthClient {
     this.#timeoutMs = timeoutMs;
     this.#maxResponseBytes = maxResponseBytes;
     this.#now = options.now ?? Date.now;
+    this.#onFailure = options.onFailure ?? (() => undefined);
   }
 
   async exchangeCode(
+    input: Readonly<{
+      code: string;
+      codeVerifier: string;
+      redirectUri: string;
+      repositoryId: string;
+    }>,
+  ): Promise<GithubOAuthAccessGrant> {
+    try {
+      return await this.#exchangeCode(input);
+    } catch {
+      this.#reportFailure("token_exchange");
+      throw new GithubOAuthProviderError();
+    }
+  }
+
+  async #exchangeCode(
     input: Readonly<{
       code: string;
       codeVerifier: string;
@@ -234,6 +202,15 @@ export class GithubOAuthHttpClient implements GithubOAuthClient {
   }
 
   async getUser(accessToken: string): Promise<GithubOAuthUser> {
+    try {
+      return await this.#getUser(accessToken);
+    } catch {
+      this.#reportFailure("user_fetch");
+      throw new GithubOAuthProviderError();
+    }
+  }
+
+  async #getUser(accessToken: string): Promise<GithubOAuthUser> {
     if (
       accessToken.length < 16 ||
       accessToken.length > 1_024 ||
@@ -259,6 +236,14 @@ export class GithubOAuthHttpClient implements GithubOAuthClient {
     });
     if (!projected.success) throw new GithubOAuthProviderError();
     return projected.data;
+  }
+
+  #reportFailure(stage: GithubOAuthProviderFailureStage): void {
+    try {
+      this.#onFailure(stage);
+    } catch {
+      // Telemetry must never replace the fixed provider error.
+    }
   }
 
   async #requestJson(url: string, init: RequestInit): Promise<unknown> {

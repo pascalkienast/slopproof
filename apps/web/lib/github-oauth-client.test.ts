@@ -156,6 +156,26 @@ describe("GitHub OAuth HTTP client", () => {
     expect(JSON.stringify(user)).not.toContain(privatePayload);
   });
 
+  it("accepts the minimal identity shape returned by a restricted GitHub App token", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        login: "octocat",
+        id: 12345678,
+        notification_email: null,
+      }),
+    );
+    const client = new GithubOAuthHttpClient({
+      clientId: "Iv1.client",
+      clientSecret: "client-secret-placeholder",
+      fetchImpl,
+    });
+
+    await expect(client.getUser("github-user-access-token")).resolves.toEqual({
+      githubUserId: "12345678",
+      login: "octocat",
+    });
+  });
+
   it("bounds a GitHub App token without expires_in to a local 15-minute grant", async () => {
     const client = new GithubOAuthHttpClient({
       clientId: "Iv1.client",
@@ -181,9 +201,11 @@ describe("GitHub OAuth HTTP client", () => {
   });
 
   it("rejects non-success and oversized responses with one fixed error", async () => {
+    const failures: string[] = [];
     const statusClient = new GithubOAuthHttpClient({
       clientId: "Iv1.client",
       clientSecret: "client-secret-placeholder",
+      onFailure: (stage) => failures.push(stage),
       fetchImpl: async () =>
         jsonResponse({ private: "provider-error-body" }, { status: 401 }),
     });
@@ -205,5 +227,26 @@ describe("GitHub OAuth HTTP client", () => {
     await expect(
       sizeClient.getUser("github-user-access-token"),
     ).rejects.toBeInstanceOf(GithubOAuthProviderError);
+    expect(failures).toEqual(["user_fetch"]);
+  });
+
+  it("reports only a fixed token-exchange stage when provider payloads fail", async () => {
+    const failures: string[] = [];
+    const client = new GithubOAuthHttpClient({
+      clientId: "Iv1.client",
+      clientSecret: "client-secret-placeholder",
+      onFailure: (stage) => failures.push(stage),
+      fetchImpl: async () => jsonResponse({ error: "provider-private-marker" }),
+    });
+
+    await expect(
+      client.exchangeCode({
+        code: "one-use-code",
+        codeVerifier: "a".repeat(43),
+        redirectUri: "https://slopproof.example/api/auth/github/callback",
+        repositoryId: "987654321",
+      }),
+    ).rejects.toBeInstanceOf(GithubOAuthProviderError);
+    expect(failures).toEqual(["token_exchange"]);
   });
 });
