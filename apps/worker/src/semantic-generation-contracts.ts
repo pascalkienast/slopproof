@@ -100,13 +100,28 @@ export type ReadPracticeViewInput = {
   practiceSessionId?: string;
 };
 
+export type PracticePatchPreview = {
+  title: string;
+  anchors: Array<{
+    id: string;
+    file: string;
+    hunkHeader: string;
+    oldStart: number;
+    newStart: number;
+    changedLines: number;
+    evidence: string;
+  }>;
+};
+
 export type PracticeView =
   | { state: "unavailable" }
   | { state: "generating"; revisionId: string; headSha: string }
+  | { state: "generation_failed"; revisionId: string; headSha: string }
   | {
       state: "ready";
       revisionId: string;
       headSha: string;
+      patchPreview: PracticePatchPreview;
       learning: LearningBundleV1;
       practiceSession: null | {
         id: string;

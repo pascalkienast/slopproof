@@ -52,31 +52,38 @@ export default async function PracticePage({
   }
 
   return (
-    <main className="shell flow-shell practice-shell">
-      <a
-        className="back-link"
-        href={`/revisions/${revisionId.data}/contribute`}
-      >
-        ← Contributor proof
-      </a>
-      <p className="eyebrow">Private practice · optional · short-lived</p>
-      <h1 className="flow-title">Practice your understanding.</h1>
-      <p className="lede">
-        Learn the exact patch, try a separate practice prompt, and get a
-        concrete hint. This space never reveals or changes the live proof.
-      </p>
-      <PracticeClient
-        revisionId={revisionId.data}
-        establishDemoSession={!authorSession && app.config.DEMO_MODE}
-      />
-      <div className="actions compact-actions">
+    <main className="practice-page">
+      <section className="practice-app-shell">
+        <header className="practice-app-bar">
+          <a href={`/revisions/${revisionId.data}/contribute`}>
+            ← Contributor proof
+          </a>
+          <nav aria-label="Contributor paths">
+            <span className="is-current">Practice · optional</span>
+            <a href={`/revisions/${revisionId.data}/contribute`}>
+              Prove · required
+            </a>
+          </nav>
+        </header>
+        <div className="practice-intro">
+          <p className="eyebrow">Private · patch-bound · short-lived</p>
+          <h1>Practice your understanding.</h1>
+          <p>
+            Inspect the exact change, work through a separate practice prompt,
+            and get a concrete hint. Nothing here changes the live proof.
+          </p>
+        </div>
+        <PracticeClient
+          revisionId={revisionId.data}
+          establishDemoSession={!authorSession && app.config.DEMO_MODE}
+        />
         <a
-          className="button primary"
+          className="practice-prove-link"
           href={`/revisions/${revisionId.data}/contribute`}
         >
-          Return and prove
+          I&apos;m ready to prove it →
         </a>
-      </div>
+      </section>
     </main>
   );
 }

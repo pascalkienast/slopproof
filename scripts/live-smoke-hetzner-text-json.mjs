@@ -38,9 +38,11 @@ async function assertTextCapability(configuration, endpoint) {
     {
       model: configuration.LEARNING_MODEL,
       store: false,
-      tools: [],
       temperature: 0,
-      max_tokens: 32,
+      // Kimi's reasoning tokens count against this limit. A tiny limit can
+      // truncate even the fixed capability marker and create a false-negative
+      // smoke result while the endpoint itself is healthy.
+      max_tokens: 256,
       messages: [
         {
           role: "system",
@@ -64,22 +66,8 @@ function strictJsonBody(configuration, repair) {
   return {
     model: configuration.PROOF_QUESTION_MODEL,
     store: false,
-    tools: [],
     temperature: 0,
-    max_tokens: 64,
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "slopproof_capability",
-        strict: true,
-        schema: {
-          type: "object",
-          properties: { ok: { type: "boolean", const: true } },
-          required: ["ok"],
-          additionalProperties: false,
-        },
-      },
-    },
+    max_tokens: 256,
     messages: [
       {
         role: "system",

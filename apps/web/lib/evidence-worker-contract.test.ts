@@ -39,4 +39,29 @@ describe("private practice web-worker contract", () => {
       ).toThrow();
     }
   });
+
+  it("exposes an honest generation failure without provider details", () => {
+    expect(
+      WorkerPracticeViewSchema.parse({
+        schemaVersion: "1",
+        state: "generation_failed",
+        revisionId: "10000000-0000-4000-8000-000000000001",
+        headSha: "a".repeat(40),
+      }),
+    ).toEqual({
+      schemaVersion: "1",
+      state: "generation_failed",
+      revisionId: "10000000-0000-4000-8000-000000000001",
+      headSha: "a".repeat(40),
+    });
+    expect(() =>
+      WorkerPracticeViewSchema.parse({
+        schemaVersion: "1",
+        state: "generation_failed",
+        revisionId: "10000000-0000-4000-8000-000000000001",
+        headSha: "a".repeat(40),
+        providerError: "upstream detail",
+      }),
+    ).toThrow();
+  });
 });

@@ -62,6 +62,26 @@ const PracticeFeedbackWireSchema = z
     deleteAfter: IsoInstantSchema,
   })
   .strict();
+const PracticePatchPreviewWireSchema = z
+  .object({
+    title: z.string().max(4_096),
+    anchors: z
+      .array(
+        z
+          .object({
+            id: z.string().regex(/^a(?:0|[1-9][0-9]{0,2})$/u),
+            file: z.string().min(1).max(1_024),
+            hunkHeader: z.string().min(1).max(2_048),
+            oldStart: z.number().int().nonnegative(),
+            newStart: z.number().int().nonnegative(),
+            changedLines: z.number().int().positive(),
+            evidence: z.string().min(1).max(32_768),
+          })
+          .strict(),
+      )
+      .max(12),
+  })
+  .strict();
 
 export const PracticeAnswerTextSchema = z
   .string()
@@ -150,9 +170,18 @@ export const WorkerPracticeViewSchema = z.discriminatedUnion("state", [
   z
     .object({
       schemaVersion: z.literal("1"),
+      state: z.literal("generation_failed"),
+      revisionId: z.string().uuid(),
+      headSha: z.string().regex(/^[0-9a-f]{40}$/u),
+    })
+    .strict(),
+  z
+    .object({
+      schemaVersion: z.literal("1"),
       state: z.literal("ready"),
       revisionId: z.string().uuid(),
       headSha: z.string().regex(/^[0-9a-f]{40}$/u),
+      patchPreview: PracticePatchPreviewWireSchema,
       learning: LearningBundleWireSchema,
       practiceSession: PracticeSessionWireSchema.nullable(),
     })

@@ -112,7 +112,7 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
     }
   });
 
-  it("runs fallback Learning and Proof through encrypted storage into the served plan and Attempt", async () => {
+  it("stores degraded Learning privately without serving it as Practice", async () => {
     await expect(
       handlers["semantic.generate-learning"](learningJob(generationContextId)),
     ).resolves.toEqual({ outcome: "proof_pending" });
@@ -148,10 +148,11 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
       generationContextId,
       userId: AUTHOR,
     });
-    expect(view.state).toBe("ready");
-    if (view.state !== "ready") return;
-    expect(view.learning.createdAt).toBeInstanceOf(Date);
-    expect(view.learning.practiceQuestions).toHaveLength(3);
+    expect(view).toMatchObject({
+      state: "generation_failed",
+      revisionId: IDS.revision,
+      headSha: HEAD,
+    });
 
     const served = await database.pool.query<{
       status: string;
@@ -288,8 +289,7 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
       generationContextId,
       userId: AUTHOR,
     });
-    if (view.state !== "ready") throw new Error("Learning view not ready");
-    expect(JSON.stringify(view.learning)).not.toContain(frozenProofPrompt);
+    expect(view.state).toBe("generation_failed");
     await expect(
       database.pool.query(
         `SELECT invocation_count, outcome, degraded
@@ -381,9 +381,15 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
       client.release();
     }
 
+    const generatedHandlers = generatedLearningHandlers(
+      repository,
+      generationContext,
+    );
     await expect(
-      handlers["semantic.generate-learning"](learningJob(generationContextId)),
-    ).resolves.toMatchObject({ outcome: "created" });
+      generatedHandlers["semantic.generate-learning"](
+        learningJob(generationContextId),
+      ),
+    ).resolves.toMatchObject({ outcome: "created", degraded: false });
     const view = await repository.readPracticeView({
       repositoryId: IDS.repository,
       revisionId: IDS.revision,
@@ -399,9 +405,9 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
     await handlers["semantic.generate-proof-questions"](
       proofJob(generationContextId),
     );
-    await handlers["semantic.generate-learning"](
-      learningJob(generationContextId),
-    );
+    await generatedLearningHandlers(repository, generationContext)[
+      "semantic.generate-learning"
+    ](learningJob(generationContextId));
     const bundle = await database.pool.query<{ id: string }>(
       "SELECT id FROM semantic_learning_bundles",
     );
@@ -779,12 +785,33 @@ const AUTHOR = "8305";
 function learningJob(generationContextId: string) {
   return {
     schemaVersion: "1" as const,
-    idempotencyKey: `semantic.learning:${IDS.analysis}`,
+    idempotencyKey: `semantic.learning.v2:${generationContextId}`,
     artifactKind: "learning_bundle_v1" as const,
     revisionId: IDS.revision,
     generationContextId,
     expectedHeadSha: HEAD,
   };
+}
+
+function generatedLearningHandlers(
+  repository: PostgresSemanticGenerationRepository,
+  context: GenerationContextV1,
+) {
+  const output = deterministicLearningFallbackV1(context, 3);
+  const generate = async () => ({ output, tokenUsage: null });
+  return createSemanticGenerationJobHandlers({
+    repository,
+    service: createSemanticGenerationService({
+      learningMaterialProvider: {
+        descriptor: { provider: "generated-test", model: "generated-test" },
+        generate,
+        repair: generate,
+      },
+      practiceCoachProvider: unavailableProvider(),
+      proofQuestionProvider: unavailableProvider(),
+      clock: { now: () => new Date(), monotonicNowMs: () => 1 },
+    }),
+  });
 }
 
 function proofJob(generationContextId: string) {

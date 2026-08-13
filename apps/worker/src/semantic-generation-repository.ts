@@ -42,9 +42,10 @@ import {
 } from "./semantic-generation-contracts";
 
 const MAX_PRACTICE_ANSWER_BYTES = 4_000;
-const GENERATION_DEADLINE_MS = 5 * 60_000;
+const GENERATION_DEADLINE_MS = 8 * 60_000;
 const PRIVATE_RETENTION_MS = 24 * 60 * 60_000;
 const ATTEMPT_LIFETIME_MS = 8 * 60 * 60_000;
+const LEARNING_GENERATION_IDEMPOTENCY_VERSION = "v2";
 
 type RunLookupRow = {
   repository_id: string;
@@ -1265,10 +1266,13 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
       await client.query("BEGIN");
       const state = await client.query<{
         head_sha: string;
+        context: unknown;
       }>(
-        `SELECT revision.head_sha
+        `SELECT revision.head_sha, generation_context.context
          FROM semantic_generation_budgets budget
          JOIN pull_request_revisions revision ON revision.id = budget.revision_id
+         JOIN generation_contexts generation_context
+           ON generation_context.id = budget.generation_context_id
          JOIN pull_requests pull_request ON pull_request.id = revision.pull_request_id
          JOIN repositories repository ON repository.id = pull_request.repository_id
          JOIN installations installation ON installation.id = repository.installation_id
@@ -1281,7 +1285,8 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
           AND repository.status = 'active'
           AND installation.status = 'active'
         LIMIT 1
-        FOR SHARE OF budget, revision, pull_request, repository, installation`,
+        FOR SHARE OF budget, revision, generation_context, pull_request,
+                     repository, installation`,
         [
           input.repositoryId,
           input.revisionId,
@@ -1294,17 +1299,20 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
         await client.query("COMMIT");
         return { state: "unavailable" };
       }
+      const generationContext = GenerationContextV1Schema.parse(row.context);
       const storedBundle = await client.query<{
         id: string;
         encrypted_payload: string;
+        generation_outcome: "generated" | "repaired" | "fallback";
       }>(
-        `SELECT id, encrypted_payload
+        `SELECT id, encrypted_payload, generation_outcome
            FROM semantic_learning_bundles
           WHERE repository_id = $1
             AND revision_id = $2
             AND generation_context_id = $3
             AND deleted_at IS NULL
             AND delete_after > clock_timestamp()
+          ORDER BY (generation_outcome = 'fallback') ASC, created_at DESC, id DESC
           LIMIT 1
           FOR SHARE`,
         [input.repositoryId, input.revisionId, input.generationContextId],
@@ -1317,6 +1325,47 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
           revisionId: input.revisionId,
           headSha: row.head_sha,
         };
+      }
+      if (bundle.generation_outcome === "fallback") {
+        const retry = learningJob({
+          revisionId: input.revisionId,
+          generationContextId: input.generationContextId,
+          headSha: row.head_sha,
+        });
+        const retryRun = await client.query<{
+          completed_at: Date | null;
+          degraded: boolean | null;
+        }>(
+          `SELECT completed_at, degraded
+             FROM semantic_generation_runs
+            WHERE idempotency_key = $1
+            LIMIT 1
+            FOR SHARE`,
+          [retry.idempotencyKey],
+        );
+        const retryState = retryRun.rows[0];
+        if (retryState === undefined || retryState.completed_at === null) {
+          await this.scheduler.recoverOrExpedite(
+            client,
+            "semantic.generate-learning",
+            retry,
+          );
+          await client.query("COMMIT");
+          return {
+            state: "generating",
+            revisionId: input.revisionId,
+            headSha: row.head_sha,
+          };
+        }
+        if (retryState.degraded === true) {
+          await client.query("COMMIT");
+          return {
+            state: "generation_failed",
+            revisionId: input.revisionId,
+            headSha: row.head_sha,
+          };
+        }
+        throw new Error("Generated Learning retry has no readable artifact.");
       }
       const learning = decryptSemanticArtifact(
         this.cipher,
@@ -1335,6 +1384,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
           state: "ready",
           revisionId: input.revisionId,
           headSha: row.head_sha,
+          patchPreview: practicePatchPreview(generationContext),
           learning,
           practiceSession: null,
         };
@@ -1428,6 +1478,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
         state: "ready",
         revisionId: input.revisionId,
         headSha: row.head_sha,
+        patchPreview: practicePatchPreview(generationContext),
         learning,
         practiceSession: {
           id: boundSession.id,
@@ -1665,14 +1716,11 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
           await this.scheduler.recoverOrExpedite(
             client,
             "semantic.generate-learning",
-            {
-              schemaVersion: "1",
-              idempotencyKey: `semantic.learning:${budget.generation_context_id}`,
-              artifactKind: "learning_bundle_v1",
+            learningJob({
               revisionId: budget.revision_id,
               generationContextId: budget.generation_context_id,
-              expectedHeadSha: budget.head_sha,
-            },
+              headSha: budget.head_sha,
+            }),
           );
           requeued += 1;
         }
@@ -1906,11 +1954,26 @@ function learningJob(input: {
 }): JobPayload<"semantic.generate-learning"> {
   return {
     schemaVersion: "1",
-    idempotencyKey: `semantic.learning:${input.generationContextId}`,
+    idempotencyKey: `semantic.learning.${LEARNING_GENERATION_IDEMPOTENCY_VERSION}:${input.generationContextId}`,
     artifactKind: "learning_bundle_v1",
     revisionId: input.revisionId,
     generationContextId: input.generationContextId,
     expectedHeadSha: input.headSha,
+  };
+}
+
+function practicePatchPreview(context: GenerationContextV1) {
+  return {
+    title: context.title.content,
+    anchors: context.anchors.slice(0, 12).map((anchor) => ({
+      id: anchor.id,
+      file: anchor.filename.content,
+      hunkHeader: anchor.hunkHeader.content,
+      oldStart: anchor.oldStart,
+      newStart: anchor.newStart,
+      changedLines: anchor.changedLines,
+      evidence: anchor.evidence.content,
+    })),
   };
 }
 

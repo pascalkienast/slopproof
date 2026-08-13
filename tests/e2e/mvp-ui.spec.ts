@@ -101,6 +101,27 @@ test("keeps Practice and Proof visible and exchanges a mobile handoff once", asy
   ).toBeVisible();
 });
 
+test("renders the concept-derived Practice workspace without a fallback badge", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(
+    "/revisions/52000000-0000-4000-8000-000000000001/contribute/practice",
+  );
+
+  await expect(
+    page.getByRole("heading", { name: "Practice your understanding." }),
+  ).toBeVisible();
+  await expect(page.getByText("// Understanding coach")).toBeVisible();
+  await expect(page.getByLabel("Selected patch hunk")).toBeVisible();
+  await expect(page.getByText(/safe fallback/iu)).toHaveCount(0);
+  await page.getByRole("button", { name: /02\s+Risk/iu }).click();
+  await expect(page.getByRole("heading", { name: "Risk" })).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+});
+
 test("requires a repository-bound maintainer session for review", async ({
   page,
 }) => {

@@ -87,6 +87,27 @@ const PracticeSessionSchema = z
     }
   });
 
+const PracticePatchPreviewSchema = z
+  .object({
+    title: z.string().max(4_096),
+    anchors: z
+      .array(
+        z
+          .object({
+            id: z.string().regex(/^a(?:0|[1-9][0-9]{0,2})$/u),
+            file: z.string().min(1).max(1_024),
+            hunkHeader: z.string().min(1).max(2_048),
+            oldStart: z.number().int().nonnegative(),
+            newStart: z.number().int().nonnegative(),
+            changedLines: z.number().int().positive(),
+            evidence: z.string().min(1).max(32_768),
+          })
+          .strict(),
+      )
+      .max(12),
+  })
+  .strict();
+
 const PracticeViewSchema = z.discriminatedUnion("state", [
   z.object({ state: z.literal("unavailable") }).strict(),
   z
@@ -98,9 +119,17 @@ const PracticeViewSchema = z.discriminatedUnion("state", [
     .strict(),
   z
     .object({
+      state: z.literal("generation_failed"),
+      revisionId: z.string().uuid(),
+      headSha: z.string().regex(/^[0-9a-f]{40}$/u),
+    })
+    .strict(),
+  z
+    .object({
       state: z.literal("ready"),
       revisionId: z.string().uuid(),
       headSha: z.string().regex(/^[0-9a-f]{40}$/u),
+      patchPreview: PracticePatchPreviewSchema,
       learning: LearningBundleV1Schema,
       practiceSession: PracticeSessionSchema.nullable(),
     })

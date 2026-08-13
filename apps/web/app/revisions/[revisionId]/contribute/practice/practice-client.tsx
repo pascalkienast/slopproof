@@ -29,6 +29,19 @@ type PracticeFeedback = {
   hint: LearningStatement;
 };
 
+type PracticePatchPreview = {
+  title: string;
+  anchors: Array<{
+    id: string;
+    file: string;
+    hunkHeader: string;
+    oldStart: number;
+    newStart: number;
+    changedLines: number;
+    evidence: string;
+  }>;
+};
+
 type LearningBundle = {
   id: string;
   generationOutcome: "generated" | "repaired" | "fallback";
@@ -54,9 +67,16 @@ type PracticeView =
     }
   | {
       schemaVersion: "1";
+      state: "generation_failed";
+      revisionId: string;
+      headSha: string;
+    }
+  | {
+      schemaVersion: "1";
       state: "ready";
       revisionId: string;
       headSha: string;
+      patchPreview: PracticePatchPreview;
       learning: LearningBundle;
       practiceSession: null | {
         id: string;
@@ -221,6 +241,35 @@ export function PracticeClient({
       </section>
     );
   }
+  if (view.state === "generation_failed") {
+    return (
+      <section className="practice-generation-failed" aria-live="polite">
+        <div>
+          <p className="eyebrow">Practice generator unavailable</p>
+          <h2>No generic replacement questions.</h2>
+          <p>
+            The patch-bound generator did not return usable material. Practice
+            stays optional and the live proof is unaffected. Reload later to
+            check whether fresh material is available.
+          </p>
+        </div>
+      </section>
+    );
+  }
+  if (view.learning.generationOutcome === "fallback") {
+    return (
+      <section className="practice-generation-failed" aria-live="polite">
+        <div>
+          <p className="eyebrow">Practice generator unavailable</p>
+          <h2>Fallback material has been withheld.</h2>
+          <p>
+            SlopProof will not present template questions as if they were a real
+            reading of this patch.
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <div className="practice-content">
@@ -229,57 +278,48 @@ export function PracticeClient({
           {error}
         </section>
       ) : null}
-      <LearningMaterial learning={view.learning} />
-      {view.practiceSession ? (
-        <section className="practice-question-stack">
-          <div className="practice-section-heading">
-            <div>
-              <p className="eyebrow">Separate practice prompt pool</p>
-              <h2>Try the patch in your own words.</h2>
-            </div>
-            <small>
-              Private until {formatExpiry(view.practiceSession.deleteAfter)}
-            </small>
-          </div>
-          {view.practiceSession.questions.map((question) => (
-            <PracticeQuestionCard
-              key={question.id}
-              question={question}
-              {...(view.practiceSession!.feedbackByQuestionId[question.id]
-                ? {
-                    feedback:
-                      view.practiceSession!.feedbackByQuestionId[question.id],
-                  }
-                : {})}
-              pending={pendingQuestionIds.has(question.id)}
-              disabled={working}
-              onSubmit={submitAnswer}
-            />
-          ))}
-        </section>
-      ) : (
-        <section className="choice-card practice-start-card">
-          <p className="eyebrow">Optional private session</p>
-          <h2>Ready to try it?</h2>
-          <p>
-            Practice answers and feedback expire with this learning bundle and
-            are never sent to the proof question provider or judge.
-          </p>
-          <button
-            className="button"
-            type="button"
-            disabled={working}
-            onClick={() => void startPractice()}
-          >
-            {working ? "Starting…" : "Start private practice"}
-          </button>
-        </section>
-      )}
+      <PracticeWorkspace
+        learning={view.learning}
+        patchPreview={view.patchPreview}
+        practiceSession={view.practiceSession}
+        pendingQuestionIds={pendingQuestionIds}
+        working={working}
+        onStart={startPractice}
+        onSubmit={submitAnswer}
+      />
     </div>
   );
 }
 
-function LearningMaterial({ learning }: { learning: LearningBundle }) {
+function PracticeWorkspace({
+  learning,
+  patchPreview,
+  practiceSession,
+  pendingQuestionIds,
+  working,
+  onStart,
+  onSubmit,
+}: {
+  learning: LearningBundle;
+  patchPreview: PracticePatchPreview;
+  practiceSession: Extract<PracticeView, { state: "ready" }>["practiceSession"];
+  pendingQuestionIds: Set<string>;
+  working: boolean;
+  onStart(): Promise<void>;
+  onSubmit(questionId: string, answer: string): Promise<boolean>;
+}) {
+  const questions = practiceSession?.questions ?? learning.practiceQuestions;
+  const [activeQuestionId, setActiveQuestionId] = useState(
+    () => questions[0]?.id ?? "",
+  );
+  const activeQuestion =
+    questions.find((question) => question.id === activeQuestionId) ??
+    questions[0];
+  const activeReference = activeQuestion?.patchReferences[0];
+  const activeAnchor =
+    patchPreview.anchors.find(
+      (anchor) => anchor.id === activeReference?.anchorId,
+    ) ?? patchPreview.anchors[0];
   const groups = useMemo(
     () =>
       [
@@ -293,49 +333,179 @@ function LearningMaterial({ learning }: { learning: LearningBundle }) {
       ] as const,
     [learning],
   );
+
   return (
-    <section className="practice-learning">
-      <div className="practice-section-heading">
-        <div>
-          <p className="eyebrow">Exact revision learning map</p>
-          <h2>What this patch changes.</h2>
-        </div>
-        <span className="status-pill">
-          {learning.generationOutcome === "fallback"
-            ? "safe fallback"
-            : learning.generationOutcome}
-        </span>
-      </div>
-      <article className="choice-card practice-intent-card">
-        <p className="eyebrow">Patch intent</p>
-        <p className="practice-statement">{learning.patchIntent.text}</p>
-        <References references={learning.patchIntent.patchReferences} />
-      </article>
-      <div className="practice-learning-grid">
-        {groups.map(([title, statements]) => (
-          <article className="choice-card" key={title}>
-            <h3>{title}</h3>
-            {statements.length === 0 ? (
-              <p className="practice-muted">
-                No separate signal in this patch.
-              </p>
+    <section className="practice-workspace">
+      <div className="practice-workspace-grid">
+        <aside className="practice-patch-pane">
+          <div className="practice-pane-heading">
+            <div>
+              <p className="eyebrow">{patchPreview.title}</p>
+              <h2>{activeAnchor?.file ?? patchPreview.title}</h2>
+            </div>
+            <span>{questions.length} learning goals</span>
+          </div>
+          {activeAnchor ? (
+            <div className="practice-diff" aria-label="Selected patch hunk">
+              <code>{activeAnchor.hunkHeader}</code>
+              <DiffEvidence evidence={activeAnchor.evidence} />
+            </div>
+          ) : (
+            <div className="practice-diff is-empty">
+              <p>No bounded text hunk is available for preview.</p>
+            </div>
+          )}
+          <div className="practice-goal-list" aria-label="Practice goals">
+            {questions.map((question, index) => (
+              <button
+                key={question.id}
+                type="button"
+                aria-pressed={question.id === activeQuestion?.id}
+                className={
+                  question.id === activeQuestion?.id ? "is-active" : undefined
+                }
+                onClick={() => setActiveQuestionId(question.id)}
+              >
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                {formatFocus(question.focus)}
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        <section className="practice-coach-pane">
+          <div className="practice-coach-heading">
+            <p className="eyebrow">// Understanding coach</p>
+            <h2>
+              {activeQuestion
+                ? formatFocus(activeQuestion.focus)
+                : "Read the patch"}
+            </h2>
+            <p>
+              Practice questions are private and are never reused in the live
+              proof.
+            </p>
+          </div>
+          {activeQuestion ? (
+            practiceSession ? (
+              <PracticeQuestionCard
+                key={activeQuestion.id}
+                question={activeQuestion}
+                {...(practiceSession.feedbackByQuestionId[activeQuestion.id]
+                  ? {
+                      feedback:
+                        practiceSession.feedbackByQuestionId[activeQuestion.id],
+                    }
+                  : {})}
+                pending={pendingQuestionIds.has(activeQuestion.id)}
+                disabled={working}
+                onSubmit={onSubmit}
+              />
             ) : (
-              <ul className="practice-statement-list">
-                {statements.map((statement, index) => (
-                  <li key={`${title}:${index}`}>
+              <article className="practice-question-preview">
+                <p className="eyebrow">Practice question · private</p>
+                <h3>{activeQuestion.prompt}</h3>
+                <References references={activeQuestion.patchReferences} />
+                <p>
+                  Start a short-lived session to answer this prompt and receive
+                  a concrete hint.
+                </p>
+                <button
+                  className="button"
+                  type="button"
+                  disabled={working}
+                  onClick={() => void onStart()}
+                >
+                  {working ? "Starting…" : "Start private practice"}
+                </button>
+              </article>
+            )
+          ) : null}
+          <div
+            className="practice-progress"
+            role="progressbar"
+            aria-label="Completed practice questions"
+            aria-valuemin={0}
+            aria-valuemax={questions.length}
+            aria-valuenow={
+              practiceSession
+                ? Object.keys(practiceSession.feedbackByQuestionId).length
+                : 0
+            }
+          >
+            {questions.map((question) => (
+              <span
+                key={question.id}
+                aria-hidden="true"
+                className={
+                  practiceSession?.feedbackByQuestionId[question.id]
+                    ? "is-complete"
+                    : question.id === activeQuestion?.id
+                      ? "is-current"
+                      : undefined
+                }
+              />
+            ))}
+          </div>
+          <small>
+            {practiceSession
+              ? `Private until ${formatExpiry(practiceSession.deleteAfter)}`
+              : `Learning map expires ${formatExpiry(learning.deleteAfter)}`}
+          </small>
+        </section>
+      </div>
+      <details className="practice-map-details">
+        <summary>Explore the full patch map</summary>
+        <article className="practice-map-intent">
+          <p className="eyebrow">Patch intent</p>
+          <p>{learning.patchIntent.text}</p>
+          <References references={learning.patchIntent.patchReferences} />
+        </article>
+        <div className="practice-map-groups">
+          {groups.map(([title, statements]) => (
+            <section key={title}>
+              <h3>{title}</h3>
+              {statements.length === 0 ? (
+                <p className="practice-muted">
+                  No separate signal in this patch.
+                </p>
+              ) : (
+                statements.map((statement, index) => (
+                  <div key={`${title}:${index}`}>
                     <p>{statement.text}</p>
                     <References references={statement.patchReferences} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </article>
-        ))}
-      </div>
-      <p className="practice-expiry">
-        This private material expires {formatExpiry(learning.deleteAfter)}.
-      </p>
+                  </div>
+                ))
+              )}
+            </section>
+          ))}
+        </div>
+      </details>
     </section>
+  );
+}
+
+function DiffEvidence({ evidence }: { evidence: string }) {
+  const lines = evidence.split("\n");
+  return (
+    <pre>
+      {lines.map((line, index) => (
+        <span
+          key={`${String(index)}:${line}`}
+          className={
+            line.startsWith("+") && !line.startsWith("+++")
+              ? "practice-diff-line is-added"
+              : line.startsWith("-") && !line.startsWith("---")
+                ? "practice-diff-line is-removed"
+                : line.startsWith("@@")
+                  ? "practice-diff-line is-metadata"
+                  : "practice-diff-line"
+          }
+        >
+          {line || " "}
+        </span>
+      ))}
+    </pre>
   );
 }
 
@@ -541,4 +711,11 @@ function formatExpiry(value: string): string {
         timeStyle: "short",
       }).format(date)
     : "soon";
+}
+
+function formatFocus(value: string): string {
+  const normalized = value.replaceAll("_", " ").trim();
+  return normalized.length === 0
+    ? "Patch understanding"
+    : normalized[0]!.toUpperCase() + normalized.slice(1);
 }
