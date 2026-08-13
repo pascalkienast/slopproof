@@ -31,7 +31,7 @@ app_id=$(jq -er '.image.id' "$manifest")
 postgres_reference=$(jq -er '.dependencies.postgresImage' "$manifest")
 manifest_sha256=$(sha256sum "$manifest" | awk '{print $1}')
 [[ "$release_id" =~ ^[0-9]{8}T[0-9]{6}Z$ &&
-  "$app_tag" =~ ^slopproof-app:[0-9a-f]{7}-gate9-amd64$ &&
+  "$app_tag" =~ ^slopproof-app:[0-9a-f]{40}-gate9-amd64$ &&
   "$app_id" =~ ^sha256:[0-9a-f]{64}$ &&
   "$postgres_reference" =~ ^postgres:18[.]4-alpine3[.]24@sha256:[0-9a-f]{64}$ ]] ||
   die "Runtime release manifest identity mismatch"

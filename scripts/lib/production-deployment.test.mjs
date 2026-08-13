@@ -354,6 +354,11 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
   assert.match(runtimeVerifier, /slopproof\.image-stage\.v2/u);
   assert.match(
     runtimeVerifier,
+    /slopproof-app:\[0-9a-f\]\{40\}-gate9-amd64/u,
+    "runtime verification must require the full source commit in the image tag",
+  );
+  assert.match(
+    runtimeVerifier,
     /Application image identity changed after staging/u,
   );
   assert.match(runtimeVerifier, /Runtime service uses an unexpected image/u);
