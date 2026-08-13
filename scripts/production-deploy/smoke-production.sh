@@ -95,10 +95,27 @@ main() {
     die "OAuth start returned unexpected status $status"
   fi
 
-  status=$(request_status GET "$BASE_URL/api/auth/github/callback" "$smoke_scratch/oauth-callback")
+  status=$(
+    curl --silent --show-error --max-redirs 0 --connect-timeout 5 --max-time 15 \
+      --output "$smoke_scratch/oauth-callback" \
+      --dump-header "$smoke_scratch/oauth-callback.headers" \
+      --write-out '%{http_code}' "$BASE_URL/api/auth/github/callback" 2>/dev/null || true
+  )
   require_status '^400$' "$status" 'OAuth callback failure path'
-  jq -e '.error == "oauth_rejected" and (keys | length) == 1' \
-    "$smoke_scratch/oauth-callback" >/dev/null || die "OAuth error response exposed unexpected data"
+  grep -Eiq '^content-type: text/html; charset=utf-8' \
+    "$smoke_scratch/oauth-callback.headers" ||
+    die "OAuth callback recovery page lost its HTML content type"
+  grep -Eiq "^content-security-policy: .*frame-ancestors 'none'" \
+    "$smoke_scratch/oauth-callback.headers" ||
+    die "OAuth callback recovery page lost its anti-framing CSP"
+  [[ $(stat -c '%s' "$smoke_scratch/oauth-callback") -le 8192 ]] ||
+    die "OAuth callback recovery page exceeded its public size bound"
+  grep -Fq '<h1>GitHub authorization did not finish</h1>' \
+    "$smoke_scratch/oauth-callback" ||
+    die "OAuth callback recovery page lost its fixed failure title"
+  grep -Fq '<a href="/">Return to SlopProof</a>' \
+    "$smoke_scratch/oauth-callback" ||
+    die "OAuth callback recovery page lost its safe return path"
 
   status=$(
     request_status POST "$BASE_URL/api/github/webhooks" "$smoke_scratch/webhook" \

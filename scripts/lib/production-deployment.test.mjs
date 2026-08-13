@@ -191,6 +191,18 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
     smoke,
     /\.error == "temporarily_unavailable" and \(keys \| length\) == 1/u,
   );
+  assert.match(
+    smoke,
+    /GitHub authorization did not finish[\s\S]*Return to SlopProof/u,
+  );
+  assert.match(
+    smoke,
+    /oauth-callback\.headers[\s\S]*frame-ancestors 'none'/u,
+  );
+  assert.doesNotMatch(
+    smoke,
+    /jq -e '\.error == "oauth_rejected"[^\n]*\n[^\n]*oauth-callback/u,
+  );
   assert.doesNotMatch(deploy, /pg_dump\|pg_restore|createdb\|dropdb/u);
   assert.match(
     read("scripts/production-deploy/verify-and-transfer-backup.sh"),
@@ -463,7 +475,11 @@ test("managed upgrades are reversible only across an unchanged schema and Caddy 
   assert.match(rollback, /Managed rollback migration proof failed/u);
   assert.match(rollback, /Managed rollback refuses a changed Caddy boundary/u);
   assert.match(rollback, /assert_release_container_images "\$previous_release_id"/u);
-  assert.match(rollback, /smoke-production\.sh" rollback-managed/u);
+  assert.match(
+    rollback,
+    /previous release's existing full application smoke contract[\s\S]*smoke-production\.sh" final/u,
+  );
+  assert.doesNotMatch(rollback, /smoke-production\.sh" rollback-managed/u);
 
   const finalRename = finalize.indexOf(
     'mv -- "$(release_incoming "$release_id")" "$final"',
