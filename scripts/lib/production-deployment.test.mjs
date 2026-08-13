@@ -562,7 +562,7 @@ test("backup boundary transfer uses a clean trusted verifier and bounded exact c
   assert.match(installer, /slopproof\.verified-backup-boundary\.v1/u);
 });
 
-test("release transfer is Mac-compatible, independently trusted and bounded", () => {
+test("release transfer is Mac- and Ubuntu-compatible, independently trusted and bounded", () => {
   const transfer = read("scripts/production-deploy/transfer-release.sh");
   const wrapper = read("scripts/production-deploy/verify-install-remote.sh");
   assert.match(transfer, /--trusted-checkout/u);
@@ -575,6 +575,8 @@ test("release transfer is Mac-compatible, independently trusted and bounded", ()
     executableTransfer,
     /--protect-args|--numeric-ids|--chown/u,
   );
+  assert.match(transfer, /stat --version/u);
+  assert.match(transfer, /stat -c '%u:%a'/u);
   assert.match(transfer, /stat -f '%u:%Lp'/u);
   assert.match(transfer, /bounded 180 ssh[\s\S]*\/usr\/bin\/bash -s/u);
   assert.match(transfer, /\/usr\/bin\/test ! -L "\$target"/u);

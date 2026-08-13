@@ -10,6 +10,24 @@ readonly SECRET_ROOT='/etc/slopproof/secrets'
 die() { printf '%s\n' "$1" >&2; exit 1; }
 bounded() { local seconds=$1; shift; perl -e 'alarm shift; exec @ARGV or exit 127' "$seconds" "$@"; }
 
+owner_uid_mode() {
+  local path=$1
+  if stat --version >/dev/null 2>&1; then
+    stat -c '%u:%a' "$path"
+  else
+    stat -f '%u:%Lp' "$path"
+  fi
+}
+
+file_mode() {
+  local path=$1
+  if stat --version >/dev/null 2>&1; then
+    stat -c '%a' "$path"
+  else
+    stat -f '%Lp' "$path"
+  fi
+}
+
 [[ $# -eq 20 && $1 == --bundle && $3 == --compiled-secrets && $5 == --identity &&
   $7 == --trusted-checkout && $9 == --expected-image-id &&
   ${11} == --expected-image-tag && ${13} == --expected-image-source-commit &&
@@ -33,9 +51,9 @@ done
 [[ -d "$bundle/source" && -d "$bundle/artifacts" && ! -L "$bundle" ]] || die "Release bundle is not a safe directory"
 [[ -d "$compiled_secrets" && ! -L "$compiled_secrets" ]] || die "Compiled secret set is not a safe directory"
 [[ $(realpath "$compiled_secrets") == "$compiled_secrets" &&
-  $(stat -f '%u:%Lp' "$compiled_secrets") == "$(id -u):700" ]] ||
+  $(owner_uid_mode "$compiled_secrets") == "$(id -u):700" ]] ||
   die "Compiled secret set must be a canonical owner-controlled mode-0700 directory"
-[[ -f "$identity" && ! -L "$identity" && $(stat -f '%Lp' "$identity") == 600 ]] || die "SSH identity must be a mode-0600 regular file"
+[[ -f "$identity" && ! -L "$identity" && $(file_mode "$identity") == 600 ]] || die "SSH identity must be a mode-0600 regular file"
 [[ -f "$trusted_checkout/scripts/production-deploy/prepare-release.mjs" &&
   -f "$trusted_checkout/scripts/production-deploy/verify-install-remote.sh" &&
   -z $(git -C "$trusted_checkout" status --porcelain=v1 --untracked-files=all) ]] || die "Trusted checkout is not clean and complete"

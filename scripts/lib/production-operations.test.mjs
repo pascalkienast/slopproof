@@ -49,6 +49,8 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.match(landing, /class="check-choice proof active"/u);
   assert.match(landing, /class="check-choice optional"/u);
   assert.match(landing, /Optional: practice the patch/u);
+  assert.doesNotMatch(landing, /fonts\.(?:googleapis|gstatic)\.com/u);
+  assert.match(landing, /rel="icon" href="data:image\/svg\+xml/u);
   assert.match(behavior, /panel\.hidden = !selected/u);
   assert.match(behavior, /\[data-open-mode\]/u);
 });

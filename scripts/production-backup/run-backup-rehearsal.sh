@@ -3,11 +3,25 @@ set -euo pipefail
 IFS=$'\n\t'
 umask 077
 
-readonly BACKUP_ROOT='/Users/pascalkienast/Documents/SlopProof-Backups'
-readonly KEY_ROOT='/Users/pascalkienast/.secrets/slopproof-backup-v1'
+case "$(uname -s)" in
+  Darwin)
+    BACKUP_ROOT='/Users/pascalkienast/Documents/SlopProof-Backups'
+    KEY_ROOT='/Users/pascalkienast/.secrets/slopproof-backup-v1'
+    SSH_IDENTITY='/Users/pascalkienast/.ssh/mylocalapp/id_coolify_mgmt'
+    ;;
+  Linux)
+    BACKUP_ROOT='/home/pascal-kienast/Documents/SlopProof-Backups'
+    KEY_ROOT='/home/pascal-kienast/.secrets/slopproof-backup-v1-third-copy'
+    SSH_IDENTITY='/home/pascal-kienast/.ssh/puls-wrapper-beta'
+    ;;
+  *)
+    printf '%s\n' 'Unsupported backup operator platform' >&2
+    exit 1
+    ;;
+esac
+readonly BACKUP_ROOT KEY_ROOT SSH_IDENTITY
 readonly RECIPIENT_CERT="$KEY_ROOT/recipient-cert.pem"
 readonly RECIPIENT_KEY="$KEY_ROOT/recipient-private.pem"
-readonly SSH_IDENTITY='/Users/pascalkienast/.ssh/mylocalapp/id_coolify_mgmt'
 readonly REMOTE='root@157.180.84.237'
 readonly MAX_FILE_BLOCKS_1_GIB=1048576
 readonly MIN_FREE_BLOCKS_2_GIB=2097152
@@ -19,19 +33,37 @@ die() {
   exit 1
 }
 
+owner_name_mode() {
+  local path=$1
+  if stat --version >/dev/null 2>&1; then
+    stat -c '%U:%a' "$path"
+  else
+    stat -f '%Su:%Lp' "$path"
+  fi
+}
+
+owner_name_mode_links() {
+  local path=$1
+  if stat --version >/dev/null 2>&1; then
+    stat -c '%U:%a:%h' "$path"
+  else
+    stat -f '%Su:%Lp:%l' "$path"
+  fi
+}
+
 require_directory() {
   local path=$1 label=$2 actual
   [[ "$path" == /* && -d "$path" && ! -L "$path" ]] || die "$label is unsafe"
   actual=$(realpath "$path")
   [[ "$actual" == "$path" ]] || die "$label is not canonical"
-  [[ $(stat -f '%Su:%Lp' "$path") == "$(id -un):700" ]] ||
+  [[ $(owner_name_mode "$path") == "$(id -un):700" ]] ||
     die "$label must be owner-controlled mode 0700"
 }
 
 require_file() {
   local path=$1 mode=$2 label=$3
   [[ "$path" == /* && -f "$path" && ! -L "$path" ]] || die "$label is unsafe"
-  [[ $(stat -f '%Su:%Lp%l' "$path") == "$(id -un):${mode}1" ]] ||
+  [[ $(owner_name_mode_links "$path") == "$(id -un):${mode}:1" ]] ||
     die "$label metadata is unsafe"
 }
 
