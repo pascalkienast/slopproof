@@ -83,9 +83,17 @@ main() {
       --header 'referer: https://slopproof.paskie.me/review' \
       --write-out '%{http_code}' "$BASE_URL/api/auth/github/start" 2>/dev/null || true
   )
-  require_status '^30[2378]$' "$status" 'OAuth start'
-  grep -Eiq '^location: https://github\.com/login/oauth/authorize\?' \
-    "$smoke_scratch/oauth-start.headers" || die "OAuth start did not target GitHub"
+  if [[ "$status" =~ ^30[2378]$ ]]; then
+    grep -Eiq '^location: https://github\.com/login/oauth/authorize\?' \
+      "$smoke_scratch/oauth-start.headers" || die "OAuth start did not target GitHub"
+  elif [[ "$phase" == pre-finalize &&
+    ${SLOPPROOF_EXPECT_EMPTY_REPOSITORY_BOOTSTRAP:-} == 1 && "$status" == 503 ]]; then
+    jq -e '.error == "temporarily_unavailable" and (keys | length) == 1' \
+      "$smoke_scratch/oauth-start" >/dev/null ||
+      die "Empty-repository OAuth bootstrap response exposed unexpected data"
+  else
+    die "OAuth start returned unexpected status $status"
+  fi
 
   status=$(request_status GET "$BASE_URL/api/auth/github/callback" "$smoke_scratch/oauth-callback")
   require_status '^400$' "$status" 'OAuth callback failure path'

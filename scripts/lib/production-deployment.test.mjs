@@ -91,6 +91,8 @@ test("Caddy renderer preserves exact non-SlopProof bytes and leaves only a runti
     candidate,
     /header_up X-SlopProof-Client-IP \{http\.request\.remote\.host\}/u,
   );
+  assert.doesNotMatch(candidate, /header_up -X-SlopProof-Client-IP/u);
+  assert.doesNotMatch(candidate, /header_up -X-SlopProof-Proxy-Authenticator/u);
   assert.doesNotMatch(
     candidate,
     /header_up X-SlopProof-Client-IP \{remote_host\}/u,
@@ -168,6 +170,23 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
   assert.match(
     backupCompose,
     /assert_release_container_images "\$release_id" postgres/u,
+  );
+  assert.match(
+    deploy,
+    /SELECT count\(\*\)::integer FROM repositories WHERE status = 'active'/u,
+  );
+  assert.match(
+    deploy,
+    /SLOPPROOF_EXPECT_EMPTY_REPOSITORY_BOOTSTRAP=1[\s\S]*smoke-production\.sh" pre-finalize/u,
+  );
+  const smoke = read("scripts/production-deploy/smoke-production.sh");
+  assert.match(
+    smoke,
+    /phase" == pre-finalize[\s\S]*SLOPPROOF_EXPECT_EMPTY_REPOSITORY_BOOTSTRAP[\s\S]*status" == 503/u,
+  );
+  assert.match(
+    smoke,
+    /\.error == "temporarily_unavailable" and \(keys \| length\) == 1/u,
   );
   assert.doesNotMatch(deploy, /pg_dump\|pg_restore|createdb\|dropdb/u);
   assert.match(

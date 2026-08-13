@@ -43,12 +43,16 @@ client-supplied value through:
 
 ```caddyfile
 reverse_proxy 127.0.0.1:3000 {
-  header_up -X-SlopProof-Client-IP
-  header_up -X-SlopProof-Proxy-Authenticator
-  header_up X-SlopProof-Client-IP {remote_host}
-  header_up X-SlopProof-Proxy-Authenticator {$OAUTH_TRUSTED_PROXY_SECRET}
+  header_up X-SlopProof-Client-IP {http.request.remote.host}
+  header_up X-SlopProof-Proxy-Authenticator {file./run/credentials/caddy.service/oauth-proxy-authenticator}
 }
 ```
+
+`header_up` set semantics replace all client-supplied values. Do not add a
+separate delete for either field: Caddy applies that deletion independently and
+would also remove the trusted replacement. The authenticator remains a runtime
+systemd-credential file placeholder and is never expanded into Caddy's adapted
+configuration.
 
 The web compares the authenticator in constant time and derives only a keyed
 hash of the canonical transport address for rate-limit storage. It never trusts

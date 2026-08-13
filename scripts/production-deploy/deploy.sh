@@ -813,7 +813,7 @@ restore_failed_cutover() {
 
 phase_initial_caddy_cutover() {
   require_root
-  local release_id=${1:-}
+  local release_id=${1:-} active_repositories
   require_release_id "$release_id"
   wait_release_stack "$release_id" 60
   [[ $(sha256sum "$CADDYFILE" | awk '{print $1}') == "$EXPECTED_CADDY_SHA256" ]] ||
@@ -954,7 +954,21 @@ phase_initial_caddy_cutover() {
     'tostring | contains($placeholder)' "$backup/active-admin.json" >/dev/null
   ! grep -Fq -f "$SECRET_ROOT/$release_id/oauth-proxy-authenticator" "$backup/active-admin.json" ||
     die "Caddy admin JSON expanded the protected credential"
-  "$(release_source "$release_id")/scripts/production-deploy/smoke-production.sh" pre-finalize
+  active_repositories=$(
+    printf '%s\n' \
+      "SELECT count(*)::integer FROM repositories WHERE status = 'active';" |
+      compose "$release_id" exec -T postgres psql \
+        --username=slopproof --dbname=slopproof --no-psqlrc --quiet \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 --file=-
+  )
+  [[ "$active_repositories" =~ ^[0-9]+$ ]] ||
+    die "Active repository bootstrap count is invalid"
+  if [[ "$active_repositories" == 0 ]]; then
+    SLOPPROOF_EXPECT_EMPTY_REPOSITORY_BOOTSTRAP=1 \
+      "$(release_source "$release_id")/scripts/production-deploy/smoke-production.sh" pre-finalize
+  else
+    "$(release_source "$release_id")/scripts/production-deploy/smoke-production.sh" pre-finalize
+  fi
   trap - EXIT HUP INT TERM
   CUTOVER_ROLLBACK_RELEASE_ID=''
   printf '%s\n' "Caddy cutover and cohost smoke passed."

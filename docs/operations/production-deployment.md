@@ -157,6 +157,16 @@ directory under the verified `/run` tmpfs, with core dumps disabled and
 signal-safe cleanup; OAuth state and sealed flow cookies never touch the VM's
 unencrypted root filesystem or diagnostics.
 
+On the first cutover only, the database can contain zero active repositories
+because GitHub could not deliver the existing installation event while the
+public webhook path still served the bootstrap 503 boundary. The deploy phase
+checks that exact aggregate before the smoke and then permits only the
+value-free `503 {"error":"temporarily_unavailable"}` OAuth result. A protected
+proxy rejection remains 400 and still fails the cutover. After GitHub's
+authoritative installation delivery creates the binding, the final smoke
+requires the normal GitHub authorization redirect; zero-repository bootstrap
+is never accepted by `finalize`.
+
 Before changing Caddy, the cutover phase publishes the complete rollback
 boundary in the incoming release. This keeps rollback executable even if
 finalize fails before the incoming directory is renamed. Only after all smoke

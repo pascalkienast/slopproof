@@ -50,8 +50,9 @@
 			header_up -Forwarded
 			header_up -X-Forwarded-For
 			header_up -X-Real-IP
-			header_up -X-SlopProof-Client-IP
-			header_up -X-SlopProof-Proxy-Authenticator
+			# header_up set replaces every client-supplied value. Do not pair
+			# these fields with a delete operation: Caddy applies the delete
+			# independently and would remove the trusted replacement too.
 			header_up X-SlopProof-Client-IP {http.request.remote.host}
 			header_up X-SlopProof-Proxy-Authenticator {file./run/credentials/caddy.service/oauth-proxy-authenticator}
 		}
