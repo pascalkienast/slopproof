@@ -125,6 +125,7 @@ describe("GitHub pull_request webhook boundary", () => {
         installation: {
           id: 17,
           account: { id: 7, login: "acme" },
+          repository_selection: "all",
         },
         repositories: [
           {
@@ -150,6 +151,7 @@ describe("GitHub pull_request webhook boundary", () => {
           githubInstallationId: "17",
           accountId: "7",
         },
+        repositorySelection: "all",
         repositories: [{ githubRepositoryId: "42" }],
       },
     });
@@ -176,6 +178,7 @@ describe("GitHub pull_request webhook boundary", () => {
           installation: {
             id: 17,
             account: { id: 7, login: "acme" },
+            repository_selection: "all",
           },
           repositories: [repository],
         }),

@@ -209,6 +209,58 @@ databaseDescribe("signed fake GitHub ingress", () => {
     ).rejects.toBeInstanceOf(WebhookDeliveryConflictError);
   });
 
+  it("activates only repository-scoped deliveries for selected installations", async () => {
+    const created = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000018",
+      eventName: "installation",
+      body: {
+        action: "created",
+        installation: {
+          id: 17,
+          account: { id: 7, login: "acme" },
+          repository_selection: "selected",
+        },
+        repositories: [lifecycleRepository(42), lifecycleRepository(43)],
+      },
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...created,
+    });
+    expect(
+      await scalar(connection, "SELECT count(*)::int FROM repositories"),
+    ).toBe(0);
+
+    const added = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000019",
+      eventName: "installation_repositories",
+      body: {
+        action: "added",
+        installation: {
+          id: 17,
+          account: { id: 7, login: "acme" },
+          repository_selection: "selected",
+        },
+        repositories_added: [lifecycleRepository(42)],
+        repositories_removed: [],
+      },
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...added,
+    });
+    expect(
+      await scalar(
+        connection,
+        "SELECT count(*)::int FROM repositories WHERE status = 'active'",
+      ),
+    ).toBe(1);
+  });
+
   it("keeps repository removals as ordered-independent tombstones", async () => {
     const removed = lifecycleWebhook({
       deliveryId: "30000000-0000-4000-8000-000000000020",
@@ -218,6 +270,7 @@ databaseDescribe("signed fake GitHub ingress", () => {
         installation: {
           id: 17,
           account: { id: 7, login: "acme" },
+          repository_selection: "selected",
         },
         repositories_added: [],
         repositories_removed: [lifecycleRepository(42)],
@@ -240,6 +293,7 @@ databaseDescribe("signed fake GitHub ingress", () => {
         installation: {
           id: 17,
           account: { id: 7, login: "acme" },
+          repository_selection: "selected",
         },
         repositories_added: [lifecycleRepository(42)],
         repositories_removed: [],
@@ -261,6 +315,7 @@ databaseDescribe("signed fake GitHub ingress", () => {
         installation: {
           id: 17,
           account: { id: 7, login: "acme" },
+          repository_selection: "selected",
         },
         repositories: [],
       },
@@ -280,6 +335,7 @@ databaseDescribe("signed fake GitHub ingress", () => {
         installation: {
           id: 17,
           account: { id: 7, login: "acme" },
+          repository_selection: "selected",
         },
         repositories_added: [],
         repositories_removed: [lifecycleRepository(43)],
@@ -303,6 +359,7 @@ databaseDescribe("signed fake GitHub ingress", () => {
         installation: {
           id: 17,
           account: { id: 7, login: "acme" },
+          repository_selection: "selected",
         },
         repositories: [],
       },
@@ -332,6 +389,7 @@ databaseDescribe("signed fake GitHub ingress", () => {
         installation: {
           id: 99,
           account: { id: 7, login: "acme" },
+          repository_selection: "selected",
         },
         repositories_added: [lifecycleRepository(42)],
         repositories_removed: [],

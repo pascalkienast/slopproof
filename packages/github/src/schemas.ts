@@ -45,6 +45,7 @@ const installationSchema = z
   .object({
     id: githubNumericIdSchema,
     account: installationAccountSchema,
+    repository_selection: z.enum(["all", "selected"]),
   })
   .passthrough();
 
@@ -151,6 +152,7 @@ export const GithubInstallationWebhookSchema = z
       accountId: payload.installation.account.id,
       accountLogin: payload.installation.account.login,
     },
+    repositorySelection: payload.installation.repository_selection,
     repositories: payload.repositories ?? [],
   }));
 
@@ -173,6 +175,7 @@ export const GithubInstallationRepositoriesWebhookSchema = z
       accountId: payload.installation.account.id,
       accountLogin: payload.installation.account.login,
     },
+    repositorySelection: payload.installation.repository_selection,
     repositoriesAdded: payload.repositories_added,
     repositoriesRemoved: payload.repositories_removed,
   }));

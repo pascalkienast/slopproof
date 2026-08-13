@@ -142,6 +142,7 @@ async function applyInstallationEvent(
       | "suspend"
       | "unsuspend";
     installation: InstallationBinding;
+    repositorySelection: "all" | "selected";
     repositories: LifecycleRepository[];
   },
 ): Promise<void> {
@@ -217,8 +218,14 @@ async function applyInstallationEvent(
     return;
   }
 
-  for (const repository of event.repositories) {
-    await upsertRepository(client, existingInstallationId, repository);
+  // GitHub may include publicly readable account repositories in the
+  // installation payload even when the installation itself is restricted to
+  // selected repositories. In that mode only installation_repositories
+  // deliveries (and later repository-scoped fresh reads) may activate a row.
+  if (event.repositorySelection === "all") {
+    for (const repository of event.repositories) {
+      await upsertRepository(client, existingInstallationId, repository);
+    }
   }
   if (
     event.action === "unsuspend" ||
