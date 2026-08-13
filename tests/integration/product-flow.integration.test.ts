@@ -5,6 +5,7 @@ import {
   enqueueJobInPgTransaction,
   expediteJobInPgTransaction,
   migrateDatabase,
+  persistValidatedRecording,
   registerJobWorker,
   startJobQueue,
   type DatabaseConnection,
@@ -478,6 +479,88 @@ databaseDescribe("complete current-SHA product flow", () => {
       uploadId: expiryUpload.providerUploadId,
     });
   });
+
+  it("persists validated media and queues transcription in the real transaction adapter", async () => {
+    const attempt = await createReadyFlow(
+      connection,
+      githubQueue,
+      "71000000-0000-4000-8000-000000000023",
+      "d".repeat(40),
+    );
+    const upload = await makeUploading(
+      connection,
+      attempt.id,
+      attempt.head_sha,
+    );
+    const manifestHash = "e".repeat(64);
+    await connection.pool.query(
+      `UPDATE upload_sessions
+          SET state = 'pending_finalization', manifest_digest = $2,
+              finalize_envelope = '{}'::jsonb, updated_at = now()
+        WHERE id = $1`,
+      [upload.uploadId, manifestHash],
+    );
+    await connection.pool.query(
+      `INSERT INTO attempt_transitions
+        (attempt_id, idempotency_key, from_status, to_status,
+         expected_head_sha, current_head_sha, actor_id, actor_role, occurred_at)
+       VALUES ($1, $2, 'uploading', 'processing', $3, $3,
+               'test-author', 'author', now())`,
+      [attempt.id, `processing-test:${attempt.id}`, attempt.head_sha],
+    );
+    await connection.pool.query(
+      `UPDATE attempts
+          SET status = 'processing', evidence_delete_after = now() + interval '1 hour',
+              updated_at = now()
+        WHERE id = $1`,
+      [attempt.id],
+    );
+
+    const recordingObjectId = randomUUID();
+    await expect(
+      persistValidatedRecording(connection.db, jobQueue, {
+        recordingObjectId,
+        uploadSessionId: upload.uploadId,
+        attemptId: attempt.id,
+        expectedHeadSha: attempt.head_sha,
+        objectKey: upload.objectKey,
+        wrappedDataKey: "wrapped-test-key",
+        wrappedKeySha256: "f".repeat(64),
+        wrappingMaterialId: upload.materialId,
+        protocolVersion: "SP-RC1",
+        algorithm: "AES-256-GCM",
+        byteLength: 4_861_170,
+        durationMs: 24_410,
+        codec: "video/webm;codecs=vp8,opus",
+        manifestHash,
+      }),
+    ).resolves.toBe(recordingObjectId);
+
+    const persisted = await connection.pool.query<{
+      recording_count: number;
+      upload_state: string;
+      audit_count: number;
+    }>(
+      `SELECT
+         (SELECT count(*)::int FROM recording_objects
+           WHERE attempt_id = $1) AS recording_count,
+         (SELECT state FROM upload_sessions WHERE id = $2) AS upload_state,
+         (SELECT count(*)::int FROM audit_events
+           WHERE object_id = $1::uuid::text
+             AND action = 'evidence.validated') AS audit_count`,
+      [attempt.id, upload.uploadId],
+    );
+    expect(persisted.rows[0]).toEqual({
+      recording_count: 1,
+      upload_state: "completed",
+      audit_count: 1,
+    });
+    await expect(
+      jobQueue.findJobs("media.extract-transcript", {
+        key: attempt.id,
+      }),
+    ).resolves.toHaveLength(1);
+  });
 });
 
 function webhook(input: {
@@ -583,7 +666,12 @@ async function makeUploading(
   connection: DatabaseConnection,
   attemptId: string,
   headSha: string,
-): Promise<{ objectKey: string; providerUploadId: string }> {
+): Promise<{
+  materialId: string;
+  uploadId: string;
+  objectKey: string;
+  providerUploadId: string;
+}> {
   const materialId = randomUUID();
   const objectId = randomUUID();
   const uploadId = randomUUID();
@@ -618,7 +706,7 @@ async function makeUploading(
     "UPDATE attempts SET status = 'uploading', updated_at = now() WHERE id = $1",
     [attemptId],
   );
-  return { objectKey, providerUploadId };
+  return { materialId, uploadId, objectKey, providerUploadId };
 }
 
 async function waitForAudit(

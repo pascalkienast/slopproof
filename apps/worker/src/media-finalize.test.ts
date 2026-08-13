@@ -9,6 +9,7 @@ import {
   runFfprobePipeline,
   type MediaFinalizationFailureDependencies,
   type MediaFinalizationRow,
+  type MediaFinalizationStage,
 } from "./media-finalize";
 import type { WorkerCheckIntentWriterInput } from "./revision-preparation";
 
@@ -68,7 +69,7 @@ describe("media finalization failure handling", () => {
     ).toThrow("frozen repository policy");
   });
 
-  it("persists a technical retry with an explicitly typed JSON audit parameter", async () => {
+  it("persists a technical retry with typed, value-free stage diagnostics", async () => {
     const queries: string[] = [];
     let released = false;
     const client = {
@@ -76,9 +77,9 @@ describe("media finalization failure handling", () => {
         queries.push(statement);
         if (
           statement.includes("jsonb_build_object") &&
-          !statement.includes("$2::text")
+          (!statement.includes("$2::text") || !statement.includes("$3::text"))
         ) {
-          throw new Error("could not determine data type of parameter $2");
+          throw new Error("could not determine JSON parameter types");
         }
         if (statement.includes("SELECT status FROM attempts")) {
           return { rows: [{ status: "processing" }] };
@@ -117,6 +118,7 @@ describe("media finalization failure handling", () => {
       true,
       new Error("synthetic invalid media"),
       dependencies,
+      "decrypt_and_probe",
     );
 
     expect(deleted).toEqual([row.object_key]);
@@ -131,9 +133,57 @@ describe("media finalization failure handling", () => {
         idempotencyKey: `media-failed:${row.upload_session_id}`,
       },
     ]);
-    expect(queries.some((query) => query.includes("$2::text"))).toBe(true);
+    expect(
+      queries.some(
+        (query) => query.includes("$2::text") && query.includes("$3::text"),
+      ),
+    ).toBe(true);
     expect(queries.at(-1)).toBe("COMMIT");
     expect(released).toBe(true);
+  });
+
+  it.each<MediaFinalizationStage>([
+    "authenticate",
+    "provider_parts",
+    "complete_upload",
+    "verify_object",
+    "open_object",
+    "decrypt_and_probe",
+    "persist_recording",
+  ])("accepts the bounded diagnostic stage %s", async (stage) => {
+    const parameters: unknown[][] = [];
+    const client = {
+      async query(statement: string, values?: unknown[]) {
+        if (values) parameters.push(values);
+        if (statement.includes("SELECT status FROM attempts")) {
+          return { rows: [{ status: "technical_retry" }] };
+        }
+        return { rows: [], rowCount: 1 };
+      },
+      release() {},
+    };
+    const dependencies = {
+      database: {
+        pool: {
+          async connect() {
+            return client;
+          },
+        },
+      },
+      storage: { async deleteObject() {}, async abortMultipartUpload() {} },
+      checkIntents: { async write() {} },
+    } as unknown as MediaFinalizationFailureDependencies;
+
+    await recordMediaFinalizationFailure(
+      row,
+      true,
+      new TypeError("private detail"),
+      dependencies,
+      stage,
+    );
+
+    expect(parameters).toContainEqual([row.attempt_id, "TypeError", stage]);
+    expect(JSON.stringify(parameters)).not.toContain("private detail");
   });
 });
 

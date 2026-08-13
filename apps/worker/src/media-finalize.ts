@@ -40,6 +40,15 @@ export type MediaFinalizationFailureDependencies = Pick<
   "checkIntents" | "database" | "storage"
 >;
 
+export type MediaFinalizationStage =
+  | "authenticate"
+  | "provider_parts"
+  | "complete_upload"
+  | "verify_object"
+  | "open_object"
+  | "decrypt_and_probe"
+  | "persist_recording";
+
 export type MediaFinalizationRow = {
   upload_session_id: string;
   upload_state: string;
@@ -71,6 +80,7 @@ export async function finalizeMediaUpload(
   const limits = assertBinding(rawJob, row, manifest);
 
   let completedObject = row.upload_state === "completed";
+  let stage: MediaFinalizationStage = "authenticate";
   try {
     const encryptionKey = await authenticateRecordingFinalization(
       finalization,
@@ -84,6 +94,7 @@ export async function finalizeMediaUpload(
     if (!completedObject) {
       let providerParts;
       try {
+        stage = "provider_parts";
         providerParts = await dependencies.storage.listParts(
           row.object_key,
           row.provider_upload_id,
@@ -100,6 +111,7 @@ export async function finalizeMediaUpload(
           finalization.uploadedParts,
           providerParts,
         );
+        stage = "complete_upload";
         await dependencies.storage.completeMultipartUpload({
           objectKey: row.object_key,
           uploadId: row.provider_upload_id,
@@ -109,13 +121,16 @@ export async function finalizeMediaUpload(
       }
     }
 
+    stage = "verify_object";
     const head = await dependencies.storage.headObject(row.object_key);
     if (head.byteLength !== manifest.totalObjectBytes) {
       throw new Error("completed object size mismatch");
     }
+    stage = "open_object";
     const objectStream = await dependencies.storage.getObjectStream(
       row.object_key,
     );
+    stage = "decrypt_and_probe";
     const media = await validateAndDecryptToFfprobe(
       objectStream,
       manifest,
@@ -125,6 +140,7 @@ export async function finalizeMediaUpload(
     if (media.durationMs > limits.maximumDurationMs) {
       throw new Error("recording exceeds the frozen repository duration limit");
     }
+    stage = "persist_recording";
     await persistRecordingAndQueueProviderWork(
       row,
       finalization,
@@ -137,6 +153,7 @@ export async function finalizeMediaUpload(
       completedObject,
       error,
       dependencies,
+      stage,
     );
   }
 }
@@ -482,6 +499,7 @@ export async function recordMediaFinalizationFailure(
   completedObject: boolean,
   error: unknown,
   dependencies: MediaFinalizationFailureDependencies,
+  stage: MediaFinalizationStage = "decrypt_and_probe",
 ): Promise<void> {
   if (completedObject) {
     await dependencies.storage
@@ -536,8 +554,9 @@ export async function recordMediaFinalizationFailure(
     await client.query(
       `INSERT INTO audit_events (actor_id, action, object_type, object_id, metadata)
        VALUES ('worker', 'evidence.rejected', 'attempt', $1,
-               jsonb_build_object('errorClass', $2::text))`,
-      [row.attempt_id, errorClass],
+               jsonb_build_object('errorClass', $2::text,
+                                  'errorStage', $3::text))`,
+      [row.attempt_id, errorClass, stage],
     );
     await client.query("COMMIT");
   } catch (databaseError) {

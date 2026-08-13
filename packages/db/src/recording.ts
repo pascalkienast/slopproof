@@ -26,7 +26,7 @@ export async function persistValidatedRecording(
 ): Promise<string> {
   return database.transaction(async (transaction) => {
     const authorization = await transaction.execute<{
-      delete_after: Date;
+      delete_after: Date | string;
     }>(sql`
       SELECT attempt.evidence_delete_after AS delete_after
         FROM attempts attempt
@@ -55,7 +55,9 @@ export async function persistValidatedRecording(
        FOR UPDATE OF attempt, revision, pull_request, repository, installation,
                      upload, material
     `);
-    const deleteAfter = authorization.rows[0]?.delete_after;
+    const deleteAfter = parseDatabaseTimestamp(
+      authorization.rows[0]?.delete_after,
+    );
     if (!deleteAfter) {
       throw new Error("Validated recording is no longer authorized");
     }
@@ -74,7 +76,9 @@ export async function persistValidatedRecording(
         durationMs: input.durationMs,
         codec: input.codec,
         manifestHash: input.manifestHash,
-        deleteAfter,
+        // Preserve PostgreSQL's full timestamptz precision. A JavaScript Date
+        // truncates microseconds and would violate the exact retention fence.
+        deleteAfter: sql`(SELECT evidence_delete_after FROM attempts WHERE id = ${input.attemptId})`,
       })
       .onConflictDoNothing({ target: recordingObjects.attemptId })
       .returning({ id: recordingObjects.id });
@@ -149,4 +153,18 @@ export async function persistValidatedRecording(
     );
     return recordingObjectId;
   });
+}
+
+/**
+ * Raw Drizzle SQL returns PostgreSQL timestamptz values as driver strings,
+ * while schema-bound selects return Date instances. Normalize that boundary
+ * before passing the value back into a timestamp column encoder.
+ */
+function parseDatabaseTimestamp(value: unknown): Date | undefined {
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value : undefined;
+  }
+  if (typeof value !== "string" || value.length > 64) return undefined;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed : undefined;
 }

@@ -28,6 +28,7 @@ import {
   postTechnicalAbort,
   type TechnicalAbortReason,
 } from "./technical-recovery";
+import { waitForPostUploadStatus } from "../../../lib/attempt-status";
 import {
   captureProofQuestionIntervalV1,
   finalizeProofQuestionIntervalsV1,
@@ -59,6 +60,7 @@ type Phase =
   | "ready"
   | "recording"
   | "uploading"
+  | "processing"
   | "reviewing"
   | "error";
 
@@ -212,10 +214,39 @@ export function MobileProof() {
       setPhase("recording");
       await recordEncryptAndUpload(context, upload.uploadSessionId);
       startedRef.current = false;
-      setPhase("reviewing");
-      setProgress(
-        "Encrypted evidence received. Waiting for maintainer review.",
-      );
+      setPhase("processing");
+      setProgress("Validating encrypted evidence before private review.");
+      let status;
+      try {
+        status = await waitForPostUploadStatus(context.attemptId);
+      } catch {
+        setProgress(
+          "Encrypted evidence was received, but its processing state could not be confirmed yet. Reopen the contributor check before recording again.",
+        );
+        return;
+      }
+      if (status === "review_required" || status === "passed") {
+        setPhase("reviewing");
+        setProgress(
+          status === "passed"
+            ? "This revision has already been approved."
+            : "Private processing completed. Waiting for maintainer review.",
+        );
+      } else if (status === "technical_retry") {
+        setCanRecover(true);
+        fail(
+          "Server validation failed safely. The encrypted evidence was removed; create a fresh attempt.",
+        );
+      } else if (status === "invalidated") {
+        fail("A newer head SHA replaced this attempt. Open the current check.");
+      } else if (status === "retry_required" || status === "expired") {
+        setCanRecover(true);
+        fail("This attempt needs a fresh proof before it can be reviewed.");
+      } else {
+        setProgress(
+          "Encrypted evidence is still processing. You may close this page and reopen the contributor check later.",
+        );
+      }
     } catch (caught) {
       const message =
         caught instanceof Error
@@ -227,9 +258,9 @@ export function MobileProof() {
           if (aborted.status === "already_progressed") {
             startedRef.current = false;
             setCanRecover(false);
-            setPhase("reviewing");
+            setPhase("processing");
             setProgress(
-              "Finalization was already accepted. Waiting for maintainer review.",
+              "Finalization was accepted and is still being processed.",
             );
             return;
           }
@@ -515,10 +546,8 @@ export function MobileProof() {
       const aborted = await requestTechnicalAbort(context);
       if (aborted.status === "already_progressed") {
         startedRef.current = false;
-        setPhase("reviewing");
-        setProgress(
-          "Finalization was already accepted. Waiting for maintainer review.",
-        );
+        setPhase("processing");
+        setProgress("Finalization was accepted and is still being processed.");
         return;
       }
       if (aborted.status === "invalidated") {
@@ -614,6 +643,17 @@ export function MobileProof() {
           <p className="eyebrow">Encrypted upload</p>
           <h1>Finishing the protected evidence.</h1>
           <p>{progress}</p>
+        </section>
+      ) : null}
+      {phase === "processing" ? (
+        <section className="recording-card reviewing-card">
+          <p className="eyebrow">Protected processing</p>
+          <h1>Validating before review.</h1>
+          <p>{progress}</p>
+          <p>
+            Review is shown only after the server confirms that private
+            processing completed.
+          </p>
         </section>
       ) : null}
       {phase === "reviewing" ? (
