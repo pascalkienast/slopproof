@@ -53,14 +53,18 @@ jq -e \
 
 postgres_id=$(jq -er '.postgresId' "$receipt")
 [[ $(timeout --signal=TERM --kill-after=5s 30 docker image inspect \
-  --platform linux/amd64 --format '{{.Id}} {{.Os}}/{{.Architecture}}' "$app_id" 2>/dev/null) == "$app_id linux/amd64" &&
+  --format '{{.Id}} {{.Os}}/{{.Architecture}}' "$app_id" 2>/dev/null) == "$app_id linux/amd64" &&
   $(timeout --signal=TERM --kill-after=5s 30 docker image inspect \
-    --platform linux/amd64 --format '{{.Id}} {{.Os}}/{{.Architecture}}' "$app_tag" 2>/dev/null) == "$app_id linux/amd64" ]] ||
+    --format '{{.Id}} {{.Os}}/{{.Architecture}}' "$app_tag" 2>/dev/null) == "$app_id linux/amd64" &&
+  $(timeout --signal=TERM --kill-after=5s 30 docker image inspect \
+    --platform linux/amd64 --format '{{.Os}}/{{.Architecture}}' "$app_tag" 2>/dev/null) == 'linux/amd64' ]] ||
   die "Application image identity changed after staging"
 [[ $(timeout --signal=TERM --kill-after=5s 30 docker image inspect \
-  --platform linux/amd64 --format '{{.Id}} {{.Os}}/{{.Architecture}}' "$postgres_id" 2>/dev/null) == "$postgres_id linux/amd64" &&
+  --format '{{.Id}} {{.Os}}/{{.Architecture}}' "$postgres_id" 2>/dev/null) == "$postgres_id linux/amd64" &&
   $(timeout --signal=TERM --kill-after=5s 30 docker image inspect \
-    --platform linux/amd64 --format '{{.Id}} {{.Os}}/{{.Architecture}}' "$postgres_reference" 2>/dev/null) == "$postgres_id linux/amd64" ]] ||
+    --format '{{.Id}} {{.Os}}/{{.Architecture}}' "$postgres_reference" 2>/dev/null) == "$postgres_id linux/amd64" &&
+  $(timeout --signal=TERM --kill-after=5s 30 docker image inspect \
+    --platform linux/amd64 --format '{{.Os}}/{{.Architecture}}' "$postgres_reference" 2>/dev/null) == 'linux/amd64' ]] ||
   die "PostgreSQL image identity changed after staging"
 [[ ${SLOPPROOF_IMAGE:-} == "$app_id" ]] ||
   die "Runtime application image must be the immutable staged ID"

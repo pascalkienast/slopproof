@@ -388,7 +388,8 @@ phase_image_stage() {
   loaded=$(timeout --signal=TERM --kill-after=10s 240 docker load --input "$archive")
   [[ "$loaded" == "Loaded image: $app_tag" || "$loaded" == *"Loaded image ID: $app_id"* ]] ||
     die "Docker did not load the expected application identity"
-  [[ $(docker image inspect --platform linux/amd64 --format '{{.Id}} {{.Os}}/{{.Architecture}}' "$app_tag") == "$app_id linux/amd64" ]] ||
+  [[ $(docker image inspect --format '{{.Id}} {{.Os}}/{{.Architecture}}' "$app_tag") == "$app_id linux/amd64" &&
+    $(docker image inspect --platform linux/amd64 --format '{{.Os}}/{{.Architecture}}' "$app_tag") == 'linux/amd64' ]] ||
     die "Loaded application image identity mismatch"
   timeout --signal=TERM --kill-after=10s 240 docker pull --platform linux/amd64 "$POSTGRES_IMAGE" >/dev/null
   [[ $(docker image inspect --platform linux/amd64 --format '{{.Os}}/{{.Architecture}}' "$POSTGRES_IMAGE") == 'linux/amd64' ]] ||
@@ -396,7 +397,7 @@ phase_image_stage() {
   docker image inspect --format '{{json .RepoDigests}}' "$POSTGRES_IMAGE" |
     jq -e --arg digest "${POSTGRES_IMAGE#*@}" 'any(.[]; endswith("@" + $digest))' >/dev/null ||
     die "PostgreSQL RepoDigest mismatch"
-  postgres_id=$(docker image inspect --platform linux/amd64 --format '{{.Id}}' "$POSTGRES_IMAGE")
+  postgres_id=$(docker image inspect --format '{{.Id}}' "$POSTGRES_IMAGE")
   [[ "$postgres_id" =~ ^sha256:[0-9a-f]{64}$ ]] || die "PostgreSQL image ID is invalid"
   set -o noclobber
   jq -n --arg releaseId "$release_id" --arg manifestSha256 "$manifest_sha256" \

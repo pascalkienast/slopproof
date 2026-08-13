@@ -343,6 +343,18 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
   );
   assert.doesNotMatch(runtimeVerifier, /-z \$\{SLOPPROOF_(?:POSTGRES_)?IMAGE/u);
   assert.match(runtimeVerifier, /--platform linux\/amd64/u);
+  assert.match(
+    runtimeVerifier,
+    /--format '\{\{\.Id\}\} \{\{\.Os\}\}\/\{\{\.Architecture\}\}' "\$app_id"/u,
+  );
+  assert.doesNotMatch(
+    runtimeVerifier,
+    /--platform linux\/amd64 --format '\{\{\.Id\}\}/u,
+  );
+  assert.match(
+    deploy,
+    /postgres_id=\$\(docker image inspect --format '\{\{\.Id\}\}' "\$POSTGRES_IMAGE"\)/u,
+  );
   assert.match(deploy, /DATA_ROOT=\/var\/lib\/slopproof-production/u);
   assert.match(deploy, /Production data parent identity mismatch/u);
   assert.match(
