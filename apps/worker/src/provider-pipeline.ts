@@ -3,7 +3,7 @@ import {
   EvaluationApplyPolicyJobSchema,
   EvaluationRunJobSchema,
   MediaSelectFramesJobSchema,
-  enqueueJob,
+  expediteJob,
   parseJobPayload,
   registerJobWorker,
 } from "@slopproof/db";
@@ -22,6 +22,7 @@ import {
   type MultimodalJudgeProvider,
   type ProviderClock,
   type ProviderContextV1,
+  type ProofEvaluationV1,
   type TranscriptV1,
   type TranscriptionProvider,
 } from "@slopproof/providers";
@@ -31,6 +32,7 @@ import {
   EncryptedEvaluationBundleV1Schema,
   EncryptedTranscriptBundleV1Schema,
   FrameSelectionStageBundleV1Schema,
+  PrivateProviderStageUnavailableError,
   ProviderPipelineStageResultV1Schema,
   type EvaluationRunContextV1,
   type ProviderPipelineDispatcher,
@@ -40,6 +42,10 @@ import {
   type ProviderPipelineStageResultV1,
   type StoredProofQuestionV1,
 } from "./provider-pipeline-contracts";
+import type {
+  EncryptedRecordingAudioTranscriptionAdapter,
+  RecordingCiphertextAccess,
+} from "./audio-transcription";
 
 const StoredAnchorSchema = z
   .object({
@@ -94,7 +100,11 @@ export type ProviderPipelineDependencies = {
   repository: ProviderPipelineRepository;
   dispatcher: ProviderPipelineDispatcher;
   payloadCipher: PayloadCipher;
-  transcriptionProvider: TranscriptionProvider;
+  transcriptionProvider?: TranscriptionProvider;
+  recordingTranscription?: {
+    adapter: Pick<EncryptedRecordingAudioTranscriptionAdapter, "transcribe">;
+    ciphertextAccess(objectKey: string): RecordingCiphertextAccess;
+  };
   frameSelectionAdapter: ProviderFrameSelectionAdapter;
   judgeProvider: MultimodalJudgeProvider;
   clock: ProviderClock;
@@ -108,6 +118,31 @@ export type ProviderPipelineHandlers = {
   runEvaluation(rawJob: unknown): Promise<ProviderPipelineStageResultV1>;
   applyPolicy(rawJob: unknown): Promise<ProviderPipelineStageResultV1>;
 };
+
+class Gate5ReviewOnlyMultimodalJudgeProvider implements MultimodalJudgeProvider {
+  async evaluate(): Promise<never> {
+    throw new ProviderError(
+      "PROVIDER_UNAVAILABLE",
+      "review",
+      "Multimodal evaluation requires the private Gate 6 result sidecar",
+    );
+  }
+}
+
+/**
+ * Gate 5 owns private transcription, not the persisted multimodal result
+ * contract introduced by Gate 6. Local development keeps its deterministic
+ * fake, while production fails the later judge stage closed to manual review
+ * instead of either refusing to start or silently using a fake provider.
+ */
+export function createGate5MultimodalJudgeBoundary(
+  provider: "fake" | "hetzner",
+  clock: ProviderClock,
+): MultimodalJudgeProvider {
+  return provider === "fake"
+    ? new LocalFakeMultimodalJudgeProvider(clock)
+    : new Gate5ReviewOnlyMultimodalJudgeProvider();
+}
 
 export function decryptVersionedProviderPayload<T>(
   cipher: PayloadCipher,
@@ -175,8 +210,11 @@ function providerContext(
   attemptId: string,
   idempotencyKey: string,
   dependencies: ProviderPipelineDependencies,
+  deleteAfter?: Date,
 ): ProviderContextV1 {
   const now = dependencies.clock.now();
+  const configuredDeadline =
+    now.getTime() + (dependencies.providerTimeoutMs ?? 5 * 60_000);
   return {
     schemaVersion: "1",
     requestId: deterministicUuid(
@@ -184,18 +222,29 @@ function providerContext(
     ),
     attemptId,
     deadlineAt: new Date(
-      now.getTime() + (dependencies.providerTimeoutMs ?? 5 * 60_000),
+      deleteAfter === undefined
+        ? configuredDeadline
+        : Math.min(configuredDeadline, deleteAfter.getTime()),
     ),
   };
 }
 
-function isCurrentProcessing(
-  context: { status: string; isCurrent: boolean; headSha: string },
+function isPrivateStageEligible(
+  context: {
+    status: string;
+    isCurrent: boolean;
+    privateAccessEligible: boolean;
+    headSha: string;
+    deleteAfter: Date;
+  },
   expectedHeadSha: string,
+  now: Date,
 ): boolean {
   return (
     context.status === "processing" &&
     context.isCurrent &&
+    context.privateAccessEligible &&
+    context.deleteAfter.getTime() > now.getTime() &&
     context.headSha === expectedHeadSha
   );
 }
@@ -229,10 +278,10 @@ async function routeProviderFailure(
             { cause: error },
           )
         : undefined;
-  if (
-    providerError === undefined ||
-    providerError.disposition === "retryable"
-  ) {
+  if (error instanceof PrivateProviderStageUnavailableError) {
+    return result({ stage, outcome: "stale", attemptId: job.attemptId });
+  }
+  if (providerError === undefined) {
     throw error;
   }
   if (providerError.disposition === "review") {
@@ -265,7 +314,37 @@ function fakeTranscriptSegments(
   questions: StoredProofQuestionV1[],
   durationMs: number,
   textForQuestion: (question: StoredProofQuestionV1) => string,
+  intervals?: readonly {
+    questionId: string;
+    startMs: number;
+    endMs: number;
+  }[],
 ) {
+  if (intervals !== undefined) {
+    if (intervals.length !== questions.length) {
+      throw new ProviderError(
+        "INVALID_INPUT",
+        "terminal",
+        "Stored question intervals do not match the proof plan",
+      );
+    }
+    return intervals.map((interval, index) => {
+      const question = questions[index];
+      if (question === undefined || question.id !== interval.questionId) {
+        throw new ProviderError(
+          "INVALID_INPUT",
+          "terminal",
+          "Stored question interval order does not match the proof plan",
+        );
+      }
+      return {
+        questionId: question.id,
+        startMs: interval.startMs,
+        endMs: interval.endMs,
+        text: textForQuestion(question),
+      };
+    });
+  }
   if (durationMs < questions.length) {
     throw new ProviderError(
       "INVALID_INPUT",
@@ -376,11 +455,47 @@ export function createProviderPipelineHandlers(
       try {
         const context =
           await dependencies.repository.loadTranscriptExtraction(job);
-        if (!isCurrentProcessing(context, job.expectedHeadSha)) {
+        if (
+          !isPrivateStageEligible(
+            context,
+            job.expectedHeadSha,
+            dependencies.clock.now(),
+          )
+        ) {
           return result({
             stage: "media.extract-transcript",
             outcome: "stale",
             attemptId: job.attemptId,
+          });
+        }
+        if (context.existingTranscript !== undefined) {
+          const downstreamJob = {
+            schemaVersion: "1",
+            idempotencyKey: nextIdempotencyKey(
+              job.idempotencyKey,
+              "select-frames",
+            ),
+            attemptId: job.attemptId,
+            recordingObjectId: job.recordingObjectId,
+            transcriptId: context.existingTranscript.transcriptId,
+            expectedHeadSha: job.expectedHeadSha,
+          } as const;
+          const downstreamScheduled =
+            await dependencies.repository.schedulePersistedTranscript(
+              context.existingTranscript,
+              downstreamJob,
+            );
+          if (!downstreamScheduled) {
+            await dependencies.dispatcher.enqueue(
+              "media.select-frames",
+              downstreamJob,
+            );
+          }
+          return result({
+            stage: "media.extract-transcript",
+            outcome: "replayed",
+            attemptId: job.attemptId,
+            artifactId: context.existingTranscript.transcriptId,
           });
         }
         const defaultText = (question: StoredProofQuestionV1) => {
@@ -389,22 +504,74 @@ export function createProviderPipelineHandlers(
             ? rubric.data.requiredPoints.join(" ")
             : "Local fake transcript fixture for the stored proof question.";
         };
-        const providerTranscript =
-          await dependencies.transcriptionProvider.transcribe(
-            {
-              schemaVersion: "1",
-              attemptId: job.attemptId,
-              sourceSha256: context.recordingManifestHash,
-              language: "en",
-              durationMs: context.recordingDurationMs,
-              segments: fakeTranscriptSegments(
-                context.questions,
-                context.recordingDurationMs,
-                dependencies.fakeTranscriptText ?? defaultText,
-              ),
-            },
-            providerContext(job.attemptId, job.idempotencyKey, dependencies),
-          );
+        const requestContext = providerContext(
+          job.attemptId,
+          job.idempotencyKey,
+          dependencies,
+          context.deleteAfter,
+        );
+        let providerTranscript: TranscriptV1;
+        if (dependencies.recordingTranscription !== undefined) {
+          if (context.recordingAudio === undefined) {
+            throw new ProviderError(
+              "INVALID_INPUT",
+              "terminal",
+              "Authenticated question intervals are unavailable for production transcription",
+            );
+          }
+          try {
+            providerTranscript =
+              await dependencies.recordingTranscription.adapter.transcribe(
+                context.recordingAudio.source,
+                dependencies.recordingTranscription.ciphertextAccess(
+                  context.recordingAudio.objectKey,
+                ),
+                requestContext,
+              );
+          } catch (error) {
+            if (error instanceof ProviderError) throw error;
+            throw new ProviderError(
+              "PROVIDER_UNAVAILABLE",
+              "retryable",
+              "Private recording transcription failed",
+              { cause: error },
+            );
+          }
+        } else {
+          if (dependencies.transcriptionProvider === undefined) {
+            throw new ProviderError(
+              "INVALID_INPUT",
+              "terminal",
+              "No transcription provider is configured",
+            );
+          }
+          providerTranscript =
+            await dependencies.transcriptionProvider.transcribe(
+              {
+                schemaVersion: "1",
+                attemptId: job.attemptId,
+                sourceSha256: context.recordingManifestHash,
+                language: "en",
+                durationMs: context.recordingDurationMs,
+                segments: fakeTranscriptSegments(
+                  context.questions,
+                  context.recordingDurationMs,
+                  dependencies.fakeTranscriptText ?? defaultText,
+                  context.recordingAudio?.source.questionIntervals,
+                ),
+              },
+              requestContext,
+            );
+        }
+        if (
+          !isPrivateStageEligible(
+            context,
+            job.expectedHeadSha,
+            dependencies.clock.now(),
+          )
+        ) {
+          throw new PrivateProviderStageUnavailableError();
+        }
         if (
           providerTranscript.attemptId !== job.attemptId ||
           providerTranscript.sourceSha256 !== context.recordingManifestHash ||
@@ -445,9 +612,7 @@ export function createProviderPipelineHandlers(
           encryptedPayload,
           deleteAfter: context.deleteAfter,
         });
-        const persisted =
-          await dependencies.repository.persistTranscript(bundle);
-        await dependencies.dispatcher.enqueue("media.select-frames", {
+        const downstreamJob = {
           schemaVersion: "1",
           idempotencyKey: nextIdempotencyKey(
             job.idempotencyKey,
@@ -457,12 +622,18 @@ export function createProviderPipelineHandlers(
           recordingObjectId: job.recordingObjectId,
           transcriptId: transcript.id,
           expectedHeadSha: job.expectedHeadSha,
+        } as const;
+        const persistence =
+          await dependencies.repository.persistTranscript(bundle);
+        await dependencies.dispatcher.enqueue("media.select-frames", {
+          ...downstreamJob,
+          transcriptId: persistence.transcript.transcriptId,
         });
         return result({
           stage: "media.extract-transcript",
-          outcome: persisted === "created" ? "completed" : "replayed",
+          outcome: persistence.status === "created" ? "completed" : "replayed",
           attemptId: job.attemptId,
-          artifactId: transcript.id,
+          artifactId: persistence.transcript.transcriptId,
         });
       } catch (error) {
         return routeProviderFailure(
@@ -478,7 +649,13 @@ export function createProviderPipelineHandlers(
       const job = parseJobPayload("media.select-frames", rawJob);
       try {
         const context = await dependencies.repository.loadFrameSelection(job);
-        if (!isCurrentProcessing(context, job.expectedHeadSha)) {
+        if (
+          !isPrivateStageEligible(
+            context,
+            job.expectedHeadSha,
+            dependencies.clock.now(),
+          )
+        ) {
           return result({
             stage: "media.select-frames",
             outcome: "stale",
@@ -491,12 +668,37 @@ export function createProviderPipelineHandlers(
           transcriptAad(job.attemptId, job.transcriptId),
           TranscriptV1Schema,
         );
-        const metadata = await dependencies.frameSelectionAdapter.select({
-          attemptId: job.attemptId,
-          recordingObjectId: context.recordingObjectId,
-          recordingDurationMs: context.recordingDurationMs,
-          transcript,
-        });
+        let metadata: FrameSelectionMetadataV1;
+        try {
+          metadata = await dependencies.frameSelectionAdapter.select({
+            attemptId: job.attemptId,
+            recordingObjectId: context.recordingObjectId,
+            recordingDurationMs: context.recordingDurationMs,
+            transcript,
+          });
+        } catch (error) {
+          if (
+            error instanceof ProviderError ||
+            error instanceof PrivateProviderStageUnavailableError
+          ) {
+            throw error;
+          }
+          throw new ProviderError(
+            "PROVIDER_UNAVAILABLE",
+            "retryable",
+            "Private frame selection failed",
+            { cause: error },
+          );
+        }
+        if (
+          !isPrivateStageEligible(
+            context,
+            job.expectedHeadSha,
+            dependencies.clock.now(),
+          )
+        ) {
+          throw new PrivateProviderStageUnavailableError();
+        }
         const bundle = FrameSelectionStageBundleV1Schema.parse({
           schemaVersion: "1",
           payloadKind: "frame_selection",
@@ -534,11 +736,46 @@ export function createProviderPipelineHandlers(
       const job = parseJobPayload("evaluation.run", rawJob);
       try {
         const context = await dependencies.repository.loadEvaluationRun(job);
-        if (!isCurrentProcessing(context, job.expectedHeadSha)) {
+        if (
+          !isPrivateStageEligible(
+            context,
+            job.expectedHeadSha,
+            dependencies.clock.now(),
+          )
+        ) {
           return result({
             stage: "evaluation.run",
             outcome: "stale",
             attemptId: job.attemptId,
+          });
+        }
+        if (context.existingEvaluation !== undefined) {
+          const downstreamJob = {
+            schemaVersion: "1",
+            idempotencyKey: nextIdempotencyKey(
+              job.idempotencyKey,
+              "apply-policy",
+            ),
+            attemptId: job.attemptId,
+            evaluationId: context.existingEvaluation.evaluationId,
+            expectedHeadSha: job.expectedHeadSha,
+          } as const;
+          const downstreamScheduled =
+            await dependencies.repository.schedulePersistedEvaluation(
+              context.existingEvaluation,
+              downstreamJob,
+            );
+          if (!downstreamScheduled) {
+            await dependencies.dispatcher.enqueue(
+              "evaluation.apply-policy",
+              downstreamJob,
+            );
+          }
+          return result({
+            stage: "evaluation.run",
+            outcome: "replayed",
+            attemptId: job.attemptId,
+            artifactId: context.existingEvaluation.evaluationId,
           });
         }
         const transcript = decryptVersionedProviderPayload(
@@ -560,10 +797,35 @@ export function createProviderPipelineHandlers(
           transcript,
           frameSelection: context.frameSelection,
         });
-        const providerEvaluation = await dependencies.judgeProvider.evaluate(
-          evaluationInput,
-          providerContext(job.attemptId, job.idempotencyKey, dependencies),
-        );
+        let providerEvaluation: ProofEvaluationV1;
+        try {
+          providerEvaluation = await dependencies.judgeProvider.evaluate(
+            evaluationInput,
+            providerContext(
+              job.attemptId,
+              job.idempotencyKey,
+              dependencies,
+              context.deleteAfter,
+            ),
+          );
+        } catch (error) {
+          if (error instanceof ProviderError) throw error;
+          throw new ProviderError(
+            "PROVIDER_UNAVAILABLE",
+            "retryable",
+            "Private multimodal evaluation failed",
+            { cause: error },
+          );
+        }
+        if (
+          !isPrivateStageEligible(
+            context,
+            job.expectedHeadSha,
+            dependencies.clock.now(),
+          )
+        ) {
+          throw new PrivateProviderStageUnavailableError();
+        }
         const evaluation = validateProofEvaluationAgainstInput(
           providerEvaluation,
           evaluationInput,
@@ -599,9 +861,7 @@ export function createProviderPipelineHandlers(
           encryptedPayload,
           deleteAfter: context.deleteAfter,
         });
-        const persisted =
-          await dependencies.repository.persistEvaluation(bundle);
-        await dependencies.dispatcher.enqueue("evaluation.apply-policy", {
+        const downstreamJob = {
           schemaVersion: "1",
           idempotencyKey: nextIdempotencyKey(
             job.idempotencyKey,
@@ -610,12 +870,18 @@ export function createProviderPipelineHandlers(
           attemptId: job.attemptId,
           evaluationId,
           expectedHeadSha: job.expectedHeadSha,
+        } as const;
+        const persistence =
+          await dependencies.repository.persistEvaluation(bundle);
+        await dependencies.dispatcher.enqueue("evaluation.apply-policy", {
+          ...downstreamJob,
+          evaluationId: persistence.evaluation.evaluationId,
         });
         return result({
           stage: "evaluation.run",
-          outcome: persisted === "created" ? "completed" : "replayed",
+          outcome: persistence.status === "created" ? "completed" : "replayed",
           attemptId: job.attemptId,
-          artifactId: evaluationId,
+          artifactId: persistence.evaluation.evaluationId,
         });
       } catch (error) {
         return routeProviderFailure(
@@ -631,7 +897,13 @@ export function createProviderPipelineHandlers(
       const job = parseJobPayload("evaluation.apply-policy", rawJob);
       try {
         const context = await dependencies.repository.loadEvaluationPolicy(job);
-        if (!isCurrentProcessing(context, job.expectedHeadSha)) {
+        if (
+          !isPrivateStageEligible(
+            context,
+            job.expectedHeadSha,
+            dependencies.clock.now(),
+          )
+        ) {
           return result({
             stage: "evaluation.apply-policy",
             outcome:
@@ -668,6 +940,20 @@ export function createProviderPipelineHandlers(
             (question) => question.questionId,
           ),
         });
+        if (
+          !isPrivateStageEligible(
+            context,
+            job.expectedHeadSha,
+            dependencies.clock.now(),
+          )
+        ) {
+          return result({
+            stage: "evaluation.apply-policy",
+            outcome: "stale",
+            attemptId: job.attemptId,
+            artifactId: job.evaluationId,
+          });
+        }
         const transition =
           await dependencies.repository.transitionToReviewRequired({
             attemptId: job.attemptId,
@@ -712,21 +998,21 @@ export class PgBossProviderPipelineDispatcher implements ProviderPipelineDispatc
   ): Promise<void> {
     switch (name) {
       case "media.select-frames":
-        await enqueueJob(
+        await expediteJob(
           this.queue,
           name,
           MediaSelectFramesJobSchema.parse(payload),
         );
         return;
       case "evaluation.run":
-        await enqueueJob(
+        await expediteJob(
           this.queue,
           name,
           EvaluationRunJobSchema.parse(payload),
         );
         return;
       case "evaluation.apply-policy":
-        await enqueueJob(
+        await expediteJob(
           this.queue,
           name,
           EvaluationApplyPolicyJobSchema.parse(payload),

@@ -1,11 +1,14 @@
 import type { PgBoss } from "pg-boss";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { SlopProofDatabase } from "./client";
-import { enqueueJobInTransaction } from "./jobs";
+import { expediteJobInTransaction } from "./jobs";
 import {
   attemptTransitions,
   attempts,
+  installations,
+  pullRequests,
   pullRequestRevisions,
+  repositories,
   uploadSessions,
 } from "./schema";
 
@@ -25,6 +28,17 @@ export async function persistPendingUploadFinalization(
     actorId: string;
     idempotencyKey: string;
     evidenceDeleteAfter: Date;
+    questionIntervals?: readonly {
+      schemaVersion: "1";
+      intervalVersion: "proof-question-interval-v1";
+      questionId: string;
+      ordinal: number;
+      startMs: number;
+      endMs: number;
+      recordedDurationMs: number;
+      source: "mobile_navigation_v1";
+    }[];
+    recordingDurationMs?: number;
   },
 ): Promise<{ replay: boolean }> {
   return database.transaction(async (transaction) => {
@@ -38,12 +52,24 @@ export async function persistPendingUploadFinalization(
         evidenceDeleteAfter: attempts.evidenceDeleteAfter,
         headSha: attempts.headSha,
         isCurrent: pullRequestRevisions.isCurrent,
+        pullRequestState: pullRequests.state,
+        repositoryStatus: repositories.status,
+        installationStatus: installations.status,
       })
       .from(uploadSessions)
       .innerJoin(attempts, eq(attempts.id, uploadSessions.attemptId))
       .innerJoin(
         pullRequestRevisions,
         eq(pullRequestRevisions.id, attempts.revisionId),
+      )
+      .innerJoin(
+        pullRequests,
+        eq(pullRequests.id, pullRequestRevisions.pullRequestId),
+      )
+      .innerJoin(repositories, eq(repositories.id, attempts.repositoryId))
+      .innerJoin(
+        installations,
+        eq(installations.id, repositories.installationId),
       )
       .where(
         and(
@@ -57,6 +83,9 @@ export async function persistPendingUploadFinalization(
       !row ||
       row.headSha !== input.expectedHeadSha ||
       !row.isCurrent ||
+      row.pullRequestState !== "open" ||
+      row.repositoryStatus !== "active" ||
+      row.installationStatus !== "active" ||
       row.uploadExpiresAt <= new Date()
     ) {
       throw new UploadFinalizationConflictError();
@@ -67,6 +96,36 @@ export async function persistPendingUploadFinalization(
       row.attemptStatus === "processing" &&
       row.evidenceDeleteAfter !== null
     ) {
+      const exactIntervals = await transaction.execute<{ exact: boolean }>(
+        input.questionIntervals === undefined
+          ? sql`SELECT NOT EXISTS (
+                  SELECT 1 FROM proof_question_interval_sets
+                   WHERE attempt_id = ${input.attemptId}
+                ) AS exact`
+          : sql`SELECT EXISTS (
+                  SELECT 1 FROM proof_question_interval_sets
+                   WHERE attempt_id = ${input.attemptId}
+                     AND upload_session_id = ${input.uploadSessionId}
+                     AND manifest_digest = ${input.manifestDigest}
+                     AND recorded_duration_ms = ${input.recordingDurationMs ?? -1}
+                     AND intervals = ${JSON.stringify(input.questionIntervals)}::jsonb
+                ) AS exact`,
+      );
+      if (exactIntervals.rows[0]?.exact !== true) {
+        throw new UploadFinalizationConflictError();
+      }
+      await expediteJobInTransaction(
+        queue,
+        transaction,
+        "media.finalize-upload",
+        {
+          schemaVersion: "1",
+          idempotencyKey: `media-finalize:${input.manifestDigest}`,
+          attemptId: input.attemptId,
+          uploadSessionId: input.uploadSessionId,
+          expectedHeadSha: input.expectedHeadSha,
+        },
+      );
       return { replay: true };
     }
     if (
@@ -110,13 +169,38 @@ export async function persistPendingUploadFinalization(
         updatedAt: new Date(),
       })
       .where(eq(attempts.id, input.attemptId));
-    await enqueueJobInTransaction(queue, transaction, "media.finalize-upload", {
-      schemaVersion: "1",
-      idempotencyKey: `media-finalize:${input.manifestDigest}`,
-      attemptId: input.attemptId,
-      uploadSessionId: input.uploadSessionId,
-      expectedHeadSha: input.expectedHeadSha,
-    });
+    if (input.questionIntervals !== undefined) {
+      if (
+        input.recordingDurationMs === undefined ||
+        input.questionIntervals.length === 0
+      ) {
+        throw new UploadFinalizationConflictError();
+      }
+      await transaction.execute(
+        sql`INSERT INTO proof_question_interval_sets
+              (attempt_id, upload_session_id, manifest_digest,
+               interval_version, maximum_question_duration_ms,
+               recorded_duration_ms, intervals)
+            VALUES (
+              ${input.attemptId}, ${input.uploadSessionId},
+              ${input.manifestDigest}, 'proof-question-interval-v1', 120000,
+              ${input.recordingDurationMs},
+              ${JSON.stringify(input.questionIntervals)}::jsonb
+            )`,
+      );
+    }
+    await expediteJobInTransaction(
+      queue,
+      transaction,
+      "media.finalize-upload",
+      {
+        schemaVersion: "1",
+        idempotencyKey: `media-finalize:${input.manifestDigest}`,
+        attemptId: input.attemptId,
+        uploadSessionId: input.uploadSessionId,
+        expectedHeadSha: input.expectedHeadSha,
+      },
+    );
     return { replay: false };
   });
 }

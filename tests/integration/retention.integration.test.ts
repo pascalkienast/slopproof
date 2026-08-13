@@ -27,6 +27,7 @@ const ids = {
   frame: "70000000-0000-4000-8000-000000000012",
   evaluation: "70000000-0000-4000-8000-000000000013",
   policy: "70000000-0000-4000-8000-000000000014",
+  question: "70000000-0000-4000-8000-000000000015",
 } as const;
 const headSha = "7".repeat(40);
 const now = new Date("2026-08-12T12:00:00.000Z");
@@ -109,6 +110,7 @@ databaseDescribe("physical evidence retention", () => {
       material_destroyed_at: Date | null;
       deletion_state: string;
       parts: number;
+      interval_sets: number;
     }>(
       `SELECT recording.object_key AS recording_key,
               recording.wrapped_data_key AS recording_wrapped_key,
@@ -119,7 +121,9 @@ databaseDescribe("physical evidence retention", () => {
               upload.finalize_envelope, material.key_id AS material_key,
               material.destroyed_at AS material_destroyed_at,
               deletion.state AS deletion_state,
-              (SELECT count(*)::int FROM recording_parts) AS parts
+              (SELECT count(*)::int FROM recording_parts) AS parts,
+              (SELECT count(*)::int FROM proof_question_interval_sets)
+                AS interval_sets
        FROM recording_objects recording
        JOIN transcripts transcript ON transcript.attempt_id = recording.attempt_id
        JOIN evaluations evaluation ON evaluation.attempt_id = recording.attempt_id
@@ -137,6 +141,7 @@ databaseDescribe("physical evidence retention", () => {
       finalize_envelope: null,
       deletion_state: "completed",
       parts: 0,
+      interval_sets: 0,
     });
     expect(state.rows[0]?.recording_key).toBe(`deleted/${ids.recording}`);
     expect(state.rows[0]?.frame_key).toBe(`deleted/${ids.frame}`);
@@ -294,10 +299,17 @@ async function seedExpiredEvidence(
       [ids.plan, ids.revision, ids.policy, "8".repeat(64)],
     );
     await client.query(
+      `INSERT INTO proof_questions
+        (id, proof_plan_id, ordinal, type, prompt, diff_anchor, rubric, required)
+       VALUES ($1, $2, 0, 'explain', 'Explain the exact behavior.',
+               '{}'::jsonb, '{}'::jsonb, true)`,
+      [ids.question, ids.plan],
+    );
+    await client.query(
       `INSERT INTO attempts
         (id, repository_id, revision_id, author_id, proof_plan_id, head_sha,
          status, nonce_hash, expires_at, evidence_delete_after, created_at)
-       VALUES ($1, $2, $3, 'author-900', $4, $5, 'review_required', $6,
+       VALUES ($1, $2, $3, 'author-900', $4, $5, 'processing', $6,
                $7::timestamptz - interval '1 hour',
                $7::timestamptz - interval '1 hour',
                $7::timestamptz - interval '2 hours')`,
@@ -323,9 +335,65 @@ async function seedExpiredEvidence(
         (id, attempt_id, object_id, object_key, provider_upload_id, state,
          expires_at, manifest_digest, finalize_envelope)
        VALUES ($1, $2, $3, 'evidence/video-secret', 'sensitive-upload-id',
-               'completed', $4::timestamptz - interval '1 hour', $5,
-               '{"sensitive-finalize":"payload"}'::jsonb)`,
-      [ids.upload, ids.attempt, ids.object, now, "b".repeat(64)],
+               'pending_finalization', $4::timestamptz - interval '1 hour', $5,
+               $6::jsonb)`,
+      [
+        ids.upload,
+        ids.attempt,
+        ids.object,
+        now,
+        "b".repeat(64),
+        JSON.stringify({
+          sensitiveFinalize: "payload",
+          manifest: {
+            durationMs: 1_000,
+            questionIntervals: [
+              {
+                schemaVersion: "1",
+                intervalVersion: "proof-question-interval-v1",
+                questionId: ids.question,
+                ordinal: 0,
+                startMs: 0,
+                endMs: 1_000,
+                recordedDurationMs: 1_000,
+                source: "mobile_navigation_v1",
+              },
+            ],
+          },
+        }),
+      ],
+    );
+    await client.query(
+      `INSERT INTO proof_question_interval_sets
+        (attempt_id, upload_session_id, manifest_digest, interval_version,
+         maximum_question_duration_ms, recorded_duration_ms, intervals)
+       VALUES ($1, $2, $3, 'proof-question-interval-v1', 120000, 1000,
+               $4::jsonb)`,
+      [
+        ids.attempt,
+        ids.upload,
+        "b".repeat(64),
+        JSON.stringify([
+          {
+            schemaVersion: "1",
+            intervalVersion: "proof-question-interval-v1",
+            questionId: ids.question,
+            ordinal: 0,
+            startMs: 0,
+            endMs: 1_000,
+            recordedDurationMs: 1_000,
+            source: "mobile_navigation_v1",
+          },
+        ]),
+      ],
+    );
+    await client.query(
+      `UPDATE upload_sessions SET state = 'completed' WHERE id = $1`,
+      [ids.upload],
+    );
+    await client.query(
+      `UPDATE attempts SET status = 'review_required' WHERE id = $1`,
+      [ids.attempt],
     );
     await client.query(
       `INSERT INTO recording_parts

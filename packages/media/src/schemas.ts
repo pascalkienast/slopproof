@@ -19,6 +19,7 @@ import {
 } from "./constants";
 import { decodeBase64Url, encodeBase64Url } from "./encoding";
 import { buildChunkNonce } from "./nonce";
+import { ProofQuestionIntervalsV1Schema } from "./question-intervals";
 
 const canonicalUuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -135,6 +136,7 @@ export const RecordingManifestSchema = z
       .min(1)
       .max(MAX_RECORDING_OBJECT_BYTES),
     totalObjectBytes: safeIntegerSchema.min(1).max(MAX_RECORDING_OBJECT_BYTES),
+    questionIntervals: ProofQuestionIntervalsV1Schema.optional(),
     chunks: z.array(ManifestChunkSchema).min(1).max(MAX_RECORDING_CHUNKS),
     parts: z.array(ManifestPartSchema).min(1).max(MAX_MULTIPART_PARTS),
   })

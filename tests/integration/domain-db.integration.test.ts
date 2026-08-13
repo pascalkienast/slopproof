@@ -122,11 +122,35 @@ databaseDescribe("PostgreSQL domain constraints", () => {
   });
 
   it("freezes proof plans after attempt creation and keeps audit rows append-only", async () => {
+    const questionId = "20000000-0000-4000-8000-000000000000";
+    await connection.pool.query(
+      `INSERT INTO proof_questions
+        (id, proof_plan_id, ordinal, type, prompt, diff_anchor, rubric, required)
+       VALUES ($1, $2, 0, 'explain', 'Explain the exact behavior.', '{}', '{}', true)`,
+      [questionId, ids.plan],
+    );
     await insertAttempt(connection, ids.attempt, "preparing");
     await expect(
       connection.pool.query(
         "UPDATE proof_plans SET question_budget = 2 WHERE id = $1",
         [ids.plan],
+      ),
+    ).rejects.toMatchObject({ code: "55000" });
+    await expect(
+      connection.pool.query(
+        `INSERT INTO proof_questions
+          (id, proof_plan_id, ordinal, type, prompt, diff_anchor, rubric, required)
+         VALUES ($1, $2, 0, 'explain', 'Explain the exact behavior.', '{}', '{}', true)
+         ON CONFLICT (proof_plan_id, ordinal) DO NOTHING`,
+        [questionId, ids.plan],
+      ),
+    ).resolves.toMatchObject({ rowCount: 0 });
+    await expect(
+      connection.pool.query(
+        `INSERT INTO proof_questions
+          (id, proof_plan_id, ordinal, type, prompt, diff_anchor, rubric, required)
+         VALUES ($1, $2, 1, 'explain', 'Late mutable question.', '{}', '{}', true)`,
+        ["20000000-0000-4000-8000-000000000099", ids.plan],
       ),
     ).rejects.toMatchObject({ code: "55000" });
 
@@ -275,11 +299,30 @@ databaseDescribe("PostgreSQL domain constraints", () => {
                'active', '2030-01-01T00:00:00.000Z')`,
       [uploadSession, ids.attempt, objectId],
     );
+    const jobId = "20000000-0000-4000-8000-000000000032";
     let queued = 0;
+    let retried = 0;
+    let updated = 0;
+    let jobState: "created" | "failed" | "retry" | undefined;
     const queue = {
-      async send() {
+      async findJobs() {
+        return jobState === undefined ? [] : [{ id: jobId, state: jobState }];
+      },
+      async retry(_name: string, recoveredJobId: string) {
+        expect(recoveredJobId).toBe(jobId);
+        retried += 1;
+        jobState = "retry";
+      },
+      async update(_name: string, _payload: unknown, options: { id: string }) {
+        expect(options.id).toBe(jobId);
+        updated += 1;
+        return { updated: 1 };
+      },
+      async upsert() {
+        if (jobState !== undefined) return { jobs: [] };
         queued += 1;
-        return "20000000-0000-4000-8000-000000000032";
+        jobState = "created";
+        return { jobs: [jobId] };
       },
     } as unknown as Parameters<typeof persistPendingUploadFinalization>[1];
     const input = {
@@ -302,6 +345,11 @@ databaseDescribe("PostgreSQL domain constraints", () => {
       }),
     ).resolves.toEqual({ replay: true });
 
+    jobState = "failed";
+    await expect(
+      persistPendingUploadFinalization(connection.db, queue, input),
+    ).resolves.toEqual({ replay: true });
+
     const attempt = await connection.pool.query<{
       status: string;
       evidence_delete_after: Date;
@@ -313,6 +361,162 @@ databaseDescribe("PostgreSQL domain constraints", () => {
       evidence_delete_after: acceptedDeadline,
     });
     expect(queued).toBe(1);
+    expect(retried).toBe(1);
+    expect(updated).toBe(1);
+  });
+
+  it("atomically binds an exact authenticated question interval set before queueing media", async () => {
+    const questionId = "20000000-0000-4000-8000-000000000033";
+    const uploadSession = "20000000-0000-4000-8000-000000000034";
+    const objectId = "20000000-0000-4000-8000-000000000035";
+    const manifestDigest = "3".repeat(64);
+    await connection.pool.query(
+      `INSERT INTO proof_questions
+        (id, proof_plan_id, ordinal, type, prompt, diff_anchor, rubric, required)
+       VALUES ($1, $2, 0, 'explain', 'Explain the exact behavior.', '{}', '{}', true)`,
+      [questionId, ids.plan],
+    );
+    await insertAttempt(connection, ids.attempt, "uploading");
+    await connection.pool.query(
+      `INSERT INTO upload_sessions
+        (id, attempt_id, object_id, object_key, provider_upload_id, state,
+         expires_at)
+       VALUES ($1, $2, $3, 'evidence/interval.enc', 'provider-interval',
+               'active', '2030-01-01T00:00:00.000Z')`,
+      [uploadSession, ids.attempt, objectId],
+    );
+    let queued = 0;
+    let jobExists = false;
+    const queue = {
+      async findJobs() {
+        return jobExists
+          ? [
+              {
+                id: "20000000-0000-4000-8000-000000000036",
+                state: "created",
+              },
+            ]
+          : [];
+      },
+      async upsert() {
+        if (jobExists) return { jobs: [] };
+        jobExists = true;
+        queued += 1;
+        return { jobs: ["20000000-0000-4000-8000-000000000036"] };
+      },
+    } as unknown as Parameters<typeof persistPendingUploadFinalization>[1];
+    const interval = (endMs: number) => ({
+      schemaVersion: "1" as const,
+      intervalVersion: "proof-question-interval-v1" as const,
+      questionId,
+      ordinal: 0,
+      startMs: 0,
+      endMs,
+      recordedDurationMs: endMs,
+      source: "mobile_navigation_v1" as const,
+    });
+    const input = (endMs: number) => ({
+      uploadSessionId: uploadSession,
+      attemptId: ids.attempt,
+      expectedHeadSha: headSha,
+      manifestDigest,
+      finalizeEnvelope: {
+        manifest: { durationMs: endMs, questionIntervals: [interval(endMs)] },
+      },
+      actorId: "github-user-42",
+      idempotencyKey: "upload-finalize:interval-integration",
+      evidenceDeleteAfter: new Date("2030-01-02T00:00:00.000Z"),
+      questionIntervals: [interval(endMs)],
+      recordingDurationMs: endMs,
+    });
+
+    await expect(
+      persistPendingUploadFinalization(connection.db, queue, input(120_001)),
+    ).rejects.toMatchObject({ cause: { code: "23514" } });
+    expect(queued).toBe(0);
+
+    const accepted = input(2_000);
+    await expect(
+      persistPendingUploadFinalization(connection.db, queue, accepted),
+    ).resolves.toEqual({ replay: false });
+    await expect(
+      persistPendingUploadFinalization(connection.db, queue, accepted),
+    ).resolves.toEqual({ replay: true });
+    await expect(
+      persistPendingUploadFinalization(connection.db, queue, {
+        ...accepted,
+        questionIntervals: [{ ...interval(2_000), endMs: 1_999 }],
+      }),
+    ).rejects.toMatchObject({ code: "UPLOAD_FINALIZATION_CONFLICT" });
+    const stored = await connection.pool.query<{
+      count: number;
+      intervals: unknown;
+    }>(
+      `SELECT count(*) OVER ()::int AS count, intervals
+         FROM proof_question_interval_sets WHERE attempt_id = $1`,
+      [ids.attempt],
+    );
+    expect(stored.rows[0]).toMatchObject({
+      count: 1,
+      intervals: accepted.questionIntervals,
+    });
+    expect(queued).toBe(1);
+  });
+
+  it("rejects interval finalization when required questions do not fill the frozen budget", async () => {
+    const questionId = "20000000-0000-4000-8000-000000000037";
+    const uploadSession = "20000000-0000-4000-8000-000000000038";
+    const objectId = "20000000-0000-4000-8000-000000000039";
+    const digest = "7".repeat(64);
+    const interval = {
+      schemaVersion: "1",
+      intervalVersion: "proof-question-interval-v1",
+      questionId,
+      ordinal: 0,
+      startMs: 0,
+      endMs: 2_000,
+      recordedDurationMs: 2_000,
+      source: "mobile_navigation_v1",
+    } as const;
+    await connection.pool.query(
+      "UPDATE proof_plans SET question_budget = 2 WHERE id = $1",
+      [ids.plan],
+    );
+    await connection.pool.query(
+      `INSERT INTO proof_questions
+        (id, proof_plan_id, ordinal, type, prompt, diff_anchor, rubric, required)
+       VALUES ($1, $2, 0, 'explain', 'Only one required question.', '{}', '{}', true)`,
+      [questionId, ids.plan],
+    );
+    await insertAttempt(connection, ids.attempt, "processing");
+    await connection.pool.query(
+      `INSERT INTO upload_sessions
+        (id, attempt_id, object_id, object_key, provider_upload_id, state,
+         expires_at, manifest_digest, finalize_envelope)
+       VALUES ($1, $2, $3, 'evidence/incomplete-plan.enc', 'provider-incomplete',
+               'pending_finalization', '2030-01-01T00:00:00.000Z', $4,
+               $5::jsonb)`,
+      [
+        uploadSession,
+        ids.attempt,
+        objectId,
+        digest,
+        JSON.stringify({
+          manifest: { durationMs: 2_000, questionIntervals: [interval] },
+        }),
+      ],
+    );
+
+    await expect(
+      connection.pool.query(
+        `INSERT INTO proof_question_interval_sets
+          (attempt_id, upload_session_id, manifest_digest, interval_version,
+           maximum_question_duration_ms, recorded_duration_ms, intervals)
+         VALUES ($1, $2, $3, 'proof-question-interval-v1', 120000, 2000,
+                 $4::jsonb)`,
+        [ids.attempt, uploadSession, digest, JSON.stringify([interval])],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
   });
 
   it("shortens the deletion job idempotently without mutating the accepted artifact deadline", async () => {
@@ -488,7 +692,8 @@ async function seedCore(connection: DatabaseConnection): Promise<void> {
 async function insertAttempt(
   connection: DatabaseConnection,
   id: string,
-  status: "preparing" | "ready" | "uploading" | "review_required",
+  status:
+    "preparing" | "ready" | "uploading" | "processing" | "review_required",
 ): Promise<unknown> {
   return connection.pool.query(
     `INSERT INTO attempts

@@ -7,13 +7,16 @@ import {
   ProofEvaluationV1Schema,
   ProviderError,
   TranscriptV1Schema,
+  type FakeTranscriptionRequestV1,
   type FrameSelectionMetadataV1,
   type MultimodalJudgeProvider,
   type ProviderClock,
+  type ProviderContextV1,
   type ProofEvaluationV1,
+  type TranscriptV1,
   type TranscriptionProvider,
 } from "@slopproof/providers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   type EncryptedEvaluationBundleV1,
   type EncryptedTranscriptBundleV1,
@@ -30,12 +33,35 @@ import {
 } from "./provider-pipeline-contracts";
 import {
   EmptyLocalFrameSelectionAdapter,
+  createGate5MultimodalJudgeBoundary,
   createProviderPipelineHandlers,
   decryptVersionedProviderPayload,
   decodeProviderPayloadKeyBase64,
   type ProviderFrameSelectionAdapter,
   type ProviderPipelineDependencies,
 } from "./provider-pipeline";
+
+describe("Gate 5 multimodal startup boundary", () => {
+  const clock: ProviderClock = { now: () => NOW };
+
+  it("keeps the deterministic fake confined to the local profile", () => {
+    expect(createGate5MultimodalJudgeBoundary("fake", clock)).toBeInstanceOf(
+      LocalFakeMultimodalJudgeProvider,
+    );
+  });
+
+  it("starts production without a fake and fails the deferred judge closed", async () => {
+    const provider = createGate5MultimodalJudgeBoundary("hetzner", clock);
+
+    expect(provider).not.toBeInstanceOf(LocalFakeMultimodalJudgeProvider);
+    await expect(
+      provider.evaluate({} as never, {} as never),
+    ).rejects.toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      disposition: "review",
+    });
+  });
+});
 
 const ATTEMPT_ID = "10000000-0000-4000-8000-000000000001";
 const REVISION_ID = "10000000-0000-4000-8000-000000000002";
@@ -44,6 +70,9 @@ const RECORDING_ID = "10000000-0000-4000-8000-000000000004";
 const QUESTION_ID = "10000000-0000-4000-8000-000000000005";
 const FRAME_ID = "10000000-0000-4000-8000-000000000006";
 const DERIVATIVE_ID = "10000000-0000-4000-8000-000000000007";
+const SECOND_QUESTION_ID = "10000000-0000-4000-8000-000000000008";
+const STORED_TRANSCRIPT_ID = "10000000-0000-4000-8000-000000000009";
+const STORED_EVALUATION_ID = "10000000-0000-4000-8000-000000000010";
 const SHA = "a".repeat(40);
 const MANIFEST_HASH = "b".repeat(64);
 const FRAME_HASH = "c".repeat(64);
@@ -73,9 +102,18 @@ const question: StoredProofQuestionV1 = {
   },
 };
 
+const secondQuestion: StoredProofQuestionV1 = {
+  ...question,
+  id: SECOND_QUESTION_ID,
+  ordinal: 1,
+  prompt: "Explain the externally observable behavior after recovery.",
+};
+
 class InMemoryRepository implements ProviderPipelineRepository {
   status: AttemptStatus = "processing";
   isCurrent = true;
+  privateAccessEligible = true;
+  deleteAfter = DELETE_AFTER;
   transcript: EncryptedTranscriptBundleV1 | undefined;
   frameSelection: FrameSelectionMetadataV1 = {
     schemaVersion: "1",
@@ -95,7 +133,8 @@ class InMemoryRepository implements ProviderPipelineRepository {
       headSha: SHA,
       status: this.status,
       isCurrent: this.isCurrent,
-      deleteAfter: DELETE_AFTER,
+      privateAccessEligible: this.privateAccessEligible,
+      deleteAfter: this.deleteAfter,
     };
   }
 
@@ -107,15 +146,28 @@ class InMemoryRepository implements ProviderPipelineRepository {
       recordingDurationMs: 20_000,
       recordingManifestHash: MANIFEST_HASH,
       questions: [question],
+      ...(this.transcript === undefined
+        ? {}
+        : { existingTranscript: this.transcript }),
     };
   }
 
-  async persistTranscript(
-    bundle: EncryptedTranscriptBundleV1,
-  ): Promise<"created" | "replayed"> {
-    if (this.transcript !== undefined) return "replayed";
+  async persistTranscript(bundle: EncryptedTranscriptBundleV1): Promise<{
+    status: "created" | "replayed";
+    transcript: EncryptedTranscriptBundleV1;
+  }> {
+    if (this.transcript !== undefined) {
+      return {
+        status: "replayed",
+        transcript: this.transcript,
+      };
+    }
     this.transcript = bundle;
-    return "created";
+    return { status: "created", transcript: bundle };
+  }
+
+  async schedulePersistedTranscript(): Promise<boolean> {
+    return false;
   }
 
   async loadFrameSelection(): Promise<FrameSelectionContextV1> {
@@ -145,15 +197,28 @@ class InMemoryRepository implements ProviderPipelineRepository {
       transcript: this.transcript,
       questions: [question],
       frameSelection: this.frameSelection,
+      ...(this.evaluation === undefined
+        ? {}
+        : { existingEvaluation: this.evaluation }),
     };
   }
 
-  async persistEvaluation(
-    bundle: EncryptedEvaluationBundleV1,
-  ): Promise<"created" | "replayed"> {
-    if (this.evaluation !== undefined) return "replayed";
+  async persistEvaluation(bundle: EncryptedEvaluationBundleV1): Promise<{
+    status: "created" | "replayed";
+    evaluation: EncryptedEvaluationBundleV1;
+  }> {
+    if (this.evaluation !== undefined) {
+      return {
+        status: "replayed",
+        evaluation: this.evaluation,
+      };
+    }
     this.evaluation = bundle;
-    return "created";
+    return { status: "created", evaluation: bundle };
+  }
+
+  async schedulePersistedEvaluation(): Promise<boolean> {
+    return false;
   }
 
   async loadEvaluationPolicy(): Promise<EvaluationPolicyContextV1> {
@@ -276,7 +341,148 @@ const extractJob = {
   expectedHeadSha: SHA,
 };
 
+function transcriptFixture(
+  input: {
+    id?: string;
+    segments?: TranscriptV1["segments"];
+  } = {},
+): TranscriptV1 {
+  return TranscriptV1Schema.parse({
+    schemaVersion: "1",
+    transcriptVersion: "transcript-v1",
+    id: input.id ?? "20000000-0000-4000-8000-000000000001",
+    attemptId: ATTEMPT_ID,
+    provider: "test-provider",
+    model: "test-model-v1",
+    language: "en",
+    durationMs: 20_000,
+    sourceSha256: MANIFEST_HASH,
+    segments: input.segments ?? [
+      {
+        id: "20000000-0000-4000-8000-000000000002",
+        questionId: QUESTION_ID,
+        startMs: 0,
+        endMs: 20_000,
+        speaker: "contributor",
+        text: {
+          trust: "untrusted",
+          source: "transcript",
+          content: "A question-bound transcript fixture.",
+        },
+      },
+    ],
+    createdAt: NOW,
+  });
+}
+
+function storedTranscriptBundle(): EncryptedTranscriptBundleV1 {
+  return {
+    schemaVersion: "1",
+    payloadKind: "transcript",
+    transcriptId: STORED_TRANSCRIPT_ID,
+    attemptId: ATTEMPT_ID,
+    provider: "stored-provider",
+    transcriptSchemaVersion: "transcript-v1",
+    encryptedPayload: "stored-encrypted-transcript",
+    deleteAfter: DELETE_AFTER,
+  };
+}
+
+function storedEvaluationBundle(): EncryptedEvaluationBundleV1 {
+  return {
+    schemaVersion: "1",
+    payloadKind: "proof_evaluation",
+    evaluationId: STORED_EVALUATION_ID,
+    attemptId: ATTEMPT_ID,
+    provider: "stored-provider",
+    model: "stored-model",
+    promptVersion: "proof-judge-system-v1",
+    evaluationSchemaVersion: "proof-evaluation-v1",
+    rubricVersion: "rubric-v1",
+    recommendation: "pass",
+    encryptedPayload: "stored-encrypted-evaluation",
+    deleteAfter: DELETE_AFTER,
+  };
+}
+
 describe("provider worker pipeline", () => {
+  it("uses authenticated recording intervals for production transcription without synthetic slicing", async () => {
+    const base = fixture();
+    const originalLoad = base.repository.loadTranscriptExtraction.bind(
+      base.repository,
+    );
+    const source = {
+      attemptId: ATTEMPT_ID,
+      sourceSha256: MANIFEST_HASH,
+      questionIntervals: [
+        {
+          questionId: QUESTION_ID,
+          ordinal: 0,
+          startMs: 125,
+          endMs: 20_000,
+        },
+      ],
+    } as never;
+    base.repository.loadTranscriptExtraction = async () => ({
+      ...(await originalLoad()),
+      recordingAudio: {
+        objectKey: "private/recordings/ciphertext.bin",
+        source,
+      },
+    });
+    const access = { openCiphertext: vi.fn() };
+    const transcribe = vi.fn(async () =>
+      TranscriptV1Schema.parse({
+        schemaVersion: "1",
+        transcriptVersion: "transcript-v1",
+        id: "20000000-0000-4000-8000-000000000001",
+        attemptId: ATTEMPT_ID,
+        provider: "openrouter",
+        model: "openai/whisper-large-v3-turbo",
+        language: "en",
+        durationMs: 20_000,
+        sourceSha256: MANIFEST_HASH,
+        segments: [
+          {
+            id: "20000000-0000-4000-8000-000000000002",
+            questionId: QUESTION_ID,
+            startMs: 125,
+            endMs: 20_000,
+            speaker: "contributor",
+            text: {
+              trust: "untrusted",
+              source: "transcript",
+              content: "A question-bound production transcript fixture.",
+            },
+          },
+        ],
+        createdAt: NOW,
+      }),
+    );
+    const handlers = createProviderPipelineHandlers({
+      repository: base.repository,
+      dispatcher: base.dispatcher,
+      payloadCipher: base.payloadCipher,
+      recordingTranscription: {
+        adapter: { transcribe },
+        ciphertextAccess: vi.fn(() => access),
+      },
+      frameSelectionAdapter: new OneFrameAdapter(),
+      judgeProvider: new LocalFakeMultimodalJudgeProvider({ now: () => NOW }),
+      clock: { now: () => NOW },
+    });
+
+    const outcome = await handlers.extractTranscript(extractJob);
+
+    expect(outcome.outcome).toBe("completed");
+    expect(transcribe).toHaveBeenCalledWith(
+      source,
+      access,
+      expect.objectContaining({ attemptId: ATTEMPT_ID }),
+    );
+    expect(base.repository.transcript?.provider).toBe("openrouter");
+  });
+
   it("runs the four stages, encrypts sensitive DB payloads and always ends in review", async () => {
     const { handlers, repository, dispatcher, payloadCipher } = fixture();
 
@@ -345,6 +551,388 @@ describe("provider worker pipeline", () => {
     expect(dispatcher.jobs).toHaveLength(2);
   });
 
+  it("replays a crash-persisted transcript by its stored ID without provider or cipher access", async () => {
+    const transcribe = vi.fn();
+    const ciphertextAccess = vi.fn();
+    const base = fixture({
+      recordingTranscription: {
+        adapter: { transcribe },
+        ciphertextAccess,
+      },
+    });
+    base.repository.transcript = storedTranscriptBundle();
+    const persistTranscript = vi.spyOn(base.repository, "persistTranscript");
+    const encryptJson = vi.spyOn(base.payloadCipher, "encryptJson");
+    const decrypt = vi.spyOn(base.payloadCipher, "decrypt");
+
+    const replay = await base.handlers.extractTranscript({
+      ...extractJob,
+      idempotencyKey: "provider-test:crash-replay",
+    });
+
+    expect(replay).toMatchObject({
+      outcome: "replayed",
+      artifactId: STORED_TRANSCRIPT_ID,
+    });
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(ciphertextAccess).not.toHaveBeenCalled();
+    expect(encryptJson).not.toHaveBeenCalled();
+    expect(decrypt).not.toHaveBeenCalled();
+    expect(persistTranscript).not.toHaveBeenCalled();
+    expect(base.dispatcher.jobs).toEqual([
+      expect.objectContaining({
+        name: "media.select-frames",
+        payload: expect.objectContaining({
+          transcriptId: STORED_TRANSCRIPT_ID,
+        }),
+      }),
+    ]);
+  });
+
+  it("replays a crash-persisted evaluation by its stored ID without judge or private payload access", async () => {
+    const evaluate = vi.fn();
+    const base = fixture({ judgeProvider: { evaluate } });
+    base.repository.transcript = storedTranscriptBundle();
+    base.repository.evaluation = storedEvaluationBundle();
+    const persistEvaluation = vi.spyOn(base.repository, "persistEvaluation");
+    const schedulePersistedEvaluation = vi.spyOn(
+      base.repository,
+      "schedulePersistedEvaluation",
+    );
+    const encryptJson = vi.spyOn(base.payloadCipher, "encryptJson");
+    const decrypt = vi.spyOn(base.payloadCipher, "decrypt");
+
+    const replay = await base.handlers.runEvaluation({
+      schemaVersion: "1",
+      idempotencyKey: "provider-test:evaluation-crash-replay",
+      attemptId: ATTEMPT_ID,
+      transcriptId: STORED_TRANSCRIPT_ID,
+      expectedHeadSha: SHA,
+    });
+
+    expect(replay).toMatchObject({
+      outcome: "replayed",
+      artifactId: STORED_EVALUATION_ID,
+    });
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(encryptJson).not.toHaveBeenCalled();
+    expect(decrypt).not.toHaveBeenCalled();
+    expect(persistEvaluation).not.toHaveBeenCalled();
+    expect(schedulePersistedEvaluation).toHaveBeenCalledOnce();
+    expect(base.dispatcher.jobs).toEqual([
+      expect.objectContaining({
+        name: "evaluation.apply-policy",
+        payload: expect.objectContaining({
+          evaluationId: STORED_EVALUATION_ID,
+        }),
+      }),
+    ]);
+  });
+
+  it("persists a transcript before dispatch failure so replay never repeats transcription", async () => {
+    const transcribe = vi.fn(async () => transcriptFixture());
+    const failingDispatcher: ProviderPipelineDispatcher = {
+      async enqueue() {
+        throw new Error("synthetic downstream queue outage");
+      },
+    };
+    const base = fixture({
+      transcriptionProvider: { transcribe },
+      dispatcher: failingDispatcher,
+    });
+
+    await expect(base.handlers.extractTranscript(extractJob)).rejects.toThrow(
+      "synthetic downstream queue outage",
+    );
+    const storedId = base.repository.transcript?.transcriptId;
+    expect(storedId).toBeDefined();
+    const recoveryDispatcher = new MemoryDispatcher();
+    const recovery = createProviderPipelineHandlers({
+      repository: base.repository,
+      dispatcher: recoveryDispatcher,
+      payloadCipher: base.payloadCipher,
+      transcriptionProvider: { transcribe },
+      frameSelectionAdapter: new OneFrameAdapter(),
+      judgeProvider: new LocalFakeMultimodalJudgeProvider({ now: () => NOW }),
+      clock: { now: () => NOW },
+    });
+
+    const replay = await recovery.extractTranscript({
+      ...extractJob,
+      idempotencyKey: "provider-test:dispatch-recovery",
+    });
+
+    expect(replay).toMatchObject({ outcome: "replayed", artifactId: storedId });
+    expect(transcribe).toHaveBeenCalledOnce();
+    expect(recoveryDispatcher.jobs[0]).toMatchObject({
+      name: "media.select-frames",
+      payload: { transcriptId: storedId },
+    });
+  });
+
+  it("persists an evaluation before dispatch failure so replay never repeats judging", async () => {
+    const base = fixture();
+    await base.handlers.extractTranscript(extractJob);
+    await base.handlers.selectFrames(base.dispatcher.jobs[0]?.payload);
+    const evaluationJob = base.dispatcher.jobs[1]?.payload;
+    const localJudge = new LocalFakeMultimodalJudgeProvider({ now: () => NOW });
+    const evaluate = vi.fn(localJudge.evaluate.bind(localJudge));
+    const failingDispatcher: ProviderPipelineDispatcher = {
+      async enqueue() {
+        throw new Error("synthetic policy queue outage");
+      },
+    };
+    const failing = createProviderPipelineHandlers({
+      repository: base.repository,
+      dispatcher: failingDispatcher,
+      payloadCipher: base.payloadCipher,
+      transcriptionProvider: new LocalFakeTranscriptionProvider({
+        now: () => NOW,
+      }),
+      frameSelectionAdapter: new OneFrameAdapter(),
+      judgeProvider: { evaluate },
+      clock: { now: () => NOW },
+    });
+
+    await expect(failing.runEvaluation(evaluationJob)).rejects.toThrow(
+      "synthetic policy queue outage",
+    );
+    const storedId = base.repository.evaluation?.evaluationId;
+    expect(storedId).toBeDefined();
+    const recoveryDispatcher = new MemoryDispatcher();
+    const recovery = createProviderPipelineHandlers({
+      repository: base.repository,
+      dispatcher: recoveryDispatcher,
+      payloadCipher: base.payloadCipher,
+      transcriptionProvider: new LocalFakeTranscriptionProvider({
+        now: () => NOW,
+      }),
+      frameSelectionAdapter: new OneFrameAdapter(),
+      judgeProvider: { evaluate },
+      clock: { now: () => NOW },
+    });
+
+    const replay = await recovery.runEvaluation(evaluationJob);
+
+    expect(replay).toMatchObject({ outcome: "replayed", artifactId: storedId });
+    expect(evaluate).toHaveBeenCalledOnce();
+    expect(recoveryDispatcher.jobs[0]).toMatchObject({
+      name: "evaluation.apply-policy",
+      payload: { evaluationId: storedId },
+    });
+  });
+
+  it("does not access an adapter when private evidence is already expired", async () => {
+    const transcribe = vi.fn();
+    const ciphertextAccess = vi.fn();
+    const base = fixture({
+      recordingTranscription: {
+        adapter: { transcribe },
+        ciphertextAccess,
+      },
+    });
+    base.repository.deleteAfter = NOW;
+    const persistTranscript = vi.spyOn(base.repository, "persistTranscript");
+
+    const outcome = await base.handlers.extractTranscript({
+      ...extractJob,
+      idempotencyKey: "provider-test:expired-at-load",
+    });
+
+    expect(outcome.outcome).toBe("stale");
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(ciphertextAccess).not.toHaveBeenCalled();
+    expect(persistTranscript).not.toHaveBeenCalled();
+    expect(base.dispatcher.jobs).toEqual([]);
+  });
+
+  it("caps the provider deadline at deleteAfter and persists nothing when extraction crosses it", async () => {
+    const deleteAfter = new Date(NOW.getTime() + 1_000);
+    let currentTime = NOW;
+    const transcribe = vi.fn(
+      async (
+        _input: FakeTranscriptionRequestV1,
+        context: ProviderContextV1,
+      ): Promise<TranscriptV1> => {
+        expect(context.deadlineAt).toEqual(deleteAfter);
+        currentTime = deleteAfter;
+        return transcriptFixture();
+      },
+    );
+    const base = fixture({
+      transcriptionProvider: { transcribe },
+      clock: { now: () => currentTime },
+      providerTimeoutMs: 60_000,
+    });
+    base.repository.deleteAfter = deleteAfter;
+    const persistTranscript = vi.spyOn(base.repository, "persistTranscript");
+
+    const outcome = await base.handlers.extractTranscript({
+      ...extractJob,
+      idempotencyKey: "provider-test:crosses-retention-deadline",
+    });
+
+    expect(outcome.outcome).toBe("stale");
+    expect(transcribe).toHaveBeenCalledOnce();
+    expect(persistTranscript).not.toHaveBeenCalled();
+    expect(base.repository.transcript).toBeUndefined();
+    expect(base.dispatcher.jobs).toEqual([]);
+  });
+
+  it("uses uneven authenticated question intervals for the local fake transcript", async () => {
+    const base = fixture();
+    const originalLoad = base.repository.loadTranscriptExtraction.bind(
+      base.repository,
+    );
+    base.repository.loadTranscriptExtraction = async () => ({
+      ...(await originalLoad()),
+      questions: [question, secondQuestion],
+      recordingAudio: {
+        objectKey: "private/recordings/ciphertext.bin",
+        source: {
+          attemptId: ATTEMPT_ID,
+          sourceSha256: MANIFEST_HASH,
+          questionIntervals: [
+            {
+              schemaVersion: "1",
+              intervalVersion: "proof-question-interval-v1",
+              questionId: QUESTION_ID,
+              ordinal: 0,
+              startMs: 250,
+              endMs: 2_250,
+              recordedDurationMs: 20_000,
+              source: "mobile_navigation_v1",
+            },
+            {
+              schemaVersion: "1",
+              intervalVersion: "proof-question-interval-v1",
+              questionId: SECOND_QUESTION_ID,
+              ordinal: 1,
+              startMs: 2_250,
+              endMs: 20_000,
+              recordedDurationMs: 20_000,
+              source: "mobile_navigation_v1",
+            },
+          ],
+        } as never,
+      },
+    });
+
+    const outcome = await base.handlers.extractTranscript({
+      ...extractJob,
+      idempotencyKey: "provider-test:uneven-authenticated-intervals",
+    });
+    const bundle = base.repository.transcript;
+    expect(outcome.outcome).toBe("completed");
+    expect(bundle).toBeDefined();
+    const transcript = decryptVersionedProviderPayload(
+      base.payloadCipher,
+      bundle?.encryptedPayload ?? "",
+      `slopproof:transcript:v1:${ATTEMPT_ID}:${bundle?.transcriptId ?? ""}`,
+      TranscriptV1Schema,
+    );
+
+    expect(
+      transcript.segments.map(({ questionId, startMs, endMs }) => ({
+        questionId,
+        startMs,
+        endMs,
+      })),
+    ).toEqual([
+      { questionId: QUESTION_ID, startMs: 250, endMs: 2_250 },
+      { questionId: SECOND_QUESTION_ID, startMs: 2_250, endMs: 20_000 },
+    ]);
+  });
+
+  it("makes every private stage stale without external effects when lifecycle access is ineligible", async () => {
+    const transcribe = vi.fn();
+    const select = vi.fn();
+    const evaluate = vi.fn();
+    const base = fixture({
+      transcriptionProvider: { transcribe },
+      frameSelectionAdapter: { select },
+      judgeProvider: { evaluate },
+    });
+    base.repository.privateAccessEligible = false;
+    base.repository.transcript = storedTranscriptBundle();
+    base.repository.evaluation = storedEvaluationBundle();
+    const decrypt = vi.spyOn(base.payloadCipher, "decrypt");
+    const encryptJson = vi.spyOn(base.payloadCipher, "encryptJson");
+    const transition = vi.spyOn(base.repository, "transitionToReviewRequired");
+
+    const outcomes = await Promise.all([
+      base.handlers.extractTranscript({
+        ...extractJob,
+        idempotencyKey: "provider-test:ineligible-extract",
+      }),
+      base.handlers.selectFrames({
+        schemaVersion: "1",
+        idempotencyKey: "provider-test:ineligible-select",
+        attemptId: ATTEMPT_ID,
+        recordingObjectId: RECORDING_ID,
+        transcriptId: STORED_TRANSCRIPT_ID,
+        expectedHeadSha: SHA,
+      }),
+      base.handlers.runEvaluation({
+        schemaVersion: "1",
+        idempotencyKey: "provider-test:ineligible-evaluate",
+        attemptId: ATTEMPT_ID,
+        transcriptId: STORED_TRANSCRIPT_ID,
+        expectedHeadSha: SHA,
+      }),
+      base.handlers.applyPolicy({
+        schemaVersion: "1",
+        idempotencyKey: "provider-test:ineligible-apply",
+        attemptId: ATTEMPT_ID,
+        evaluationId: STORED_EVALUATION_ID,
+        expectedHeadSha: SHA,
+      }),
+    ]);
+
+    expect(outcomes.map(({ outcome }) => outcome)).toEqual([
+      "stale",
+      "stale",
+      "stale",
+      "stale",
+    ]);
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(select).not.toHaveBeenCalled();
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(decrypt).not.toHaveBeenCalled();
+    expect(encryptJson).not.toHaveBeenCalled();
+    expect(transition).not.toHaveBeenCalled();
+    expect(base.dispatcher.jobs).toEqual([]);
+  });
+
+  it("does not commit policy when retention expires after decrypt and before the transition", async () => {
+    const base = fixture();
+    await base.handlers.extractTranscript(extractJob);
+    await base.handlers.selectFrames(base.dispatcher.jobs[0]?.payload);
+    await base.handlers.runEvaluation(base.dispatcher.jobs[1]?.payload);
+    const policyPayload = base.dispatcher.jobs[2]?.payload;
+    let clockReads = 0;
+    const transition = vi.spyOn(base.repository, "transitionToReviewRequired");
+    const handlers = createProviderPipelineHandlers({
+      repository: base.repository,
+      dispatcher: base.dispatcher,
+      payloadCipher: base.payloadCipher,
+      transcriptionProvider: new LocalFakeTranscriptionProvider({
+        now: () => NOW,
+      }),
+      frameSelectionAdapter: new OneFrameAdapter(),
+      judgeProvider: new LocalFakeMultimodalJudgeProvider({ now: () => NOW }),
+      clock: {
+        now: () => (clockReads++ === 0 ? NOW : DELETE_AFTER),
+      },
+    });
+
+    const outcome = await handlers.applyPolicy(policyPayload);
+
+    expect(outcome.outcome).toBe("stale");
+    expect(transition).not.toHaveBeenCalled();
+    expect(base.repository.status).toBe("processing");
+  });
+
   it("routes review-class provider output errors to manual review", async () => {
     const base = fixture();
     await base.handlers.extractTranscript(extractJob);
@@ -400,7 +988,7 @@ describe("provider worker pipeline", () => {
     expect(base.repository.transitions).toEqual(["INVALID_INPUT"]);
   });
 
-  it("rethrows retryable provider failures for pg-boss retry", async () => {
+  it("routes retryable provider failures to finite technical retry", async () => {
     const retryableProvider: TranscriptionProvider = {
       async transcribe() {
         throw new ProviderError(
@@ -412,14 +1000,11 @@ describe("provider worker pipeline", () => {
     };
     const base = fixture({ transcriptionProvider: retryableProvider });
 
-    await expect(
-      base.handlers.extractTranscript(extractJob),
-    ).rejects.toMatchObject({
-      code: "PROVIDER_UNAVAILABLE",
-      disposition: "retryable",
-    });
-    expect(base.repository.status).toBe("processing");
-    expect(base.repository.transitions).toEqual([]);
+    const outcome = await base.handlers.extractTranscript(extractJob);
+
+    expect(outcome.outcome).toBe("technical_retry");
+    expect(base.repository.status).toBe("technical_retry");
+    expect(base.repository.transitions).toEqual(["PROVIDER_UNAVAILABLE"]);
   });
 
   it("strictly rejects unknown job data before external effects", async () => {

@@ -49,37 +49,51 @@ export function canonicalChunkAadBytes(input: ChunkAadContext): Uint8Array {
 
 export function canonicalManifestBytes(input: RecordingManifest): Uint8Array {
   const manifest = RecordingManifestSchema.parse(input);
-  return utf8Bytes(
-    JSON.stringify([
-      MANIFEST_DOMAIN,
-      RECORDING_PROTOCOL_VERSION,
-      RECORDING_SUITE_ID,
-      manifest.attemptId,
-      manifest.headSha,
-      manifest.objectId,
-      manifest.codec,
-      manifest.noncePrefixBase64url,
-      manifest.wrapping.materialId,
-      manifest.wrapping.keyId,
-      WRAPPING_ALGORITHM,
-      manifest.wrapping.wrappedKeySha256,
-      manifest.durationMs,
-      manifest.totalPlaintextBytes,
-      manifest.totalObjectBytes,
-      manifest.chunks.map((chunk) => [
-        chunk.index,
-        chunk.nonce,
-        chunk.plaintextBytes,
-        chunk.sealedBytes,
-        chunk.ciphertextSha256,
-      ]),
-      manifest.parts.map((part) => [
-        part.partNumber,
-        part.firstChunkIndex,
-        part.lastChunkIndex,
-        part.byteLength,
-        part.sha256,
-      ]),
+  const canonical: unknown[] = [
+    MANIFEST_DOMAIN,
+    RECORDING_PROTOCOL_VERSION,
+    RECORDING_SUITE_ID,
+    manifest.attemptId,
+    manifest.headSha,
+    manifest.objectId,
+    manifest.codec,
+    manifest.noncePrefixBase64url,
+    manifest.wrapping.materialId,
+    manifest.wrapping.keyId,
+    WRAPPING_ALGORITHM,
+    manifest.wrapping.wrappedKeySha256,
+    manifest.durationMs,
+    manifest.totalPlaintextBytes,
+    manifest.totalObjectBytes,
+    manifest.chunks.map((chunk) => [
+      chunk.index,
+      chunk.nonce,
+      chunk.plaintextBytes,
+      chunk.sealedBytes,
+      chunk.ciphertextSha256,
     ]),
-  );
+    manifest.parts.map((part) => [
+      part.partNumber,
+      part.firstChunkIndex,
+      part.lastChunkIndex,
+      part.byteLength,
+      part.sha256,
+    ]),
+  ];
+  if (manifest.questionIntervals !== undefined) {
+    canonical.push([
+      "proof-question-intervals-v1",
+      manifest.questionIntervals.map((interval) => [
+        interval.schemaVersion,
+        interval.intervalVersion,
+        interval.questionId,
+        interval.ordinal,
+        interval.startMs,
+        interval.endMs,
+        interval.recordedDurationMs,
+        interval.source,
+      ]),
+    ]);
+  }
+  return utf8Bytes(JSON.stringify(canonical));
 }

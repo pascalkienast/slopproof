@@ -16,6 +16,15 @@ import {
 } from "@slopproof/policy";
 import { FrameSelectionMetadataV1Schema } from "@slopproof/providers";
 import { z } from "zod";
+import { RecordingAudioTranscriptionSourceV1Schema } from "./audio-transcription";
+
+/** Private evidence is no longer authorized for this stage. */
+export class PrivateProviderStageUnavailableError extends Error {
+  constructor() {
+    super("Private provider stage is unavailable");
+    this.name = "PrivateProviderStageUnavailableError";
+  }
+}
 
 export const StoredProofQuestionV1Schema = z
   .object({
@@ -37,6 +46,7 @@ const CurrentAttemptBindingSchema = z
     headSha: GitShaSchema,
     status: AttemptStatusSchema,
     isCurrent: z.boolean(),
+    privateAccessEligible: z.boolean(),
     deleteAfter: z.date(),
   })
   .strict();
@@ -52,6 +62,16 @@ export const TranscriptExtractionContextV1Schema =
       .max(30 * 60 * 1_000),
     recordingManifestHash: z.string().regex(/^[0-9a-f]{64}$/),
     questions: z.array(StoredProofQuestionV1Schema).min(1).max(5),
+    existingTranscript: z
+      .lazy(() => EncryptedTranscriptBundleV1Schema)
+      .optional(),
+    recordingAudio: z
+      .object({
+        objectKey: z.string().min(1).max(1_024),
+        source: RecordingAudioTranscriptionSourceV1Schema,
+      })
+      .strict()
+      .optional(),
   }).strict();
 
 export type TranscriptExtractionContextV1 = z.infer<
@@ -110,6 +130,9 @@ export const EvaluationRunContextV1Schema = CurrentAttemptBindingSchema.extend({
   transcript: EncryptedTranscriptBundleV1Schema,
   questions: z.array(StoredProofQuestionV1Schema).min(1).max(5),
   frameSelection: FrameSelectionMetadataV1Schema,
+  existingEvaluation: z
+    .lazy(() => EncryptedEvaluationBundleV1Schema)
+    .optional(),
 }).strict();
 
 export type EvaluationRunContextV1 = z.infer<
@@ -192,9 +215,14 @@ export interface ProviderPipelineRepository {
   loadTranscriptExtraction(
     job: JobPayload<"media.extract-transcript">,
   ): Promise<TranscriptExtractionContextV1>;
-  persistTranscript(
-    bundle: EncryptedTranscriptBundleV1,
-  ): Promise<"created" | "replayed">;
+  persistTranscript(bundle: EncryptedTranscriptBundleV1): Promise<{
+    status: "created" | "replayed";
+    transcript: EncryptedTranscriptBundleV1;
+  }>;
+  schedulePersistedTranscript(
+    transcript: EncryptedTranscriptBundleV1,
+    downstreamJob: JobPayload<"media.select-frames">,
+  ): Promise<boolean>;
   loadFrameSelection(
     job: JobPayload<"media.select-frames">,
   ): Promise<FrameSelectionContextV1>;
@@ -204,9 +232,14 @@ export interface ProviderPipelineRepository {
   loadEvaluationRun(
     job: JobPayload<"evaluation.run">,
   ): Promise<EvaluationRunContextV1>;
-  persistEvaluation(
-    bundle: EncryptedEvaluationBundleV1,
-  ): Promise<"created" | "replayed">;
+  persistEvaluation(bundle: EncryptedEvaluationBundleV1): Promise<{
+    status: "created" | "replayed";
+    evaluation: EncryptedEvaluationBundleV1;
+  }>;
+  schedulePersistedEvaluation(
+    evaluation: EncryptedEvaluationBundleV1,
+    downstreamJob: JobPayload<"evaluation.apply-policy">,
+  ): Promise<boolean>;
   loadEvaluationPolicy(
     job: JobPayload<"evaluation.apply-policy">,
   ): Promise<EvaluationPolicyContextV1>;

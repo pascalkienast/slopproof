@@ -8,11 +8,7 @@ import {
   startJobQueue,
 } from "@slopproof/db";
 import { createLogger } from "@slopproof/observability";
-import {
-  LocalFakeMultimodalJudgeProvider,
-  LocalFakeTranscriptionProvider,
-  PayloadCipher,
-} from "@slopproof/providers";
+import { PayloadCipher } from "@slopproof/providers";
 import { S3EvidenceStore } from "@slopproof/storage";
 import type { PgBoss } from "pg-boss";
 import {
@@ -22,6 +18,7 @@ import {
 import { EncryptedFfmpegFrameSelectionAdapter } from "./frame-selection";
 import { finalizeMediaUpload } from "./media-finalize";
 import {
+  createGate5MultimodalJudgeBoundary,
   decodeProviderPayloadKeyBase64,
   registerProviderPipelineWorkers,
 } from "./provider-pipeline";
@@ -44,6 +41,7 @@ import { createSemanticGenerationService } from "./semantic-generation";
 import { createSemanticProofReadyWriter } from "./semantic-proof-ready";
 import { createSemanticProviderSet } from "./semantic-provider-factory";
 import { createSemanticRetentionSweepHandler } from "./semantic-retention";
+import { createTranscriptionPipelineSelection } from "./transcription-provider-factory";
 
 const config = loadWorkerConfig();
 const log = createLogger(
@@ -64,6 +62,7 @@ let jobQueue: PgBoss | undefined;
 let attemptExpiryTimer: NodeJS.Timeout | undefined;
 let retentionAuditTimer: NodeJS.Timeout | undefined;
 let semanticRetentionTimer: NodeJS.Timeout | undefined;
+let providerPipelineRecoveryTimer: NodeJS.Timeout | undefined;
 let privateKeyPath: string | undefined;
 let providerPayloadCipher: PayloadCipher | undefined;
 let semanticRepository: PostgresSemanticGenerationRepository | undefined;
@@ -153,14 +152,6 @@ async function start(): Promise<void> {
   }
   const activePrivateKeyPath = config.KEY_WRAPPING_PRIVATE_KEY_PATH;
   privateKeyPath = activePrivateKeyPath;
-  if (
-    config.TRANSCRIPTION_PROVIDER !== "fake" ||
-    config.MULTIMODAL_JUDGE_PROVIDER !== "fake"
-  ) {
-    throw new Error(
-      "Only local fake media providers are enabled in this MVP build",
-    );
-  }
   const activeJobQueue = await startJobQueue(config.DATABASE_URL, (error) => {
     log.error(
       { errorClass: error instanceof Error ? error.name : "UnknownError" },
@@ -298,10 +289,19 @@ async function start(): Promise<void> {
     },
   );
   const providerClock = { now: () => new Date() };
+  const providerPipelineRepository = new PostgresProviderPipelineRepository(
+    database,
+    checkIntents,
+    activeJobQueue,
+  );
   await registerProviderPipelineWorkers(activeJobQueue, {
-    repository: new PostgresProviderPipelineRepository(database, checkIntents),
+    repository: providerPipelineRepository,
     payloadCipher: activePayloadCipher,
-    transcriptionProvider: new LocalFakeTranscriptionProvider(providerClock),
+    ...createTranscriptionPipelineSelection(config, {
+      privateKeyPath: activePrivateKeyPath,
+      storage,
+      clock: providerClock,
+    }),
     frameSelectionAdapter: new EncryptedFfmpegFrameSelectionAdapter({
       database,
       storage,
@@ -309,9 +309,25 @@ async function start(): Promise<void> {
       ffmpegPath: config.FFMPEG_PATH,
       payloadCipher: activePayloadCipher,
     }),
-    judgeProvider: new LocalFakeMultimodalJudgeProvider(providerClock),
+    judgeProvider: createGate5MultimodalJudgeBoundary(
+      config.MULTIMODAL_JUDGE_PROVIDER,
+      providerClock,
+    ),
     clock: providerClock,
   });
+  const recoverProviderPipeline = async (): Promise<void> => {
+    await providerPipelineRepository.sweepPendingProviderStages();
+  };
+  await recoverProviderPipeline();
+  providerPipelineRecoveryTimer = setInterval(() => {
+    void recoverProviderPipeline().catch((error: unknown) => {
+      log.error(
+        { errorClass: error instanceof Error ? error.name : "UnknownError" },
+        "provider_pipeline.recovery_sweep_failed",
+      );
+    });
+  }, 60_000);
+  providerPipelineRecoveryTimer.unref();
   const retention = createPostgresRetentionService({
     database,
     queue: activeJobQueue,
@@ -362,6 +378,8 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   if (attemptExpiryTimer) clearInterval(attemptExpiryTimer);
   if (retentionAuditTimer) clearInterval(retentionAuditTimer);
   if (semanticRetentionTimer) clearInterval(semanticRetentionTimer);
+  if (providerPipelineRecoveryTimer)
+    clearInterval(providerPipelineRecoveryTimer);
   log.info({ signal }, "worker.stopping");
   await new Promise<void>((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));
@@ -395,6 +413,8 @@ start().catch((error: unknown) => {
     if (attemptExpiryTimer) clearInterval(attemptExpiryTimer);
     if (retentionAuditTimer) clearInterval(retentionAuditTimer);
     if (semanticRetentionTimer) clearInterval(semanticRetentionTimer);
+    if (providerPipelineRecoveryTimer)
+      clearInterval(providerPipelineRecoveryTimer);
     if (server.listening) {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());

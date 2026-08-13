@@ -28,6 +28,11 @@ import {
   postTechnicalAbort,
   type TechnicalAbortReason,
 } from "./technical-recovery";
+import {
+  captureProofQuestionIntervalV1,
+  finalizeProofQuestionIntervalsV1,
+  type ProofQuestionIntervalDraft,
+} from "../../../lib/proof-question-timing";
 
 type ProofQuestion = {
   id: string;
@@ -76,6 +81,9 @@ export function MobileProof() {
   const abortIdempotencyRef = useRef<string | undefined>(undefined);
   const retryIdempotencyRef = useRef<string | undefined>(undefined);
   const exchangeStartedRef = useRef(false);
+  const recordingStartedAtRef = useRef<number | undefined>(undefined);
+  const activeQuestionStartMsRef = useRef(0);
+  const questionIntervalsRef = useRef<ProofQuestionIntervalDraft[]>([]);
 
   useEffect(() => {
     if (exchangeStartedRef.current) return;
@@ -178,6 +186,9 @@ export function MobileProof() {
       retryIdempotencyRef.current = `technical-retry:${crypto.randomUUID()}`;
       setCanRecover(false);
       setQuestionIndex(0);
+      recordingStartedAtRef.current = undefined;
+      activeQuestionStartMsRef.current = 0;
+      questionIntervalsRef.current = [];
       setProgress("Encrypting locally before upload");
       await jsonRequest(`/api/attempts/${context.attemptId}/start`, {
         method: "POST",
@@ -284,6 +295,9 @@ export function MobileProof() {
     });
     recorderRef.current = recorder;
     const startedAt = performance.now();
+    recordingStartedAtRef.current = startedAt;
+    activeQuestionStartMsRef.current = 0;
+    questionIntervalsRef.current = [];
 
     const processBlob = async (blob: Blob): Promise<void> => {
       if (blob.size === 0) return;
@@ -374,9 +388,11 @@ export function MobileProof() {
     }, proof.maximumDurationMs);
     recorder.start(1_000);
     await stopped;
+    const finalDraftEndMs = questionIntervalsRef.current.at(-1)?.endMs ?? 0;
     const recordedDurationMs = Math.max(
       1,
       Math.round(performance.now() - startedAt),
+      finalDraftEndMs,
     );
     window.clearTimeout(deadline);
     document.removeEventListener("visibilitychange", onVisibility);
@@ -385,6 +401,16 @@ export function MobileProof() {
     if (abortedRef.current) {
       throw new Error("Recording was interrupted; start a technical retry.");
     }
+    if (questionIntervalsRef.current.length !== proof.questions.length) {
+      throw new Error(
+        "The recording did not capture the complete proof question order.",
+      );
+    }
+    const questionIntervals = finalizeProofQuestionIntervalsV1({
+      drafts: questionIntervalsRef.current,
+      expectedQuestionIds: proof.questions.map((question) => question.id),
+      recordedDurationMs,
+    });
     setPhase("uploading");
     for (const part of await packer.finish()) {
       uploadedParts.push(
@@ -411,6 +437,7 @@ export function MobileProof() {
         (total, part) => total + part.byteLength,
         0,
       ),
+      questionIntervals,
       chunks,
       parts,
     };
@@ -436,7 +463,25 @@ export function MobileProof() {
 
   function nextQuestion(): void {
     if (!context || phase !== "recording") return;
+    const startedAt = recordingStartedAtRef.current;
+    const question = context.questions[questionIndex];
+    if (
+      startedAt === undefined ||
+      question === undefined ||
+      questionIntervalsRef.current.length !== questionIndex
+    ) {
+      return;
+    }
+    const interval = captureProofQuestionIntervalV1({
+      questionId: question.id,
+      ordinal: questionIndex,
+      recordingStartedAtMs: startedAt,
+      questionStartedAtMs: activeQuestionStartMsRef.current,
+      nowMs: performance.now(),
+    });
+    questionIntervalsRef.current.push(interval);
     if (questionIndex < context.questions.length - 1) {
+      activeQuestionStartMsRef.current = interval.endMs;
       setQuestionIndex((current) => current + 1);
       return;
     }

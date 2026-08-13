@@ -8,11 +8,14 @@ import {
   framePayloadAad,
   runFrameExtractorPipeline,
 } from "./frame-selection";
+import { PrivateProviderStageUnavailableError } from "./provider-pipeline-contracts";
 
 const ATTEMPT_ID = "11111111-1111-4111-8111-111111111111";
 const RECORDING_ID = "22222222-2222-4222-8222-222222222222";
 const EXISTING_FRAME_ID = "66666666-6666-4666-8666-666666666666";
 const EXISTING_FRAME_KEY = `provider-frame/77777777-7777-4777-8777-777777777777/${"c".repeat(64)}/320x180`;
+const NOW = new Date("2030-01-01T00:00:00.000Z");
+const ELIGIBILITY_THRESHOLD = new Date("2030-01-01T00:15:00.000Z");
 
 function transcriptFixture() {
   return TranscriptV1Schema.parse({
@@ -55,6 +58,26 @@ function sourceRow() {
     material_key_id: "local-v1",
     recording_deleted_at: null,
     delete_after: new Date("2030-01-02T00:00:00.000Z"),
+  };
+}
+
+function eligibleWithoutFrames() {
+  return {
+    eligible_attempt_id: ATTEMPT_ID,
+    id: null,
+    timestamp_ms: null,
+    reason_code: null,
+    object_key: null,
+  };
+}
+
+function existingFrameRow() {
+  return {
+    eligible_attempt_id: ATTEMPT_ID,
+    id: EXISTING_FRAME_ID,
+    timestamp_ms: 5_000,
+    reason_code: "transcript_alignment",
+    object_key: EXISTING_FRAME_KEY,
   };
 }
 
@@ -126,7 +149,9 @@ describe("EncryptedFfmpegFrameSelectionAdapter", () => {
   it("stores a real extracted frame only as authenticated ciphertext", async () => {
     const operations: string[] = [];
     const query = vi.fn(async (sql: string) => {
-      if (sql.includes("FROM frame_selections")) return { rows: [] };
+      if (sql.includes("LEFT JOIN frame_selections frame")) {
+        return { rows: [eligibleWithoutFrames()] };
+      }
       if (sql.includes("INSERT INTO frame_selections")) {
         operations.push("reserve");
         return { rows: [{ id: "reserved" }], rowCount: 1 };
@@ -154,7 +179,7 @@ describe("EncryptedFfmpegFrameSelectionAdapter", () => {
       privateKeyPath: "/worker-only/private.pem",
       ffmpegPath: "/usr/bin/ffmpeg",
       payloadCipher: cipher,
-      now: () => new Date("2030-01-01T00:00:00.000Z"),
+      now: () => NOW,
       extractFrame: async () => new Uint8Array(jpeg),
     });
     const transcript = transcriptFixture();
@@ -185,16 +210,7 @@ describe("EncryptedFfmpegFrameSelectionAdapter", () => {
   });
 
   it("reuses a durable frame reservation after a post-upload worker crash", async () => {
-    const query = vi.fn(async () => ({
-      rows: [
-        {
-          id: EXISTING_FRAME_ID,
-          timestamp_ms: 5_000,
-          reason_code: "transcript_alignment",
-          object_key: EXISTING_FRAME_KEY,
-        },
-      ],
-    }));
+    const query = vi.fn(async () => ({ rows: [existingFrameRow()] }));
     const headObject = vi.fn(async () => ({ byteLength: 512 }));
     const putCiphertextObject = vi.fn();
     const extractFrame = vi.fn();
@@ -208,6 +224,7 @@ describe("EncryptedFfmpegFrameSelectionAdapter", () => {
       privateKeyPath: "/worker-only/private.pem",
       ffmpegPath: "/usr/bin/ffmpeg",
       payloadCipher: cipherFixture(),
+      now: () => NOW,
       extractFrame,
     });
 
@@ -228,17 +245,8 @@ describe("EncryptedFfmpegFrameSelectionAdapter", () => {
   it("repairs only the exact DB reservation when its pre-upload object is absent", async () => {
     const deleted: unknown[][] = [];
     const query = vi.fn(async (sql: string, parameters?: unknown[]) => {
-      if (sql.includes("SELECT id, timestamp_ms")) {
-        return {
-          rows: [
-            {
-              id: EXISTING_FRAME_ID,
-              timestamp_ms: 5_000,
-              reason_code: "transcript_alignment",
-              object_key: EXISTING_FRAME_KEY,
-            },
-          ],
-        };
+      if (sql.includes("LEFT JOIN frame_selections frame")) {
+        return { rows: [existingFrameRow()] };
       }
       if (sql.includes("DELETE FROM frame_selections")) {
         deleted.push(parameters ?? []);
@@ -265,7 +273,7 @@ describe("EncryptedFfmpegFrameSelectionAdapter", () => {
       privateKeyPath: "/worker-only/private.pem",
       ffmpegPath: "/usr/bin/ffmpeg",
       payloadCipher: cipherFixture(),
-      now: () => new Date("2030-01-01T00:00:00.000Z"),
+      now: () => NOW,
       extractFrame: async () => new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
     });
 
@@ -279,23 +287,20 @@ describe("EncryptedFfmpegFrameSelectionAdapter", () => {
     ).resolves.toBeDefined();
 
     expect(deleted).toEqual([
-      [EXISTING_FRAME_ID, ATTEMPT_ID, EXISTING_FRAME_KEY],
+      [
+        EXISTING_FRAME_ID,
+        ATTEMPT_ID,
+        EXISTING_FRAME_KEY,
+        RECORDING_ID,
+        ELIGIBILITY_THRESHOLD,
+      ],
     ]);
     expect(putCiphertextObject).toHaveBeenCalledOnce();
     expect(putCiphertextObject.mock.calls[0]?.[0]).not.toBe(EXISTING_FRAME_KEY);
   });
 
   it("keeps a reservation on transient storage errors instead of deleting a referenced frame", async () => {
-    const query = vi.fn(async () => ({
-      rows: [
-        {
-          id: EXISTING_FRAME_ID,
-          timestamp_ms: 5_000,
-          reason_code: "transcript_alignment",
-          object_key: EXISTING_FRAME_KEY,
-        },
-      ],
-    }));
+    const query = vi.fn(async () => ({ rows: [existingFrameRow()] }));
     const headObject = vi.fn(async () => {
       throw new Error("temporary storage outage");
     });
@@ -309,6 +314,7 @@ describe("EncryptedFfmpegFrameSelectionAdapter", () => {
       privateKeyPath: "/worker-only/private.pem",
       ffmpegPath: "/usr/bin/ffmpeg",
       payloadCipher: cipherFixture(),
+      now: () => NOW,
     });
 
     await expect(
@@ -320,5 +326,158 @@ describe("EncryptedFfmpegFrameSelectionAdapter", () => {
       }),
     ).rejects.toThrow("temporary storage outage");
     expect(query).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    "closed pull request",
+    "suspended repository",
+    "removed repository",
+    "suspended installation",
+    "removed installation",
+    "expired recording",
+  ])(
+    "rejects existing-frame replay for an ineligible %s before storage",
+    async () => {
+      const query = vi.fn(async (_sql: string, _parameters?: unknown[]) => ({
+        rows: [],
+      }));
+      const headObject = vi.fn();
+      const getObjectStream = vi.fn();
+      const putCiphertextObject = vi.fn();
+      const extractFrame = vi.fn();
+      const adapter = new EncryptedFfmpegFrameSelectionAdapter({
+        database: { pool: { query } } as unknown as DatabaseConnection,
+        storage: { getObjectStream, headObject, putCiphertextObject },
+        privateKeyPath: "/worker-only/private.pem",
+        ffmpegPath: "/usr/bin/ffmpeg",
+        payloadCipher: cipherFixture(),
+        now: () => NOW,
+        extractFrame,
+      });
+
+      await expect(
+        adapter.select({
+          attemptId: ATTEMPT_ID,
+          recordingObjectId: RECORDING_ID,
+          recordingDurationMs: 10_000,
+          transcript: transcriptFixture(),
+        }),
+      ).rejects.toBeInstanceOf(PrivateProviderStageUnavailableError);
+
+      expect(headObject).not.toHaveBeenCalled();
+      expect(getObjectStream).not.toHaveBeenCalled();
+      expect(putCiphertextObject).not.toHaveBeenCalled();
+      expect(extractFrame).not.toHaveBeenCalled();
+      const [sql, parameters] = query.mock.calls[0] ?? [];
+      expect(sql).toContain("attempt.status = 'processing'");
+      expect(sql).toContain("revision.is_current = true");
+      expect(sql).toContain("pull_request.state = 'open'");
+      expect(sql).toContain("repository.status = 'active'");
+      expect(sql).toContain("installation.status = 'active'");
+      expect(sql).toContain("recording.deleted_at IS NULL");
+      expect(sql).toContain("recording.delete_after > $3");
+      expect(parameters).toEqual([
+        ATTEMPT_ID,
+        RECORDING_ID,
+        ELIGIBILITY_THRESHOLD,
+      ]);
+    },
+  );
+
+  it("rechecks lifecycle eligibility in source loading before extraction", async () => {
+    const queries: string[] = [];
+    const query = vi.fn(async (sql: string) => {
+      queries.push(sql);
+      if (sql.includes("LEFT JOIN frame_selections frame")) {
+        return { rows: [eligibleWithoutFrames()] };
+      }
+      return { rows: [] };
+    });
+    const extractFrame = vi.fn();
+    const storage = {
+      getObjectStream: vi.fn(),
+      headObject: vi.fn(),
+      putCiphertextObject: vi.fn(),
+    };
+    const adapter = new EncryptedFfmpegFrameSelectionAdapter({
+      database: { pool: { query } } as unknown as DatabaseConnection,
+      storage,
+      privateKeyPath: "/worker-only/private.pem",
+      ffmpegPath: "/usr/bin/ffmpeg",
+      payloadCipher: cipherFixture(),
+      now: () => NOW,
+      extractFrame,
+    });
+
+    await expect(
+      adapter.select({
+        attemptId: ATTEMPT_ID,
+        recordingObjectId: RECORDING_ID,
+        recordingDurationMs: 10_000,
+        transcript: transcriptFixture(),
+      }),
+    ).rejects.toBeInstanceOf(PrivateProviderStageUnavailableError);
+
+    expect(queries).toHaveLength(2);
+    expect(queries[1]).toContain("pull_request.state = 'open'");
+    expect(queries[1]).toContain("repository.status = 'active'");
+    expect(queries[1]).toContain("installation.status = 'active'");
+    expect(queries[1]).toContain("recording.delete_after > $3");
+    expect(extractFrame).not.toHaveBeenCalled();
+    expect(storage.getObjectStream).not.toHaveBeenCalled();
+    expect(storage.putCiphertextObject).not.toHaveBeenCalled();
+  });
+
+  it("fails a reservation race without writing ciphertext and wipes the extracted frame", async () => {
+    const queries: string[] = [];
+    const query = vi.fn(async (sql: string) => {
+      queries.push(sql);
+      if (sql.includes("LEFT JOIN frame_selections frame")) {
+        return { rows: [eligibleWithoutFrames()] };
+      }
+      if (sql.includes("SELECT attempt.id AS attempt_id")) {
+        return { rows: [sourceRow()] };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const putCiphertextObject = vi.fn();
+    const adapter = new EncryptedFfmpegFrameSelectionAdapter({
+      database: { pool: { query } } as unknown as DatabaseConnection,
+      storage: {
+        getObjectStream: vi.fn(),
+        headObject: vi.fn(),
+        putCiphertextObject,
+      },
+      privateKeyPath: "/worker-only/private.pem",
+      ffmpegPath: "/usr/bin/ffmpeg",
+      payloadCipher: cipherFixture(),
+      now: () => NOW,
+      extractFrame: vi.fn(async () => jpeg),
+    });
+
+    await expect(
+      adapter.select({
+        attemptId: ATTEMPT_ID,
+        recordingObjectId: RECORDING_ID,
+        recordingDurationMs: 10_000,
+        transcript: transcriptFixture(),
+      }),
+    ).rejects.toBeInstanceOf(PrivateProviderStageUnavailableError);
+
+    expect(putCiphertextObject).not.toHaveBeenCalled();
+    expect(jpeg.every((byte) => byte === 0)).toBe(true);
+    const reservationSql = queries.find((sql) =>
+      sql.includes("INSERT INTO frame_selections"),
+    );
+    const raceSql = queries.find((sql) =>
+      sql.includes("FROM frame_selections frame\n         JOIN attempts"),
+    );
+    for (const sql of [reservationSql, raceSql]) {
+      expect(sql).toContain("pull_request.state = 'open'");
+      expect(sql).toContain("repository.status = 'active'");
+      expect(sql).toContain("installation.status = 'active'");
+      expect(sql).toContain("recording.delete_after >");
+    }
   });
 });

@@ -491,6 +491,10 @@ export class PostgresRetentionPersistence implements RetentionPersistence {
         [plan.attemptId],
       );
       await client.query(
+        `DELETE FROM proof_question_interval_sets WHERE attempt_id = $1`,
+        [plan.attemptId],
+      );
+      await client.query(
         `UPDATE upload_sessions
          SET object_key = 'deleted/' || id::text,
              provider_upload_id = 'deleted:' || id::text,

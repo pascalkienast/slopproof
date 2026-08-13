@@ -462,15 +462,38 @@ export async function enqueueJob<Name extends JobName>(
   return jobId;
 }
 
-/** Upserts one immediately runnable aggregate job without growing a backlog. */
+/**
+ * Upserts one immediately runnable aggregate job without growing a backlog.
+ * A terminal failed strict-FIFO singleton is retried in place so it cannot
+ * permanently block later work for the same aggregate.
+ */
 export async function expediteJob<Name extends JobName>(
   queue: PgBoss,
   name: Name,
   rawPayload: unknown,
 ): Promise<string | null> {
   const payload = parseJobPayload(name, rawPayload);
+  const singletonKey = getJobSingletonKey(name, payload);
+  const existing = await queue.findJobs<unknown>(name, {
+    key: singletonKey,
+  });
+  const failed = existing.filter((job) => job.state === "failed");
+  if (failed.length > 1) {
+    throw new Error(`Queue has multiple failed ${name} singleton jobs`);
+  }
+  if (failed[0]) {
+    await queue.retry(name, failed[0].id);
+    const updated = await queue.update(name, payload, {
+      id: failed[0].id,
+      startAfter: new Date(),
+    });
+    if (updated.updated !== 1) {
+      throw new Error(`Queue could not recover failed ${name} singleton job`);
+    }
+    return failed[0].id;
+  }
   const result = await queue.upsert(name, payload, {
-    singletonKey: getJobSingletonKey(name, payload),
+    singletonKey,
     match: "oldest",
     startAfter: new Date(),
   });
@@ -498,6 +521,45 @@ export async function enqueueJobInTransaction<Name extends JobName>(
   }
 
   return jobId;
+}
+
+/** Transactional Drizzle variant of `expediteJob`. */
+export async function expediteJobInTransaction<Name extends JobName>(
+  queue: PgBoss,
+  transaction: DrizzleTransactionLike,
+  name: Name,
+  rawPayload: unknown,
+): Promise<string | null> {
+  const payload = parseJobPayload(name, rawPayload);
+  const singletonKey = getJobSingletonKey(name, payload);
+  const db = fromDrizzle(transaction, sql);
+  const existing = await queue.findJobs<unknown>(name, {
+    key: singletonKey,
+    db,
+  });
+  const failed = existing.filter((job) => job.state === "failed");
+  if (failed.length > 1) {
+    throw new Error(`Queue has multiple failed ${name} singleton jobs`);
+  }
+  if (failed[0]) {
+    await queue.retry(name, failed[0].id, { db });
+    const updated = await queue.update(name, payload, {
+      id: failed[0].id,
+      startAfter: new Date(),
+      db,
+    });
+    if (updated.updated !== 1) {
+      throw new Error(`Queue could not recover failed ${name} singleton job`);
+    }
+    return failed[0].id;
+  }
+  const result = await queue.upsert(name, payload, {
+    singletonKey,
+    match: "oldest",
+    startAfter: new Date(),
+    db,
+  });
+  return result.jobs[0] ?? null;
 }
 
 /**

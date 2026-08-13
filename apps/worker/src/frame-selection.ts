@@ -10,6 +10,7 @@ import {
   type TranscriptV1,
 } from "@slopproof/providers";
 import type { S3EvidenceStore } from "@slopproof/storage";
+import { PrivateProviderStageUnavailableError } from "./provider-pipeline-contracts";
 import type { ProviderFrameSelectionAdapter } from "./provider-pipeline";
 import {
   authenticateRecordingFinalization,
@@ -37,15 +38,25 @@ type FrameSourceRow = {
   delete_after: Date;
 };
 
+type ExistingFrameReason =
+  | "question_transition"
+  | "answer_midpoint"
+  | "transcript_alignment"
+  | "quality_check";
+
 type ExistingFrameRow = {
   id: string;
   timestamp_ms: number;
-  reason_code:
-    | "question_transition"
-    | "answer_midpoint"
-    | "transcript_alignment"
-    | "quality_check";
+  reason_code: ExistingFrameReason;
   object_key: string;
+};
+
+type ExistingFrameEligibilityRow = {
+  eligible_attempt_id: string;
+  id: string | null;
+  timestamp_ms: number | null;
+  reason_code: ExistingFrameReason | null;
+  object_key: string | null;
 };
 
 type FrameStorage = Pick<
@@ -77,22 +88,12 @@ export class EncryptedFfmpegFrameSelectionAdapter implements ProviderFrameSelect
     recordingDurationMs: number;
     transcript: TranscriptV1;
   }): Promise<FrameSelectionMetadataV1> {
-    const existing = await this.loadExistingFrames(input.attemptId);
+    const existing = await this.loadExistingFrames(input, this.now());
     if (existing.length > 0) {
       return this.metadata(input, existing.map(decodeExistingFrame));
     }
 
-    const source = await this.loadSource(input);
-    const now = this.dependencies.now?.() ?? new Date();
-    if (
-      source.attempt_status !== "processing" ||
-      !source.is_current ||
-      source.recording_deleted_at !== null ||
-      source.delete_after.getTime() - now.getTime() <=
-        FRAME_RESERVATION_MIN_REMAINING_MS
-    ) {
-      throw new Error("Recording is not available for frame selection");
-    }
+    const source = await this.loadSource(input, this.now());
     const segment =
       input.transcript.segments[
         Math.floor(input.transcript.segments.length / 2)
@@ -129,7 +130,7 @@ export class EncryptedFfmpegFrameSelectionAdapter implements ProviderFrameSelect
         id,
         timestampMs,
         objectKey,
-        now,
+        now: this.now(),
       });
       await this.dependencies.storage.putCiphertextObject(
         objectKey,
@@ -158,6 +159,10 @@ export class EncryptedFfmpegFrameSelectionAdapter implements ProviderFrameSelect
     ]);
   }
 
+  private now(): Date {
+    return this.dependencies.now?.() ?? new Date();
+  }
+
   private metadata(
     input: {
       attemptId: string;
@@ -175,29 +180,112 @@ export class EncryptedFfmpegFrameSelectionAdapter implements ProviderFrameSelect
   }
 
   private async loadExistingFrames(
-    attemptId: string,
+    input: { attemptId: string; recordingObjectId: string },
+    now: Date,
   ): Promise<ExistingFrameRow[]> {
+    const threshold = new Date(
+      now.getTime() + FRAME_RESERVATION_MIN_REMAINING_MS,
+    );
     const result =
-      await this.dependencies.database.pool.query<ExistingFrameRow>(
-        `SELECT id, timestamp_ms, reason_code, object_key
-         FROM frame_selections
-        WHERE attempt_id = $1 AND deleted_at IS NULL
-        ORDER BY timestamp_ms ASC, id ASC`,
-        [attemptId],
+      await this.dependencies.database.pool.query<ExistingFrameEligibilityRow>(
+        `SELECT attempt.id AS eligible_attempt_id,
+                frame.id, frame.timestamp_ms, frame.reason_code,
+                frame.object_key
+           FROM attempts attempt
+           JOIN pull_request_revisions revision
+             ON revision.id = attempt.revision_id
+           JOIN pull_requests pull_request
+             ON pull_request.id = revision.pull_request_id
+           JOIN repositories repository
+             ON repository.id = pull_request.repository_id
+            AND repository.id = attempt.repository_id
+           JOIN installations installation
+             ON installation.id = repository.installation_id
+           JOIN recording_objects recording
+             ON recording.attempt_id = attempt.id
+           LEFT JOIN frame_selections frame
+             ON frame.attempt_id = attempt.id
+            AND frame.deleted_at IS NULL
+            AND frame.delete_after = recording.delete_after
+          WHERE attempt.id = $1 AND recording.id = $2
+            AND attempt.status = 'processing'
+            AND revision.is_current = true
+            AND pull_request.state = 'open'
+            AND repository.status = 'active'
+            AND installation.status = 'active'
+            AND recording.deleted_at IS NULL
+            AND recording.delete_after > $3
+          ORDER BY frame.timestamp_ms ASC, frame.id ASC`,
+        [input.attemptId, input.recordingObjectId, threshold],
       );
-    const available: ExistingFrameRow[] = [];
+    if (result.rows.length === 0) {
+      throw new PrivateProviderStageUnavailableError();
+    }
+    const frames: ExistingFrameRow[] = [];
     for (const row of result.rows) {
+      if (row.id === null) continue;
+      if (
+        row.timestamp_ms === null ||
+        row.reason_code === null ||
+        row.object_key === null
+      ) {
+        throw new PrivateProviderStageUnavailableError();
+      }
+      frames.push({
+        id: row.id,
+        timestamp_ms: row.timestamp_ms,
+        reason_code: row.reason_code,
+        object_key: row.object_key,
+      });
+    }
+    const available: ExistingFrameRow[] = [];
+    for (const row of frames) {
       try {
         await this.dependencies.storage.headObject(row.object_key);
         available.push(row);
       } catch (error) {
         if (!isMissingStorageTarget(error)) throw error;
-        await this.dependencies.database.pool.query(
-          `DELETE FROM frame_selections
-            WHERE id = $1 AND attempt_id = $2 AND object_key = $3
-              AND deleted_at IS NULL`,
-          [row.id, attemptId, row.object_key],
+        const repairThreshold = new Date(
+          this.now().getTime() + FRAME_RESERVATION_MIN_REMAINING_MS,
         );
+        const deleted = await this.dependencies.database.pool.query(
+          `DELETE FROM frame_selections frame
+            WHERE frame.id = $1 AND frame.attempt_id = $2
+              AND frame.object_key = $3 AND frame.deleted_at IS NULL
+              AND EXISTS (
+                SELECT 1
+                  FROM attempts attempt
+                  JOIN pull_request_revisions revision
+                    ON revision.id = attempt.revision_id
+                  JOIN pull_requests pull_request
+                    ON pull_request.id = revision.pull_request_id
+                  JOIN repositories repository
+                    ON repository.id = pull_request.repository_id
+                   AND repository.id = attempt.repository_id
+                  JOIN installations installation
+                    ON installation.id = repository.installation_id
+                  JOIN recording_objects recording
+                    ON recording.attempt_id = attempt.id
+                 WHERE attempt.id = $2 AND recording.id = $4
+                   AND attempt.status = 'processing'
+                   AND revision.is_current = true
+                   AND pull_request.state = 'open'
+                   AND repository.status = 'active'
+                   AND installation.status = 'active'
+                   AND recording.deleted_at IS NULL
+                   AND recording.delete_after > $5
+              )`,
+          [
+            row.id,
+            input.attemptId,
+            row.object_key,
+            input.recordingObjectId,
+            repairThreshold,
+          ],
+        );
+        if (deleted.rowCount !== 1) {
+          throw new PrivateProviderStageUnavailableError();
+        }
       }
     }
     return available;
@@ -217,9 +305,19 @@ export class EncryptedFfmpegFrameSelectionAdapter implements ProviderFrameSelect
               recording.delete_after
          FROM attempts attempt
          JOIN pull_request_revisions revision ON revision.id = attempt.revision_id
+         JOIN pull_requests pull_request
+           ON pull_request.id = revision.pull_request_id
+         JOIN repositories repository
+           ON repository.id = pull_request.repository_id
+          AND repository.id = attempt.repository_id
+         JOIN installations installation
+           ON installation.id = repository.installation_id
          JOIN recording_objects recording ON recording.attempt_id = attempt.id
         WHERE attempt.id = $4 AND attempt.status = 'processing'
           AND revision.is_current = true
+          AND pull_request.state = 'open'
+          AND repository.status = 'active'
+          AND installation.status = 'active'
           AND recording.id = $5 AND recording.deleted_at IS NULL
           AND recording.delete_after > $6
        ON CONFLICT (id) DO NOTHING
@@ -236,19 +334,49 @@ export class EncryptedFfmpegFrameSelectionAdapter implements ProviderFrameSelect
     if (reserved.rowCount === 1) return;
 
     const existing = await this.dependencies.database.pool.query(
-      `SELECT 1 FROM frame_selections
-        WHERE id = $1 AND attempt_id = $2 AND object_key = $3
-          AND deleted_at IS NULL`,
-      [input.id, input.source.attempt_id, input.objectKey],
+      `SELECT 1
+         FROM frame_selections frame
+         JOIN attempts attempt ON attempt.id = frame.attempt_id
+         JOIN pull_request_revisions revision
+           ON revision.id = attempt.revision_id
+         JOIN pull_requests pull_request
+           ON pull_request.id = revision.pull_request_id
+         JOIN repositories repository
+           ON repository.id = pull_request.repository_id
+          AND repository.id = attempt.repository_id
+         JOIN installations installation
+           ON installation.id = repository.installation_id
+         JOIN recording_objects recording
+           ON recording.attempt_id = attempt.id
+        WHERE frame.id = $1 AND frame.attempt_id = $2
+          AND frame.object_key = $3 AND frame.deleted_at IS NULL
+          AND frame.delete_after = recording.delete_after
+          AND attempt.status = 'processing'
+          AND revision.is_current = true
+          AND pull_request.state = 'open'
+          AND repository.status = 'active'
+          AND installation.status = 'active'
+          AND recording.id = $4 AND recording.deleted_at IS NULL
+          AND recording.delete_after > $5`,
+      [
+        input.id,
+        input.source.attempt_id,
+        input.objectKey,
+        input.source.recording_object_id,
+        new Date(input.now.getTime() + FRAME_RESERVATION_MIN_REMAINING_MS),
+      ],
     );
     if (existing.rowCount === 1) return;
-    throw new Error("Frame ciphertext reservation conflicted");
+    throw new PrivateProviderStageUnavailableError();
   }
 
-  private async loadSource(input: {
-    attemptId: string;
-    recordingObjectId: string;
-  }): Promise<FrameSourceRow> {
+  private async loadSource(
+    input: {
+      attemptId: string;
+      recordingObjectId: string;
+    },
+    now: Date,
+  ): Promise<FrameSourceRow> {
     const result = await this.dependencies.database.pool.query<FrameSourceRow>(
       `SELECT attempt.id AS attempt_id, attempt.status AS attempt_status,
               attempt.head_sha, revision.is_current,
@@ -258,6 +386,13 @@ export class EncryptedFfmpegFrameSelectionAdapter implements ProviderFrameSelect
               material.id AS material_id, material.key_id AS material_key_id
          FROM attempts attempt
          JOIN pull_request_revisions revision ON revision.id = attempt.revision_id
+         JOIN pull_requests pull_request
+           ON pull_request.id = revision.pull_request_id
+         JOIN repositories repository
+           ON repository.id = pull_request.repository_id
+          AND repository.id = attempt.repository_id
+         JOIN installations installation
+           ON installation.id = repository.installation_id
          JOIN recording_objects recording ON recording.attempt_id = attempt.id
          JOIN upload_sessions upload
            ON upload.attempt_id = attempt.id
@@ -265,13 +400,24 @@ export class EncryptedFfmpegFrameSelectionAdapter implements ProviderFrameSelect
          JOIN wrapping_materials material
            ON material.id = recording.wrapping_material_id
         WHERE attempt.id = $1 AND recording.id = $2
+          AND attempt.status = 'processing'
+          AND revision.is_current = true
+          AND pull_request.state = 'open'
+          AND repository.status = 'active'
+          AND installation.status = 'active'
+          AND recording.deleted_at IS NULL
+          AND recording.delete_after > $3
           AND upload.state = 'completed'
         LIMIT 1`,
-      [input.attemptId, input.recordingObjectId],
+      [
+        input.attemptId,
+        input.recordingObjectId,
+        new Date(now.getTime() + FRAME_RESERVATION_MIN_REMAINING_MS),
+      ],
     );
     const row = result.rows[0];
     if (!row || row.finalize_envelope === null) {
-      throw new Error("Frame source recording was not found");
+      throw new PrivateProviderStageUnavailableError();
     }
     return row;
   }

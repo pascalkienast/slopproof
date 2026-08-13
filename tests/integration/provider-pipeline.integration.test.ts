@@ -8,6 +8,11 @@ import {
 } from "@slopproof/db";
 import { DEFAULT_REPOSITORY_POLICY_V1 } from "@slopproof/policy";
 import {
+  RECORDING_CODEC,
+  buildChunkNonce,
+  encodeBase64Url,
+} from "../../packages/media/src/index";
+import {
   FrameSelectionMetadataV1Schema,
   LocalFakeMultimodalJudgeProvider,
   LocalFakeTranscriptionProvider,
@@ -31,7 +36,15 @@ import {
   decryptVersionedProviderPayload,
   type ProviderFrameSelectionAdapter,
 } from "../../apps/worker/src/provider-pipeline";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { PoolClient } from "pg";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -50,6 +63,8 @@ const ids = {
   checkRun: "80000000-0000-4000-8000-000000000010",
   frame: "80000000-0000-4000-8000-000000000011",
   frameDerivative: "80000000-0000-4000-8000-000000000012",
+  uploadSession: "80000000-0000-4000-8000-000000000013",
+  recoveryEvaluation: "80000000-0000-4000-8000-000000000014",
 } as const;
 
 const headSha = "8".repeat(40);
@@ -362,6 +377,281 @@ databaseDescribe("provider pipeline PostgreSQL persistence", () => {
       },
     ]);
     expect(await loadCheckRun(database)).toEqual(checkBefore);
+  });
+
+  it("loads the exact authenticated interval source for worker-only production transcription", async () => {
+    const intervals = proofPlan.questions.map((question, index, questions) => {
+      const startMs = Math.floor(
+        (recordingDurationMs * index) / questions.length,
+      );
+      const endMs = Math.floor(
+        (recordingDurationMs * (index + 1)) / questions.length,
+      );
+      return {
+        schemaVersion: "1" as const,
+        intervalVersion: "proof-question-interval-v1" as const,
+        questionId: question.id,
+        ordinal: index,
+        startMs,
+        endMs,
+        recordedDurationMs: recordingDurationMs,
+        source: "mobile_navigation_v1" as const,
+      };
+    });
+    const noncePrefix = new Uint8Array(8);
+    const finalization = {
+      manifest: {
+        protocolVersion: 1 as const,
+        suiteId: "SP-RC1" as const,
+        attemptId: ids.attempt,
+        headSha,
+        objectId: ids.wrappedObject,
+        codec: RECORDING_CODEC,
+        noncePrefixBase64url: encodeBase64Url(noncePrefix),
+        wrapping: {
+          materialId: ids.wrappingMaterial,
+          keyId: "provider-integration-key",
+          algorithm: "RSA-OAEP-256" as const,
+          wrappedKeySha256: "4".repeat(64),
+        },
+        durationMs: recordingDurationMs,
+        totalPlaintextBytes: 1,
+        totalObjectBytes: 49,
+        questionIntervals: intervals,
+        chunks: [
+          {
+            index: 0,
+            nonce: encodeBase64Url(buildChunkNonce(noncePrefix, 0)),
+            plaintextBytes: 1,
+            sealedBytes: 17,
+            ciphertextSha256: "a".repeat(64),
+          },
+        ],
+        parts: [
+          {
+            partNumber: 1,
+            firstChunkIndex: 0,
+            lastChunkIndex: 0,
+            byteLength: 49,
+            sha256: "b".repeat(64),
+          },
+        ],
+      },
+      manifestTagBase64url: encodeBase64Url(new Uint8Array(32)),
+      manifestDigest: "5".repeat(64),
+      wrappedKey: {
+        materialId: ids.wrappingMaterial,
+        keyId: "provider-integration-key",
+        algorithm: "RSA-OAEP-256" as const,
+        wrappedKeyBase64url: encodeBase64Url(new Uint8Array([1])),
+        wrappedKeySha256: "4".repeat(64),
+      },
+      uploadedParts: [{ partNumber: 1, etag: "private-etag" }],
+    };
+    await database.pool.query(
+      `UPDATE recording_objects
+          SET byte_length = 49, codec = $2
+        WHERE id = $1`,
+      [ids.recordingObject, RECORDING_CODEC],
+    );
+    await database.pool.query(
+      `INSERT INTO upload_sessions
+        (id, attempt_id, object_id, object_key, provider_upload_id, state,
+         expires_at, manifest_digest, finalize_envelope)
+       VALUES ($1, $2, $3, 'evidence/provider-integration.enc',
+               'provider-production-source', 'pending_finalization',
+               '2030-08-14T12:00:00.000Z', $4, $5::jsonb)`,
+      [
+        ids.uploadSession,
+        ids.attempt,
+        ids.wrappedObject,
+        finalization.manifestDigest,
+        JSON.stringify(finalization),
+      ],
+    );
+    await database.pool.query(
+      `INSERT INTO proof_question_interval_sets
+        (attempt_id, upload_session_id, manifest_digest, interval_version,
+         maximum_question_duration_ms, recorded_duration_ms, intervals)
+       VALUES ($1, $2, $3, 'proof-question-interval-v1', 120000, $4, $5::jsonb)`,
+      [
+        ids.attempt,
+        ids.uploadSession,
+        finalization.manifestDigest,
+        recordingDurationMs,
+        JSON.stringify(intervals),
+      ],
+    );
+    await database.pool.query(
+      "UPDATE upload_sessions SET state = 'completed' WHERE id = $1",
+      [ids.uploadSession],
+    );
+    const repository = new PostgresProviderPipelineRepository(
+      database,
+      new RecordingCheckIntentWriter(),
+    );
+
+    const context = await repository.loadTranscriptExtraction({
+      schemaVersion: "1",
+      idempotencyKey: "provider-integration:production-source",
+      attemptId: ids.attempt,
+      recordingObjectId: ids.recordingObject,
+      expectedHeadSha: headSha,
+    });
+
+    expect(context.recordingAudio).toEqual({
+      objectKey: "evidence/provider-integration.enc",
+      source: expect.objectContaining({
+        attemptId: ids.attempt,
+        recordingObjectId: ids.recordingObject,
+        sourceSha256: finalization.manifestDigest,
+        proofQuestionIds: proofPlan.questions.map((question) => question.id),
+        questionIntervals: intervals,
+        finalization,
+      }),
+    });
+  });
+
+  it("rebuilds an exhausted provider stage from the exact committed evaluation ID", async () => {
+    await database.pool.query(
+      `INSERT INTO evaluations
+        (id, attempt_id, provider, model, prompt_version, schema_version,
+         rubric_version, encrypted_payload, recommendation, delete_after)
+       VALUES ($1, $2, 'recovery-provider', 'recovery-model',
+               'proof-judge-system-v1', 'proof-evaluation-v1', 'rubric-v1',
+               'encrypted-recovery-payload', 'pass', $3)`,
+      [
+        ids.recoveryEvaluation,
+        ids.attempt,
+        new Date("2030-08-13T12:00:00.000Z"),
+      ],
+    );
+    const queue = {
+      findJobs: vi.fn(async () => []),
+      upsert: vi.fn(async () => ({ jobs: ["recovery-job"] })),
+    };
+    const repository = new PostgresProviderPipelineRepository(
+      database,
+      new RecordingCheckIntentWriter(),
+      queue as never,
+    );
+
+    await expect(repository.sweepPendingProviderStages()).resolves.toBe(1);
+
+    expect(queue.upsert).toHaveBeenCalledWith(
+      "evaluation.apply-policy",
+      expect.objectContaining({
+        attemptId: ids.attempt,
+        evaluationId: ids.recoveryEvaluation,
+        expectedHeadSha: headSha,
+      }),
+      expect.objectContaining({
+        singletonKey: ids.attempt,
+        db: expect.any(Object),
+      }),
+    );
+  });
+
+  it("fences a valid-policy transition when evidence retention has expired", async () => {
+    await database.pool.query(
+      `INSERT INTO evaluations
+        (id, attempt_id, provider, model, prompt_version, schema_version,
+         rubric_version, encrypted_payload, recommendation, delete_after)
+       VALUES ($1, $2, 'retention-provider', 'retention-model',
+               'proof-judge-system-v1', 'proof-evaluation-v1', 'rubric-v1',
+               'encrypted-retention-payload', 'pass', $3)`,
+      [
+        ids.recoveryEvaluation,
+        ids.attempt,
+        new Date("2030-08-13T12:00:00.000Z"),
+      ],
+    );
+    await database.pool.query(
+      "UPDATE evaluations SET deleted_at = now() WHERE id = $1",
+      [ids.recoveryEvaluation],
+    );
+    const repository = new PostgresProviderPipelineRepository(
+      database,
+      new RecordingCheckIntentWriter(),
+    );
+
+    await expect(
+      repository.transitionToReviewRequired({
+        attemptId: ids.attempt,
+        expectedHeadSha: headSha,
+        idempotencyKey: "provider-integration:expired-policy-fence",
+        evaluationId: ids.recoveryEvaluation,
+        providerRecommendation: "pass",
+        reason: "valid_policy",
+      }),
+    ).resolves.toBe("stale");
+    const attempt = await database.pool.query<{ status: string }>(
+      "SELECT status FROM attempts WHERE id = $1",
+      [ids.attempt],
+    );
+    expect(attempt.rows[0]?.status).toBe("processing");
+  });
+
+  it("fails closed before transcription when retention or GitHub lifecycle access is inactive", async () => {
+    const transcribe = vi.fn(async () => {
+      throw new Error("transcription must not run for inactive private data");
+    });
+    const repository = new PostgresProviderPipelineRepository(
+      database,
+      new RecordingCheckIntentWriter(),
+    );
+    const handlers = createProviderPipelineHandlers({
+      repository,
+      dispatcher: new RecordingDispatcher(),
+      payloadCipher: new PayloadCipher(Buffer.alloc(32, 0x2a)),
+      transcriptionProvider: { transcribe },
+      frameSelectionAdapter: new OneFrameSelectionAdapter(),
+      judgeProvider: new LocalFakeMultimodalJudgeProvider({
+        now: () => clockTime,
+      }),
+      clock: { now: () => clockTime },
+    });
+    const cases = [
+      {
+        disable:
+          "UPDATE repositories SET status = 'suspended', suspended_at = now() WHERE id = $1",
+        enable:
+          "UPDATE repositories SET status = 'active', suspended_at = NULL WHERE id = $1",
+        id: ids.repository,
+      },
+      {
+        disable:
+          "UPDATE installations SET status = 'suspended', suspended_at = now() WHERE id = $1",
+        enable:
+          "UPDATE installations SET status = 'active', suspended_at = NULL WHERE id = $1",
+        id: ids.installation,
+      },
+      {
+        disable: "UPDATE pull_requests SET state = 'closed' WHERE id = $1",
+        enable: "UPDATE pull_requests SET state = 'open' WHERE id = $1",
+        id: ids.pullRequest,
+      },
+      {
+        disable:
+          "UPDATE recording_objects SET deleted_at = now() WHERE id = $1",
+        enable: "UPDATE recording_objects SET deleted_at = NULL WHERE id = $1",
+        id: ids.recordingObject,
+      },
+    ];
+
+    for (const [index, lifecycle] of cases.entries()) {
+      await database.pool.query(lifecycle.disable, [lifecycle.id]);
+      const outcome = await handlers.extractTranscript({
+        schemaVersion: "1",
+        idempotencyKey: `provider-integration:inactive:${String(index)}`,
+        attemptId: ids.attempt,
+        recordingObjectId: ids.recordingObject,
+        expectedHeadSha: headSha,
+      });
+      expect(outcome.outcome).toBe("stale");
+      expect(transcribe).not.toHaveBeenCalled();
+      await database.pool.query(lifecycle.enable, [lifecycle.id]);
+    }
   });
 });
 

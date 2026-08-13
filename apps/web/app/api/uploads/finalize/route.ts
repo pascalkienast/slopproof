@@ -3,6 +3,7 @@ import {
   MAX_FINALIZE_JSON_BYTES,
   MAX_RECORDING_DURATION_MS,
   MAX_RECORDING_OBJECT_BYTES,
+  validateProofQuestionIntervalsV1,
   verifyProviderPartList,
 } from "@slopproof/media";
 import {
@@ -60,6 +61,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       upload_expires_at: Date;
       author_id: string;
       repository_id: string;
+      pull_request_state: string;
+      repository_status: string;
+      installation_status: string;
+      proof_plan_id: string;
       attempt_id: string;
       attempt_status: string;
       head_sha: string;
@@ -74,7 +79,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       `SELECT upload.object_key, upload.provider_upload_id, upload.object_id,
               upload.state AS upload_state, upload.manifest_digest,
               upload.expires_at AS upload_expires_at, attempt.author_id,
-              attempt.repository_id, attempt.id AS attempt_id,
+              attempt.repository_id, attempt.proof_plan_id,
+              pull_request.state AS pull_request_state,
+              repository.status AS repository_status,
+              installation.status AS installation_status,
+              attempt.id AS attempt_id,
               attempt.status AS attempt_status, attempt.head_sha,
               attempt.evidence_delete_after,
               revision.is_current, material.id AS material_id,
@@ -82,6 +91,10 @@ export async function POST(request: Request): Promise<NextResponse> {
        FROM upload_sessions upload
        JOIN attempts attempt ON attempt.id = upload.attempt_id
        JOIN pull_request_revisions revision ON revision.id = attempt.revision_id
+       JOIN pull_requests pull_request ON pull_request.id = revision.pull_request_id
+         AND pull_request.repository_id = attempt.repository_id
+       JOIN repositories repository ON repository.id = attempt.repository_id
+       JOIN installations installation ON installation.id = repository.installation_id
        JOIN proof_plans proof_plan ON proof_plan.id = attempt.proof_plan_id
        JOIN repository_policies repository_policy
          ON repository_policy.id = proof_plan.repository_policy_id
@@ -120,6 +133,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       session.repositoryId !== row.repository_id ||
       disposition === "reject" ||
       !row.is_current ||
+      row.pull_request_state !== "open" ||
+      row.repository_status !== "active" ||
+      row.installation_status !== "active" ||
       manifest.attemptId !== row.attempt_id ||
       manifest.headSha !== row.head_sha ||
       manifest.objectId !== row.object_id ||
@@ -132,6 +148,34 @@ export async function POST(request: Request): Promise<NextResponse> {
     ) {
       return NextResponse.json(
         { error: "finalization_rejected" },
+        { status: 409 },
+      );
+    }
+    let questionIntervals;
+    if (manifest.questionIntervals !== undefined) {
+      const storedQuestions = await app.database.pool.query<{ id: string }>(
+        `SELECT id FROM proof_questions
+          WHERE proof_plan_id = $1 AND required = true
+          ORDER BY ordinal ASC`,
+        [row.proof_plan_id],
+      );
+      try {
+        questionIntervals = validateProofQuestionIntervalsV1({
+          intervals: manifest.questionIntervals,
+          expectedQuestionIds: storedQuestions.rows.map(
+            (question) => question.id,
+          ),
+          recordingDurationMs: manifest.durationMs,
+        });
+      } catch {
+        return NextResponse.json(
+          { error: "question_intervals_rejected" },
+          { status: 409 },
+        );
+      }
+    } else if (disposition === "fresh") {
+      return NextResponse.json(
+        { error: "question_intervals_rejected" },
         { status: 409 },
       );
     }
@@ -187,6 +231,12 @@ export async function POST(request: Request): Promise<NextResponse> {
         evidenceDeleteAfter:
           row.evidence_delete_after ??
           calculateEvidenceDeleteAfter(new Date(), limits.retentionHours),
+        ...(questionIntervals === undefined
+          ? {}
+          : {
+              questionIntervals,
+              recordingDurationMs: manifest.durationMs,
+            }),
       },
     );
     return NextResponse.json({ accepted: true, replay: persisted.replay });

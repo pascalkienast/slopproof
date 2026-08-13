@@ -175,6 +175,52 @@ describe("SP-RC1 golden vectors", () => {
 });
 
 describe("SP-RC1 validation and authentication", () => {
+  it("keeps legacy SP-RC1 vectors stable while authenticating the optional V1 interval extension", async () => {
+    const keys = await deriveRecordingKeys(masterKey, binding);
+    const extended = {
+      ...cloneManifest(),
+      questionIntervals: [
+        {
+          schemaVersion: "1" as const,
+          intervalVersion: "proof-question-interval-v1" as const,
+          questionId: "44444444-4444-4444-8444-444444444444",
+          ordinal: 0,
+          startMs: 0,
+          endMs: 1_234,
+          recordedDurationMs: 1_234,
+          source: "mobile_navigation_v1" as const,
+        },
+      ],
+    };
+    const canonical = new TextDecoder().decode(
+      canonicalManifestBytes(extended),
+    );
+    expect(canonical).toContain("proof-question-intervals-v1");
+    expect(canonical).not.toBe(expected.manifestCanonical);
+    const authenticated = await authenticateManifest(
+      extended,
+      keys.manifestKey,
+    );
+    expect(authenticated.manifestDigest).not.toBe(expected.manifestDigest);
+    await expect(
+      verifyAuthenticatedManifest(
+        {
+          ...authenticated,
+          manifest: {
+            ...authenticated.manifest,
+            questionIntervals: [
+              {
+                ...authenticated.manifest.questionIntervals![0]!,
+                endMs: 1_233,
+              },
+            ],
+          },
+        },
+        keys.manifestKey,
+      ),
+    ).rejects.toThrow();
+  });
+
   it("uses strict schemas and canonical normal forms", () => {
     expect(() =>
       RecordingManifestSchema.parse({ ...goldenManifest, unexpected: true }),

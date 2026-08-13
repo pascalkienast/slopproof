@@ -52,6 +52,9 @@ export type MediaFinalizationRow = {
   revision_id: string;
   head_sha: string;
   is_current: boolean;
+  pull_request_state: string;
+  repository_status: string;
+  installation_status: string;
   material_id: string;
   key_id: string;
   evidence_delete_after: Date | null;
@@ -149,11 +152,18 @@ async function loadFinalization(
             attempt.status AS attempt_status, attempt.revision_id,
             attempt.head_sha,
             attempt.evidence_delete_after, revision.is_current,
+            pull_request.state AS pull_request_state,
+            repository.status AS repository_status,
+            installation.status AS installation_status,
             material.id AS material_id, material.key_id,
             repository_policy.policy
      FROM upload_sessions upload
      JOIN attempts attempt ON attempt.id = upload.attempt_id
      JOIN pull_request_revisions revision ON revision.id = attempt.revision_id
+     JOIN pull_requests pull_request ON pull_request.id = revision.pull_request_id
+       AND pull_request.repository_id = attempt.repository_id
+     JOIN repositories repository ON repository.id = attempt.repository_id
+     JOIN installations installation ON installation.id = repository.installation_id
      JOIN proof_plans proof_plan ON proof_plan.id = attempt.proof_plan_id
      JOIN repository_policies repository_policy
        ON repository_policy.id = proof_plan.repository_policy_id
@@ -177,6 +187,11 @@ function assertBinding(
   if (
     row.attempt_status !== "processing" ||
     !row.is_current ||
+    row.pull_request_state !== "open" ||
+    row.repository_status !== "active" ||
+    row.installation_status !== "active" ||
+    row.evidence_delete_after === null ||
+    row.evidence_delete_after <= new Date() ||
     row.head_sha !== job.expectedHeadSha ||
     manifest.attemptId !== row.attempt_id ||
     manifest.headSha !== row.head_sha ||

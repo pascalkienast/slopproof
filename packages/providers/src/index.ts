@@ -3,6 +3,7 @@ export * from "./errors";
 export * from "./fakes";
 export * from "./hetzner-semantic";
 export * from "./learning-proof";
+export * from "./openrouter-transcription";
 export * from "./payload-cipher";
 export * from "./semantic-fakes";
 
