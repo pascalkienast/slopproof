@@ -426,6 +426,11 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
 
 test("managed upgrades are reversible only across an unchanged schema and Caddy boundary", () => {
   const deploy = read("scripts/production-deploy/deploy.sh");
+  assert.doesNotMatch(
+    deploy,
+    /local source=\$1 migration_root="\$source\//u,
+    "set -u requires dependent local assignments to happen after declaration",
+  );
   const prepare = deploy.slice(
     deploy.indexOf("phase_managed_prepare()"),
     deploy.indexOf("restore_failed_managed_finalize()"),

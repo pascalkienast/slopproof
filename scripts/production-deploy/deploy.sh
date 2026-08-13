@@ -243,7 +243,8 @@ assert_release_container_images() {
 }
 
 migration_fingerprint() {
-  local source=$1 migration_root="$source/packages/db/migrations"
+  local source=$1 migration_root
+  migration_root="$source/packages/db/migrations"
   [[ -d "$migration_root" && ! -L "$migration_root" ]] ||
     die "Migration directory is absent or unsafe"
   [[ -z $(find "$migration_root" -mindepth 1 ! -type f -print -quit) ]] ||
