@@ -77,7 +77,10 @@ restore_age=$((now_epoch - restore_epoch))
   "$restore_age" -ge 0 && "$restore_age" -le 900 ]] ||
   die "Backup or restore evidence is too old for migration"
 
-boundary=$(mktemp /private/tmp/slopproof-backup-boundary.XXXXXXXX)
+temporary_root=${TMPDIR:-/tmp}
+[[ "$temporary_root" == /* && -d "$temporary_root" && ! -L "$temporary_root" ]] ||
+  die "Temporary directory boundary is invalid"
+boundary=$(mktemp "$temporary_root/slopproof-backup-boundary.XXXXXXXX")
 [[ -f "$boundary" && ! -L "$boundary" ]] || die "Unsafe temporary boundary"
 trap 'rm -f -- "$boundary"' EXIT
 jq -n --arg releaseId "$release_id" --arg commit "$commit" \

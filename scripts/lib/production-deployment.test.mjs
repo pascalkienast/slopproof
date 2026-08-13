@@ -632,6 +632,9 @@ test("backup boundary transfer uses a clean trusted verifier and bounded exact c
   assert.match(transfer, /alarm shift; exec @ARGV or exit 127' 120/u);
   assert.match(transfer, /ServerAliveInterval=10/u);
   assert.match(transfer, /trap 'rm -f -- "\$boundary"' EXIT/u);
+  assert.match(transfer, /temporary_root=\$\{TMPDIR:-\/tmp\}/u);
+  assert.match(transfer, /Temporary directory boundary is invalid/u);
+  assert.doesNotMatch(transfer, /\/private\/tmp/u);
   for (const script of [transfer, installer]) {
     assert.match(script, /\$\{#(?:boundary_base64|encoded_boundary)\} -ge 1/u);
     assert.match(
