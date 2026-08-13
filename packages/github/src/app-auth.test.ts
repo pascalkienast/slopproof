@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createGithubAppJwt,
+  isPrivateKeyFileMetadataSafe,
   RepositoryInstallationTokenCache,
 } from "./app-auth";
 import { GithubControlError } from "./production-errors";
@@ -100,6 +101,55 @@ describe("GitHub App authentication", () => {
     await expect(
       createGithubAppJwt({ appId: "1", privateKeyPath: ecPath }),
     ).rejects.toMatchObject({ code: "INVALID_KEY_FILE" });
+  });
+
+  it("accepts only the safe root-owned named-ACL stat projection", () => {
+    const metadata = (
+      mode: number,
+      uid = 0,
+      gid = 0,
+    ): Parameters<typeof isPrivateKeyFileMetadataSafe>[0] => ({
+      gid,
+      isFile: () => true,
+      mode,
+      size: 1_700,
+      uid,
+    });
+    const containerIdentity = { effectiveUserId: 1_000, groups: [1_000] };
+
+    expect(
+      isPrivateKeyFileMetadataSafe(metadata(0o100640), containerIdentity),
+    ).toBe(true);
+    expect(
+      isPrivateKeyFileMetadataSafe(
+        metadata(0o100600, 1_000, 1_000),
+        containerIdentity,
+      ),
+    ).toBe(true);
+
+    for (const unsafe of [
+      metadata(0o100640, 1_000, 1_000),
+      metadata(0o100660),
+      metadata(0o100644),
+      metadata(0o100740),
+      metadata(0o104640),
+    ]) {
+      expect(isPrivateKeyFileMetadataSafe(unsafe, containerIdentity)).toBe(
+        false,
+      );
+    }
+    expect(
+      isPrivateKeyFileMetadataSafe(metadata(0o100640), {
+        effectiveUserId: 1_000,
+        groups: [0, 1_000],
+      }),
+    ).toBe(false);
+    expect(
+      isPrivateKeyFileMetadataSafe(metadata(0o100640), {
+        effectiveUserId: 0,
+        groups: [0],
+      }),
+    ).toBe(false);
   });
 });
 

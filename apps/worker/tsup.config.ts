@@ -6,9 +6,9 @@ export default defineConfig({
   platform: "node",
   target: "node24",
   outDir: "dist",
-  sourcemap: true,
+  sourcemap: false,
   clean: true,
   splitting: false,
-  noExternal: [/^@slopproof\//],
+  noExternal: [/.*/],
   outExtension: () => ({ js: ".cjs" }),
 });

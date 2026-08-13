@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import {
+  InvalidRequestBodyError,
+  InvalidRequestBodyEncodingError,
+  readBoundedJson,
+  RequestBodyTooLargeError,
+} from "../../../../../lib/bounded-body";
 import { requireMutationSession } from "../../../../../lib/http-auth";
-import { decideReview } from "../../../../../lib/maintainer-review";
+import {
+  decideReview,
+  ReviewDecisionInputSchema,
+} from "../../../../../lib/maintainer-review";
 import { createWebCheckIntentWriter } from "../../../../../lib/check-intent-writer";
 import {
   jsonError,
@@ -10,12 +20,6 @@ import {
 import { getWebRuntime } from "../../../../../lib/runtime";
 
 const MAX_DECISION_BODY_BYTES = 16 * 1_024;
-
-class DecisionBodyError extends Error {
-  constructor(readonly status: 400 | 413) {
-    super("Invalid review decision body");
-  }
-}
 
 export async function POST(
   request: Request,
@@ -27,7 +31,11 @@ export async function POST(
     const attemptId = ReviewAttemptIdSchema.parse(
       (await context.params).attemptId,
     );
-    const input = await readBoundedJson(request);
+    const input = await readBoundedJson(
+      request,
+      MAX_DECISION_BODY_BYTES,
+      ReviewDecisionInputSchema,
+    );
     const result = await decideReview(
       app,
       request,
@@ -40,63 +48,19 @@ export async function POST(
       headers: { "cache-control": "no-store" },
     });
   } catch (error) {
-    if (error instanceof DecisionBodyError) {
-      return jsonError(
-        error.status === 413 ? "request_too_large" : "invalid_request",
-        error.status,
-      );
+    if (error instanceof RequestBodyTooLargeError) {
+      return jsonError("request_too_large", 413);
+    }
+    if (
+      error instanceof InvalidRequestBodyError ||
+      error instanceof InvalidRequestBodyEncodingError ||
+      error instanceof z.ZodError
+    ) {
+      return jsonError("invalid_request", 400);
     }
     return (
       reviewRouteErrorResponse(error) ??
       jsonError("temporarily_unavailable", 503)
     );
-  }
-}
-
-async function readBoundedJson(request: Request): Promise<unknown> {
-  if (
-    !request.headers
-      .get("content-type")
-      ?.toLowerCase()
-      .startsWith("application/json")
-  ) {
-    throw new DecisionBodyError(400);
-  }
-  const declaredLength = request.headers.get("content-length");
-  if (declaredLength !== null) {
-    const parsed = Number(declaredLength);
-    if (!Number.isSafeInteger(parsed) || parsed < 0) {
-      throw new DecisionBodyError(400);
-    }
-    if (parsed > MAX_DECISION_BODY_BYTES) throw new DecisionBodyError(413);
-  }
-  if (!request.body) throw new DecisionBodyError(400);
-
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > MAX_DECISION_BODY_BYTES) {
-        await reader.cancel();
-        throw new DecisionBodyError(413);
-      }
-      chunks.push(value);
-    }
-    const body = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      body.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
-  } catch (error) {
-    if (error instanceof DecisionBodyError) throw error;
-    throw new DecisionBodyError(400);
-  } finally {
-    reader.releaseLock();
   }
 }

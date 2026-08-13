@@ -11,10 +11,22 @@ import {
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  InvalidRequestBodyError,
+  InvalidRequestBodyEncodingError,
+  readBoundedJson,
+  RequestBodyTooLargeError,
+} from "../../../../lib/bounded-body";
+import {
   authErrorResponse,
   requireMutationSession,
 } from "../../../../lib/http-auth";
 import { getWebRuntime } from "../../../../lib/runtime";
+import {
+  consumeWebRequestRateLimit,
+  createWebRequestSubjectHash,
+  WebRequestRateLimitExceededError,
+  webRequestRateLimitResponse,
+} from "../../../../lib/request-rate-limit";
 
 const InputSchema = z
   .object({
@@ -25,15 +37,21 @@ const InputSchema = z
     ),
   })
   .strict();
+const MAX_BODY_BYTES = 2 * 1_024;
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     const app = await getWebRuntime();
     const session = await requireMutationSession(request, app);
-    const input = InputSchema.safeParse(await request.json().catch(() => null));
-    if (!input.success) {
-      return NextResponse.json({ error: "invalid_request" }, { status: 400 });
-    }
+    const input = await readBoundedJson(request, MAX_BODY_BYTES, InputSchema);
+    await consumeWebRequestRateLimit(app.database.pool, {
+      action: "upload_part_url",
+      subjectKeyHash: createWebRequestSubjectHash(
+        app.config.SESSION_SECRET,
+        "upload_part_url",
+        [session.actorId, session.repositoryId ?? "repository-unbound"],
+      ),
+    });
     const result = await app.database.pool.query<{
       object_key: string;
       provider_upload_id: string;
@@ -64,7 +82,7 @@ export async function POST(request: Request): Promise<NextResponse> {
        JOIN repository_policies repository_policy
          ON repository_policy.id = proof_plan.repository_policy_id
        WHERE upload.id = $1`,
-      [input.data.uploadSessionId],
+      [input.uploadSessionId],
     );
     const row = result.rows[0];
     const maximumUploadBytes = row
@@ -85,8 +103,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       row.attempt_status !== "uploading" ||
       !row.is_current ||
       row.upload_expires_at <= new Date() ||
-      row.next_part_number !== input.data.part.partNumber ||
-      Number(row.acknowledged_bytes) + input.data.part.byteLength >
+      row.next_part_number !== input.part.partNumber ||
+      Number(row.acknowledged_bytes) + input.part.byteLength >
         maximumUploadBytes
     ) {
       return NextResponse.json({ error: "part_rejected" }, { status: 409 });
@@ -101,9 +119,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     const uploadUrl = await app.storage.presignUploadPart({
       objectKey: row.object_key,
       uploadId: row.provider_upload_id,
-      partNumber: input.data.part.partNumber,
-      byteLength: input.data.part.byteLength,
-      sha256: input.data.part.sha256,
+      partNumber: input.part.partNumber,
+      byteLength: input.part.byteLength,
+      sha256: input.part.sha256,
       expiresInSeconds,
     });
     return NextResponse.json({
@@ -112,9 +130,24 @@ export async function POST(request: Request): Promise<NextResponse> {
       headers: { "content-type": "application/octet-stream" },
     });
   } catch (error) {
-    return (
-      authErrorResponse(error) ??
-      NextResponse.json({ error: "temporarily_unavailable" }, { status: 503 })
+    const auth = authErrorResponse(error);
+    if (auth) return auth;
+    if (error instanceof RequestBodyTooLargeError) {
+      return NextResponse.json({ error: "request_too_large" }, { status: 413 });
+    }
+    if (
+      error instanceof InvalidRequestBodyError ||
+      error instanceof InvalidRequestBodyEncodingError ||
+      error instanceof z.ZodError
+    ) {
+      return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+    }
+    if (error instanceof WebRequestRateLimitExceededError) {
+      return webRequestRateLimitResponse(error);
+    }
+    return NextResponse.json(
+      { error: "temporarily_unavailable" },
+      { status: 503 },
     );
   }
 }

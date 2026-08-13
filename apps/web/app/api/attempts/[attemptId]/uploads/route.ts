@@ -4,10 +4,22 @@ import { createOpaqueEvidenceObjectKey } from "@slopproof/storage";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  InvalidRequestBodyError,
+  InvalidRequestBodyEncodingError,
+  readBoundedJson,
+  RequestBodyTooLargeError,
+} from "../../../../../lib/bounded-body";
+import {
   authErrorResponse,
   requireMutationSession,
 } from "../../../../../lib/http-auth";
 import { getWebRuntime } from "../../../../../lib/runtime";
+import {
+  consumeWebRequestRateLimit,
+  createWebRequestSubjectHash,
+  WebRequestRateLimitExceededError,
+  webRequestRateLimitResponse,
+} from "../../../../../lib/request-rate-limit";
 
 const InputSchema = z
   .object({
@@ -16,6 +28,8 @@ const InputSchema = z
     codec: z.literal(RECORDING_CODEC),
   })
   .strict();
+const AttemptIdSchema = z.string().uuid();
+const MAX_BODY_BYTES = 512;
 
 export async function POST(
   request: Request,
@@ -26,11 +40,16 @@ export async function POST(
   try {
     const app = await getWebRuntime();
     const session = await requireMutationSession(request, app);
-    const input = InputSchema.safeParse(await request.json().catch(() => null));
-    if (!input.success) {
-      return NextResponse.json({ error: "invalid_request" }, { status: 400 });
-    }
-    const { attemptId } = await context.params;
+    const input = await readBoundedJson(request, MAX_BODY_BYTES, InputSchema);
+    const attemptId = AttemptIdSchema.parse((await context.params).attemptId);
+    await consumeWebRequestRateLimit(app.database.pool, {
+      action: "upload_start",
+      subjectKeyHash: createWebRequestSubjectHash(
+        app.config.SESSION_SECRET,
+        "upload_start",
+        [session.actorId, session.repositoryId ?? "repository-unbound"],
+      ),
+    });
     const authorized = await app.database.pool.query<{
       author_id: string;
       repository_id: string;
@@ -51,7 +70,7 @@ export async function POST(
        JOIN pull_request_revisions revision ON revision.id = attempt.revision_id
        JOIN wrapping_materials material ON material.attempt_id = attempt.id
        WHERE attempt.id = $1 AND material.id = $2`,
-      [attemptId, input.data.materialId],
+      [attemptId, input.materialId],
     );
     const row = authorized.rows[0];
     const now = new Date();
@@ -64,7 +83,7 @@ export async function POST(
       !row.is_current ||
       row.expires_at <= now ||
       row.usable_until <= now ||
-      row.material_object_id !== input.data.objectId
+      row.material_object_id !== input.objectId
     ) {
       return NextResponse.json({ error: "upload_rejected" }, { status: 409 });
     }
@@ -81,7 +100,7 @@ export async function POST(
     if (existingRow) {
       if (
         row.status === "uploading" &&
-        existingRow.object_id === input.data.objectId &&
+        existingRow.object_id === input.objectId &&
         existingRow.state === "active"
       ) {
         return NextResponse.json({
@@ -133,7 +152,7 @@ export async function POST(
         [
           uploadSessionId,
           attemptId,
-          input.data.objectId,
+          input.objectId,
           objectKey,
           providerUploadId,
           row.expires_at,
@@ -164,7 +183,7 @@ export async function POST(
     }
     return NextResponse.json({
       uploadSessionId,
-      objectId: input.data.objectId,
+      objectId: input.objectId,
     });
   } catch (error) {
     if (createdObject) {
@@ -176,9 +195,24 @@ export async function POST(
         )
         .catch(() => undefined);
     }
-    return (
-      authErrorResponse(error) ??
-      NextResponse.json({ error: "temporarily_unavailable" }, { status: 503 })
+    const auth = authErrorResponse(error);
+    if (auth) return auth;
+    if (error instanceof RequestBodyTooLargeError) {
+      return NextResponse.json({ error: "request_too_large" }, { status: 413 });
+    }
+    if (
+      error instanceof InvalidRequestBodyError ||
+      error instanceof InvalidRequestBodyEncodingError ||
+      error instanceof z.ZodError
+    ) {
+      return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+    }
+    if (error instanceof WebRequestRateLimitExceededError) {
+      return webRequestRateLimitResponse(error);
+    }
+    return NextResponse.json(
+      { error: "temporarily_unavailable" },
+      { status: 503 },
     );
   }
 }

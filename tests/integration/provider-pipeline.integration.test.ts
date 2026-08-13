@@ -286,7 +286,7 @@ databaseDescribe("provider pipeline PostgreSQL persistence", () => {
         JSON.stringify({
           ...DEFAULT_REPOSITORY_POLICY_V1,
           evidence: {
-            retentionHours: 168,
+            retentionHours: 12,
             deleteAfterMaintainerPass: false,
           },
         }),

@@ -38,7 +38,6 @@ export type ReviewStreamDependencies = {
 };
 
 export type ReviewStreamFailure = {
-  attemptId: string;
   stage:
     "capability" | "authorization" | "binding" | "key" | "storage" | "stream";
   errorClass: string;
@@ -164,7 +163,6 @@ export async function handleReviewEvidenceRequest(
     );
   } catch (error) {
     dependencies.onFailure?.({
-      attemptId: match[1] ?? "unknown",
       stage,
       errorClass: error instanceof Error ? error.name : "UnknownError",
     });

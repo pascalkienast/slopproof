@@ -5,6 +5,7 @@ import {
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   HeadObjectCommand,
   ListMultipartUploadsCommand,
   ListPartsCommand,
@@ -37,7 +38,12 @@ const PresignUploadPartSchema = z
     partNumber: z.number().int().positive(),
     byteLength: z.number().int().positive(),
     sha256: z.string().regex(/^[0-9a-f]{64}$/),
-    expiresInSeconds: z.number().int().positive().optional(),
+    expiresInSeconds: z
+      .number()
+      .int()
+      .positive()
+      .max(5 * 60)
+      .optional(),
   })
   .strict();
 
@@ -283,6 +289,21 @@ export class S3EvidenceStore {
       return { byteLength: output.ContentLength };
     } catch (error) {
       throw new EvidenceStorageError("head_object", { cause: error });
+    }
+  }
+
+  /**
+   * Verifies the configured bucket and credentials without enumerating or
+   * downloading evidence. The caller owns the deadline through AbortSignal.
+   */
+  async assertBucketAccessible(abortSignal?: AbortSignal): Promise<void> {
+    try {
+      await this.#control.send(
+        new HeadBucketCommand({ Bucket: this.#bucket }),
+        abortSignal ? { abortSignal } : undefined,
+      );
+    } catch (error) {
+      throw new EvidenceStorageError("head_bucket", { cause: error });
     }
   }
 

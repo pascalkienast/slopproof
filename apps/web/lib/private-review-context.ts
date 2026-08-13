@@ -8,6 +8,10 @@ import { WORKER_REVIEW_CONTEXT_PATH } from "./evidence-worker-contract";
 import type { MaintainerAuthorizationDependencies } from "./maintainer-authorization";
 import { requireEvidenceAccess, writeReviewAudit } from "./maintainer-review";
 import type { WebRuntime } from "./runtime";
+import {
+  consumeWebRequestRateLimit,
+  createWebRequestSubjectHash,
+} from "./request-rate-limit";
 
 const MAX_CONTEXT_BYTES = 8 * 1024 * 1024;
 
@@ -18,6 +22,14 @@ export async function loadPrivateReviewContext(
   attemptId: string,
   authorizationDependencies: MaintainerAuthorizationDependencies = {},
 ): Promise<PrivateReviewContext | null> {
+  await consumeWebRequestRateLimit(app.database.pool, {
+    action: "review_context",
+    subjectKeyHash: createWebRequestSubjectHash(
+      app.config.SESSION_SECRET,
+      "review_context",
+      [session.actorId, session.repositoryId ?? "repository-unbound"],
+    ),
+  });
   const client = await app.database.pool.connect();
   let token: string;
   try {

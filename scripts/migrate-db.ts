@@ -1,11 +1,9 @@
+import { loadMigrationConfig } from "@slopproof/config";
 import { connectDatabase, migrateDatabase } from "@slopproof/db";
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error("DATABASE_URL is required");
-}
+const config = loadMigrationConfig();
 
-const connection = connectDatabase(connectionString);
+const connection = connectDatabase(config.DATABASE_URL);
 try {
   await migrateDatabase(connection.pool);
   process.stdout.write("Database migrations applied.\n");

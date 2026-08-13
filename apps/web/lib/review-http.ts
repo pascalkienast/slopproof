@@ -4,6 +4,10 @@ import { EvidenceCapabilityError } from "./evidence-capability";
 import { authErrorResponse } from "./http-auth";
 import { MaintainerAuthorizationError } from "./maintainer-authorization";
 import { ReviewConflictError, ReviewNotFoundError } from "./maintainer-review";
+import {
+  WebRequestRateLimitExceededError,
+  webRequestRateLimitResponse,
+} from "./request-rate-limit";
 
 export const ReviewAttemptIdSchema = z.string().uuid();
 
@@ -21,6 +25,9 @@ export function reviewRouteErrorResponse(error: unknown): NextResponse | null {
   }
   if (error instanceof EvidenceCapabilityError) {
     return jsonError("invalid_capability", 401);
+  }
+  if (error instanceof WebRequestRateLimitExceededError) {
+    return webRequestRateLimitResponse(error);
   }
   if (error instanceof z.ZodError) {
     return jsonError("invalid_request", 400);

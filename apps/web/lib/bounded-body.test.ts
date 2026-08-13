@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
+  InvalidRequestBodyError,
   InvalidRequestBodyEncodingError,
   readBoundedBody,
+  readBoundedJson,
   readBoundedUtf8Body,
+  requireEmptyRequestBody,
   RequestBodyTooLargeError,
 } from "./bounded-body";
 
@@ -75,5 +79,69 @@ describe("bounded request bodies", () => {
     await expect(readBoundedUtf8Body(request, 1)).rejects.toBeInstanceOf(
       InvalidRequestBodyEncodingError,
     );
+  });
+
+  it("parses strict JSON only after exact byte and UTF-8 checks", async () => {
+    const request = new Request("https://slopproof.test/upload", {
+      method: "POST",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ uploadSessionId: "session" }),
+    });
+
+    await expect(
+      readBoundedJson(
+        request,
+        128,
+        z.object({ uploadSessionId: z.literal("session") }).strict(),
+      ),
+    ).resolves.toEqual({ uploadSessionId: "session" });
+  });
+
+  it("rejects non-JSON media types and non-UTF-8 charset claims", async () => {
+    for (const contentType of [
+      "text/plain",
+      "application/json; charset=latin1",
+      "application/json; profile=anything",
+    ]) {
+      const request = new Request("https://slopproof.test/upload", {
+        method: "POST",
+        headers: { "content-type": contentType },
+        body: "{}",
+      });
+      await expect(
+        readBoundedJson(request, 16, z.object({}).strict()),
+      ).rejects.toBeInstanceOf(InvalidRequestBodyError);
+    }
+  });
+
+  it("rejects a declared length that does not equal the consumed JSON bytes", async () => {
+    const request = new Request("https://slopproof.test/upload", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": "3",
+      },
+      body: "{}",
+    });
+
+    await expect(
+      readBoundedJson(request, 16, z.object({}).strict()),
+    ).rejects.toBeInstanceOf(InvalidRequestBodyError);
+  });
+
+  it("accepts a bodyless mutation and rejects any streamed body bytes", async () => {
+    await expect(
+      requireEmptyRequestBody(
+        new Request("https://slopproof.test/handoff", { method: "POST" }),
+      ),
+    ).resolves.toBeUndefined();
+    await expect(
+      requireEmptyRequestBody(
+        new Request("https://slopproof.test/handoff", {
+          method: "POST",
+          body: new Uint8Array([0]),
+        }),
+      ),
+    ).rejects.toBeInstanceOf(InvalidRequestBodyError);
   });
 });

@@ -2,6 +2,7 @@ import { MaintainerAuthorizationError } from "../../lib/maintainer-authorization
 import { loadReviewQueue } from "../../lib/maintainer-review";
 import { readPageSessionRequest } from "../../lib/http-auth";
 import { getWebRuntime } from "../../lib/runtime";
+import { WebRequestRateLimitExceededError } from "../../lib/request-rate-limit";
 import { DemoMaintainerLogin } from "./demo-maintainer-login";
 
 export const dynamic = "force-dynamic";
@@ -91,6 +92,21 @@ export default async function ReviewQueuePage() {
       </ReviewShell>
     );
   } catch (error) {
+    if (error instanceof WebRequestRateLimitExceededError) {
+      return (
+        <ReviewShell>
+          <section className="notice-card review-empty">
+            <p className="eyebrow">Protected review</p>
+            <h2>Review refresh is temporarily limited.</h2>
+            <p>
+              Try again in {error.retryAfterSeconds} second
+              {error.retryAfterSeconds === 1 ? "" : "s"}. No private review data
+              was returned by this request.
+            </p>
+          </section>
+        </ReviewShell>
+      );
+    }
     if (!(error instanceof MaintainerAuthorizationError)) throw error;
     return (
       <ReviewShell>

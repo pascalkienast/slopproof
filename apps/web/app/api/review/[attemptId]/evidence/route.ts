@@ -20,6 +20,10 @@ import {
   ReviewAttemptIdSchema,
   reviewRouteErrorResponse,
 } from "../../../../../lib/review-http";
+import {
+  consumeWebRequestRateLimit,
+  createWebRequestSubjectHash,
+} from "../../../../../lib/request-rate-limit";
 import { getWebRuntime } from "../../../../../lib/runtime";
 
 export async function GET(
@@ -45,6 +49,14 @@ export async function GET(
     ) {
       return jsonError("forbidden", 403);
     }
+    await consumeWebRequestRateLimit(app.database.pool, {
+      action: "evidence_stream",
+      subjectKeyHash: createWebRequestSubjectHash(
+        app.config.SESSION_SECRET,
+        "evidence_stream",
+        [session.actorId, capability.repositoryId],
+      ),
+    });
 
     const client = await app.database.pool.connect();
     try {

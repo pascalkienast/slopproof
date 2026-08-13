@@ -1,0 +1,121 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+
+function read(relativePath) {
+  return readFileSync(
+    new URL(`../../${relativePath}`, import.meta.url),
+    "utf8",
+  );
+}
+
+test("Caddy keeps the landing root exact and proxies only named app paths", () => {
+  const caddy = read("infra/caddy/Caddyfile.production");
+
+  assert.match(caddy, /@landing \{\s*method GET HEAD\s*path \/\s*\}/u);
+  assert.match(caddy, /handle @landing \{[\s\S]*?file_server\s*\}/u);
+  assert.match(
+    caddy,
+    /@app path \/api \/api\/\* \/_next \/_next\/\* \/revisions \/revisions\/\* \/m \/m\/\* \/review \/review\/\* \/icon\.svg/u,
+  );
+  assert.match(caddy, /reverse_proxy 127\.0\.0\.1:3000/u);
+  assert.match(caddy, /handle \{\s*respond "Not found" 404\s*\}/u);
+  assert.doesNotMatch(caddy, /reverse_proxy\s+(?!127\.0\.0\.1:3000)/u);
+  assert.match(caddy, />Strict-Transport-Security/u);
+  assert.match(caddy, />X-Content-Type-Options "nosniff"/u);
+  assert.match(caddy, />X-Frame-Options "DENY"/u);
+  assert.match(caddy, />Referrer-Policy "no-referrer"/u);
+});
+
+test("Caddy preserves mobile capture and strips private access-log fields", () => {
+  const caddy = read("infra/caddy/Caddyfile.production");
+
+  assert.match(
+    caddy,
+    /@mobile path \/m \/m\/\*[\s\S]*?>Permissions-Policy "camera=\(self\), microphone=\(self\), geolocation=\(\)"/u,
+  );
+  assert.match(
+    caddy,
+    /@non_mobile \{\s*not path \/m \/m\/\*\s*\}[\s\S]*?>Permissions-Policy "camera=\(\), microphone=\(\), geolocation=\(\)"/u,
+  );
+  for (const field of [
+    "request>uri",
+    "request>remote_ip",
+    "request>client_ip",
+    "request>headers",
+    "resp_headers",
+  ]) {
+    assert.ok(caddy.includes(`${field} delete`), field);
+  }
+  assert.doesNotMatch(caddy, /request>headers>[A-Za-z]/u);
+});
+
+test("supply-chain workflow pins actions and fails high-risk image findings", () => {
+  const workflow = read(".github/workflows/supply-chain.yml");
+  const actionReferences = [...workflow.matchAll(/uses:\s+([^\s#]+)/gu)].map(
+    (match) => match[1],
+  );
+
+  assert.ok(actionReferences.length >= 4);
+  for (const reference of actionReferences) {
+    assert.match(reference, /^[^@\s]+@[0-9a-f]{40}$/u);
+  }
+  assert.match(workflow, /fail-on-severity: high/u);
+  assert.match(workflow, /format: spdx-json/u);
+  assert.match(workflow, /version: v0\.73\.0/u);
+  assert.match(workflow, /pnpm audit --prod --audit-level high/u);
+  assert.match(workflow, /pnpm install --frozen-lockfile/u);
+  assert.match(workflow, /exit-code: "1"/u);
+  assert.match(workflow, /severity: HIGH,CRITICAL/u);
+});
+
+test("the production application base image is pinned by multi-arch digest", () => {
+  const dockerfile = read("Dockerfile");
+  const stages = [
+    ...dockerfile.matchAll(
+      /^FROM node:24\.13\.0-bookworm-slim@sha256:([0-9a-f]{64}) AS (builder|runtime)$/gmu,
+    ),
+  ];
+
+  assert.deepEqual(
+    stages.map((match) => match[2]),
+    ["builder", "runtime"],
+  );
+  assert.equal(stages[0]?.[1], stages[1]?.[1]);
+});
+
+test("production runbooks cover the irreversible operator boundaries", () => {
+  const expected = [
+    "docs/operations/production-deployment.md",
+    "docs/operations/database-backup-restore.md",
+    "docs/operations/key-rotation.md",
+    "docs/operations/observability.md",
+    "docs/security/threat-model.md",
+    "docs/security/incident-response.md",
+    "docs/privacy/provider-data-flow.md",
+  ];
+  const combined = expected.map((path) => read(path)).join("\n");
+
+  assert.match(combined, /separate database/iu);
+  assert.match(combined, /single active read key/iu);
+  assert.match(combined, /never record row content/iu);
+  assert.match(combined, /not a claim[\s\S]*zero-data retention/iu);
+  assert.match(combined, /current-SHA/iu);
+});
+
+test("the restore rehearsal uses the unpublished Compose database service", () => {
+  const runbook = read("docs/operations/database-backup-restore.md");
+
+  assert.match(
+    runbook,
+    /docker compose -f compose\.production\.yaml exec -T postgres \\\n\s+createdb/u,
+  );
+  assert.match(
+    runbook,
+    /docker compose -f compose\.production\.yaml exec -T postgres \\\n\s+pg_restore/u,
+  );
+  assert.match(
+    runbook,
+    /docker compose -f compose\.production\.yaml exec -T postgres \\\n\s+dropdb/u,
+  );
+});

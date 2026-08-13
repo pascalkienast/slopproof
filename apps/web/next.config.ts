@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { fileURLToPath } from "node:url";
 
 const storageOrigin = (() => {
   try {
@@ -29,6 +30,12 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1", "localhost"],
+  images: { unoptimized: true },
+  output: "standalone",
+  outputFileTracingRoot: fileURLToPath(new URL("../..", import.meta.url)),
+  outputFileTracingExcludes: {
+    "*": ["node_modules/.pnpm/@img+*/**", "node_modules/.pnpm/sharp@*/**"],
+  },
   reactStrictMode: true,
   poweredByHeader: false,
   transpilePackages: [

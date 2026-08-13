@@ -1,8 +1,18 @@
+import {
+  chmodSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ConfigurationError,
   loadBaseConfig,
   loadGithubControlConfig,
+  loadMigrationConfig,
   loadWebConfig,
   loadWorkerConfig,
 } from "./index";
@@ -64,6 +74,15 @@ const productionCore = {
   DEMO_FAKE_MEDIA: "false",
 };
 
+const productionWebRuntime = {
+  GITHUB_CONTROL_INTERNAL_URL: "http://github-control:4002/healthz",
+};
+
+const productionGithubControlRuntime = {
+  GITHUB_CONTROL_HOST: "0.0.0.0",
+  GITHUB_CONTROL_PORT: "4002",
+};
+
 const productionStorage = {
   EVIDENCE_STORAGE_PROVIDER: "s3",
   S3_CONTROL_ENDPOINT: "https://account.example-object-storage.com",
@@ -71,6 +90,31 @@ const productionStorage = {
   S3_BUCKET: "slopproof-eu",
   S3_ACCESS_KEY_ID: "runtime-access-id",
   S3_SECRET_ACCESS_KEY: "e".repeat(64),
+};
+
+const productionWeb = {
+  ...productionCore,
+  ...productionStorage,
+  ...productionWebRuntime,
+  GITHUB_ADAPTER: "octokit",
+  SESSION_SECRET: "s".repeat(48),
+  GITHUB_WEBHOOK_SECRET: "w".repeat(48),
+  GITHUB_CLIENT_ID: "Iv1.production-client-id",
+  GITHUB_CLIENT_SECRET: "c".repeat(40),
+  OAUTH_TRUSTED_PROXY_SECRET: "p".repeat(48),
+  S3_PUBLIC_ENDPOINT: productionStorage.S3_CONTROL_ENDPOINT,
+  KEY_WRAPPING_PROVIDER: "local",
+  KEY_WRAPPING_PUBLIC_KEY_PATH: "/run/secrets/wrapping-public.pem",
+  KEY_WRAPPING_PUBLIC_KEY_CONTAINER_PATH: "/run/secrets/wrapping-public.pem",
+  WORKER_INTERNAL_URL: "http://worker:4001",
+  WORKER_INTERNAL_SECRET: "i".repeat(48),
+};
+
+const productionWorkerRuntime = {
+  WORKER_HOST: "0.0.0.0",
+  WORKER_PORT: "4001",
+  FFMPEG_PATH: "/usr/bin/ffmpeg",
+  FFPROBE_PATH: "/usr/bin/ffprobe",
 };
 
 describe("process-scoped configuration", () => {
@@ -209,6 +253,7 @@ describe("process-scoped configuration", () => {
     const config = loadWebConfig({
       ...productionCore,
       ...productionStorage,
+      ...productionWebRuntime,
       GITHUB_ADAPTER: "octokit",
       SESSION_SECRET: "s".repeat(48),
       GITHUB_WEBHOOK_SECRET: "w".repeat(48),
@@ -234,6 +279,7 @@ describe("process-scoped configuration", () => {
     const config = loadWorkerConfig({
       ...productionCore,
       ...productionStorage,
+      ...productionWorkerRuntime,
       GITHUB_ADAPTER: "octokit",
       KEY_WRAPPING_PROVIDER: "local",
       KEY_WRAPPING_PRIVATE_KEY_PATH: "/host/secrets/wrapping-private.pem",
@@ -263,6 +309,28 @@ describe("process-scoped configuration", () => {
     expect(config).not.toHaveProperty("GITHUB_CLIENT_SECRET");
   });
 
+  it.each([
+    ["loopback bind", { WORKER_HOST: "127.0.0.1" }, "WORKER_HOST"],
+    ["wrong port", { WORKER_PORT: "4002" }, "WORKER_PORT"],
+    ["untrusted ffmpeg", { FFMPEG_PATH: "ffmpeg" }, "FFMPEG_PATH"],
+    ["untrusted ffprobe", { FFPROBE_PATH: "ffprobe" }, "FFPROBE_PATH"],
+  ])(
+    "rejects %s in the production worker runtime",
+    (_name, override, field) => {
+      expectConfigurationFields(
+        () =>
+          loadWorkerConfig({
+            ...localWorker,
+            ...productionCore,
+            ...productionStorage,
+            ...productionWorkerRuntime,
+            ...override,
+          }),
+        field,
+      );
+    },
+  );
+
   it("rejects judge model identifiers that cannot round-trip through persistence", () => {
     expect(() =>
       loadWorkerConfig({
@@ -279,6 +347,7 @@ describe("process-scoped configuration", () => {
   it("accepts the production GitHub-control file-secret boundary", () => {
     const config = loadGithubControlConfig({
       ...productionCore,
+      ...productionGithubControlRuntime,
       GITHUB_ADAPTER: "octokit",
       GITHUB_APP_ID: "123456",
       GITHUB_PRIVATE_KEY_PATH: "/host/secrets/github-app.pem",
@@ -297,6 +366,7 @@ describe("process-scoped configuration", () => {
         loadWebConfig({
           ...productionCore,
           ...productionStorage,
+          ...productionWebRuntime,
           GITHUB_ADAPTER: "octokit",
           SESSION_SECRET: "s".repeat(48),
           GITHUB_WEBHOOK_SECRET: "w".repeat(48),
@@ -348,6 +418,7 @@ describe("process-scoped configuration", () => {
       () =>
         loadGithubControlConfig({
           ...productionCore,
+          ...productionGithubControlRuntime,
           GITHUB_ADAPTER: "octokit",
           GITHUB_APP_ID: "123456",
           GITHUB_PRIVATE_KEY_PATH: "/host/secrets/github-app.pem",
@@ -368,6 +439,7 @@ describe("process-scoped configuration", () => {
       () =>
         loadGithubControlConfig({
           ...productionCore,
+          ...productionGithubControlRuntime,
           GITHUB_ADAPTER: "octokit",
           GITHUB_APP_ID: "123456",
           GITHUB_PRIVATE_KEY_PATH: "/host/secrets/github-app.pem",
@@ -389,6 +461,13 @@ describe("process-scoped configuration", () => {
       "APP_BASE_URL",
     ],
     [
+      "database outside the isolated Compose network",
+      {
+        DATABASE_URL: `postgres://slopproof:${"d".repeat(32)}@database.example:5432/slopproof`,
+      },
+      "DATABASE_URL",
+    ],
+    [
       "loopback storage",
       { S3_PUBLIC_ENDPOINT: "https://127.0.0.1:9000" },
       "S3_PUBLIC_ENDPOINT",
@@ -402,6 +481,16 @@ describe("process-scoped configuration", () => {
       "public worker capability destination",
       { WORKER_INTERNAL_URL: "https://attacker.example" },
       "WORKER_INTERNAL_URL",
+    ],
+    [
+      "public GitHub Control health destination",
+      { GITHUB_CONTROL_INTERNAL_URL: "https://attacker.example/healthz" },
+      "GITHUB_CONTROL_INTERNAL_URL",
+    ],
+    [
+      "missing GitHub Control health destination",
+      { GITHUB_CONTROL_INTERNAL_URL: undefined },
+      "GITHUB_CONTROL_INTERNAL_URL",
     ],
     [
       "missing trusted OAuth proxy boundary",
@@ -419,6 +508,7 @@ describe("process-scoped configuration", () => {
         loadWebConfig({
           ...productionCore,
           ...productionStorage,
+          ...productionWebRuntime,
           GITHUB_ADAPTER: "octokit",
           SESSION_SECRET: "s".repeat(48),
           GITHUB_WEBHOOK_SECRET: "w".repeat(48),
@@ -470,6 +560,32 @@ describe("process-scoped configuration", () => {
     );
   });
 
+  it.each([
+    [
+      "loopback bind",
+      { GITHUB_CONTROL_HOST: "127.0.0.1" },
+      "GITHUB_CONTROL_HOST",
+    ],
+    ["wrong port", { GITHUB_CONTROL_PORT: "4003" }, "GITHUB_CONTROL_PORT"],
+  ])(
+    "rejects %s in the production GitHub Control runtime",
+    (_name, override, field) => {
+      expectConfigurationFields(
+        () =>
+          loadGithubControlConfig({
+            ...productionCore,
+            ...productionGithubControlRuntime,
+            GITHUB_ADAPTER: "octokit",
+            GITHUB_APP_ID: "123456",
+            GITHUB_PRIVATE_KEY_PATH: "/host/secrets/github-app.pem",
+            GITHUB_PRIVATE_KEY_CONTAINER_PATH: "/run/secrets/github-app.pem",
+            ...override,
+          }),
+        field,
+      );
+    },
+  );
+
   it("supports optional KMS wrapping without making KMS mandatory", () => {
     const config = loadWorkerConfig({
       ...localWorker,
@@ -506,7 +622,216 @@ describe("process-scoped configuration", () => {
       expect(String(error)).not.toContain(secret);
     }
   });
+
+  it("loads the compiler format from a protected process file", () => {
+    const fixture = createEnvironmentFile("web.env", productionWeb, 0o640);
+    try {
+      const config = loadWebConfig({
+        SLOPPROOF_ENV_FILE: fixture.path,
+      });
+      expect(config.DEPLOYMENT_PROFILE).toBe("production");
+      expect(config.GITHUB_ADAPTER).toBe("octokit");
+      expect(config.SESSION_SECRET).toBe(productionWeb.SESSION_SECRET);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("loads exact production worker and GitHub-control process files", () => {
+    const worker = createEnvironmentFile("worker.env", {
+      ...localWorker,
+      ...productionCore,
+      ...productionStorage,
+      ...productionWorkerRuntime,
+      GITHUB_ADAPTER: "octokit",
+      KEY_WRAPPING_PRIVATE_KEY_PATH: "/run/secrets/wrapping-private.pem",
+      KEY_WRAPPING_PRIVATE_KEY_CONTAINER_PATH:
+        "/run/secrets/wrapping-private.pem",
+      WORKER_INTERNAL_SECRET: "i".repeat(48),
+      GENERATION_PROVIDER: "hetzner",
+      GENERATION_BASE_URL: "https://inference.example/api/v1",
+      GENERATION_API_KEY: "g".repeat(40),
+      LEARNING_MODEL: "text-model",
+      PRACTICE_MODEL: "text-model",
+      PROOF_QUESTION_MODEL: "text-model",
+      TRANSCRIPTION_PROVIDER: "openrouter",
+      TRANSCRIPTION_BASE_URL: "https://transcription.example/api/v1",
+      TRANSCRIPTION_API_KEY: "t".repeat(40),
+      TRANSCRIPTION_MODEL: "transcription-model",
+      MULTIMODAL_JUDGE_PROVIDER: "hetzner",
+      JUDGE_BASE_URL: "https://inference.example/api/v1",
+      JUDGE_API_KEY: "j".repeat(40),
+      JUDGE_MODEL: "judge-model",
+      JUDGE_FALLBACK_MODEL: "vision-model",
+    });
+    const githubControl = createEnvironmentFile("github-control.env", {
+      ...productionCore,
+      ...productionGithubControlRuntime,
+      GITHUB_ADAPTER: "octokit",
+      GITHUB_APP_ID: "123456",
+      GITHUB_PRIVATE_KEY_PATH: "/run/secrets/github-app.pem",
+      GITHUB_PRIVATE_KEY_CONTAINER_PATH: "/run/secrets/github-app.pem",
+    });
+    try {
+      expect(
+        loadWorkerConfig({ SLOPPROOF_ENV_FILE: worker.path })
+          .GENERATION_PROVIDER,
+      ).toBe("hetzner");
+      expect(
+        loadGithubControlConfig({
+          SLOPPROOF_ENV_FILE: githubControl.path,
+        }).GITHUB_APP_ID,
+      ).toBe("123456");
+      expectConfigurationFields(
+        () => loadWebConfig({ SLOPPROOF_ENV_FILE: worker.path }),
+        "SLOPPROOF_ENV_FILE",
+      );
+    } finally {
+      worker.cleanup();
+      githubControl.cleanup();
+    }
+  });
+
+  it("rejects ambient values that conflict with the process file", () => {
+    const fixture = createEnvironmentFile("web.env", productionWeb);
+    try {
+      expectConfigurationFields(
+        () =>
+          loadWebConfig({
+            SLOPPROOF_ENV_FILE: fixture.path,
+            NODE_ENV: "test",
+          }),
+        "NODE_ENV",
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("rejects unknown fields and malformed compiler syntax", () => {
+    const unknown = createEnvironmentFile("web.env", {
+      ...productionWeb,
+      GENERATION_API_KEY: "must-not-cross-the-process-boundary",
+    });
+    const malformed = createRawEnvironmentFile(
+      "web.env",
+      "NODE_ENV=production\n",
+    );
+    try {
+      expectConfigurationFields(
+        () => loadWebConfig({ SLOPPROOF_ENV_FILE: unknown.path }),
+        "SLOPPROOF_ENV_FILE",
+      );
+      expectConfigurationFields(
+        () => loadWebConfig({ SLOPPROOF_ENV_FILE: malformed.path }),
+        "SLOPPROOF_ENV_FILE",
+      );
+      expectConfigurationFields(
+        () => loadWebConfig({ SLOPPROOF_ENV_FILE: "web.env" }),
+        "SLOPPROOF_ENV_FILE",
+      );
+    } finally {
+      unknown.cleanup();
+      malformed.cleanup();
+    }
+  });
+
+  it("rejects duplicate fields, symlinks, oversized files, and unsafe modes", () => {
+    const duplicate = createRawEnvironmentFile(
+      "web.env",
+      "NODE_ENV='production'\nNODE_ENV='production'\n",
+    );
+    const worldReadable = createEnvironmentFile(
+      "web.env",
+      productionWeb,
+      0o644,
+    );
+    const executable = createEnvironmentFile("web.env", productionWeb, 0o700);
+    const oversized = createRawEnvironmentFile(
+      "web.env",
+      `NODE_ENV='${"a".repeat(64 * 1024)}'\n`,
+    );
+    const target = createEnvironmentFile("web.env.target", productionWeb);
+    const symlinkPath = join(target.directory, "web.env");
+    symlinkSync(target.path, symlinkPath);
+    try {
+      for (const path of [
+        duplicate.path,
+        worldReadable.path,
+        executable.path,
+        oversized.path,
+        symlinkPath,
+      ]) {
+        expectConfigurationFields(
+          () => loadWebConfig({ SLOPPROOF_ENV_FILE: path }),
+          "SLOPPROOF_ENV_FILE",
+        );
+      }
+    } finally {
+      duplicate.cleanup();
+      worldReadable.cleanup();
+      executable.cleanup();
+      oversized.cleanup();
+      target.cleanup();
+    }
+  });
+
+  it("loads only the database boundary for migrations", () => {
+    const local = loadMigrationConfig({ DATABASE_URL: core.DATABASE_URL });
+    expect(local.DEPLOYMENT_PROFILE).toBe("local");
+    expect(local.NODE_ENV).toBe("development");
+
+    const fixture = createEnvironmentFile("migrate.env", {
+      NODE_ENV: "production",
+      DEPLOYMENT_PROFILE: "production",
+      DATABASE_URL: productionCore.DATABASE_URL,
+    });
+    try {
+      const production = loadMigrationConfig({
+        SLOPPROOF_ENV_FILE: fixture.path,
+      });
+      expect(production.DEPLOYMENT_PROFILE).toBe("production");
+      expect(production.DATABASE_URL).toBe(productionCore.DATABASE_URL);
+    } finally {
+      fixture.cleanup();
+    }
+  });
 });
+
+type EnvironmentFileFixture = Readonly<{
+  cleanup: () => void;
+  directory: string;
+  path: string;
+}>;
+
+function createEnvironmentFile(
+  fileName: string,
+  environment: Readonly<Record<string, string | undefined>>,
+  mode = 0o600,
+): EnvironmentFileFixture {
+  const contents = `${Object.entries(environment)
+    .filter((entry): entry is [string, string] => entry[1] !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, value]) => `${name}='${value}'`)
+    .join("\n")}\n`;
+  return createRawEnvironmentFile(fileName, contents, mode);
+}
+
+function createRawEnvironmentFile(
+  fileName: string,
+  contents: string,
+  mode = 0o600,
+): EnvironmentFileFixture {
+  const directory = mkdtempSync(join(tmpdir(), "slopproof-config-test-"));
+  const path = join(directory, fileName);
+  writeFileSync(path, contents, { encoding: "utf8", mode });
+  chmodSync(path, mode);
+  return {
+    cleanup: () => rmSync(directory, { force: true, recursive: true }),
+    directory,
+    path,
+  };
+}
 
 function expectConfigurationFields(
   callback: () => unknown,

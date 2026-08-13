@@ -11,10 +11,22 @@ import {
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  InvalidRequestBodyError,
+  InvalidRequestBodyEncodingError,
+  readBoundedJson,
+  RequestBodyTooLargeError,
+} from "../../../../lib/bounded-body";
+import {
   authErrorResponse,
   requireMutationSession,
 } from "../../../../lib/http-auth";
 import { getWebRuntime } from "../../../../lib/runtime";
+import {
+  consumeWebRequestRateLimit,
+  createWebRequestSubjectHash,
+  WebRequestRateLimitExceededError,
+  webRequestRateLimitResponse,
+} from "../../../../lib/request-rate-limit";
 import { storedUploadPartMatches } from "../../../../lib/upload-part-ledger";
 
 const InputSchema = z
@@ -27,15 +39,21 @@ const InputSchema = z
     etag: z.string().min(1).max(512),
   })
   .strict();
+const MAX_BODY_BYTES = 3 * 1_024;
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     const app = await getWebRuntime();
     const session = await requireMutationSession(request, app);
-    const input = InputSchema.safeParse(await request.json().catch(() => null));
-    if (!input.success) {
-      return NextResponse.json({ error: "invalid_request" }, { status: 400 });
-    }
+    const input = await readBoundedJson(request, MAX_BODY_BYTES, InputSchema);
+    await consumeWebRequestRateLimit(app.database.pool, {
+      action: "upload_part_complete",
+      subjectKeyHash: createWebRequestSubjectHash(
+        app.config.SESSION_SECRET,
+        "upload_part_complete",
+        [session.actorId, session.repositoryId ?? "repository-unbound"],
+      ),
+    });
     const upload = await app.database.pool.query<{
       object_key: string;
       provider_upload_id: string;
@@ -56,7 +74,7 @@ export async function POST(request: Request): Promise<NextResponse> {
        JOIN attempts attempt ON attempt.id = upload.attempt_id
        JOIN pull_request_revisions revision ON revision.id = attempt.revision_id
        WHERE upload.id = $1`,
-      [input.data.uploadSessionId],
+      [input.uploadSessionId],
     );
     const row = upload.rows[0];
     if (
@@ -82,20 +100,20 @@ export async function POST(request: Request): Promise<NextResponse> {
       `SELECT part_number, first_chunk_index, last_chunk_index, byte_length,
               sha256, etag
        FROM recording_parts WHERE upload_session_id = $1 AND part_number = $2`,
-      [input.data.uploadSessionId, input.data.part.partNumber],
+      [input.uploadSessionId, input.part.partNumber],
     );
     const existingRow = existing.rows[0];
     if (existingRow) {
       const duplicate = storedUploadPartMatches(
         existingRow,
-        input.data.part,
-        input.data.etag,
+        input.part,
+        input.etag,
       );
       return duplicate
         ? NextResponse.json({ accepted: true, duplicate: true })
         : NextResponse.json({ error: "part_conflict" }, { status: 409 });
     }
-    if (row.next_part_number !== input.data.part.partNumber) {
+    if (row.next_part_number !== input.part.partNumber) {
       return NextResponse.json({ error: "part_out_of_order" }, { status: 409 });
     }
     const providerParts = await app.storage.listParts(
@@ -103,12 +121,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       row.provider_upload_id,
     );
     const providerPart = providerParts.find(
-      (part) => part.partNumber === input.data.part.partNumber,
+      (part) => part.partNumber === input.part.partNumber,
     );
     if (
       !providerPart ||
-      providerPart.byteLength !== input.data.part.byteLength ||
-      providerPart.etag !== input.data.etag
+      providerPart.byteLength !== input.part.byteLength ||
+      providerPart.etag !== input.etag
     ) {
       return NextResponse.json(
         { error: "provider_part_mismatch" },
@@ -142,7 +160,7 @@ export async function POST(request: Request): Promise<NextResponse> {
          JOIN repository_policies repository_policy
            ON repository_policy.id = proof_plan.repository_policy_id
          WHERE upload.id = $1 FOR UPDATE OF upload, attempt`,
-        [input.data.uploadSessionId],
+        [input.uploadSessionId],
       );
       const lockedRow = locked.rows[0];
       const maximumUploadBytes = lockedRow
@@ -156,12 +174,12 @@ export async function POST(request: Request): Promise<NextResponse> {
         : 0;
       if (
         !lockedRow ||
-        lockedRow.next_part_number !== input.data.part.partNumber ||
+        lockedRow.next_part_number !== input.part.partNumber ||
         lockedRow.upload_state !== "active" ||
         lockedRow.attempt_status !== "uploading" ||
         !lockedRow.is_current ||
         lockedRow.upload_expires_at <= new Date() ||
-        Number(lockedRow.acknowledged_bytes) + input.data.part.byteLength >
+        Number(lockedRow.acknowledged_bytes) + input.part.byteLength >
           maximumUploadBytes
       ) {
         throw new Error("Part allocation changed while acknowledging upload");
@@ -172,18 +190,18 @@ export async function POST(request: Request): Promise<NextResponse> {
            byte_length, sha256, etag)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
-          input.data.uploadSessionId,
-          input.data.part.partNumber,
-          input.data.part.firstChunkIndex,
-          input.data.part.lastChunkIndex,
-          input.data.part.byteLength,
-          input.data.part.sha256,
-          input.data.etag,
+          input.uploadSessionId,
+          input.part.partNumber,
+          input.part.firstChunkIndex,
+          input.part.lastChunkIndex,
+          input.part.byteLength,
+          input.part.sha256,
+          input.etag,
         ],
       );
       await client.query(
         "UPDATE upload_sessions SET next_part_number = next_part_number + 1, updated_at = now() WHERE id = $1",
-        [input.data.uploadSessionId],
+        [input.uploadSessionId],
       );
       await client.query("COMMIT");
     } catch (error) {
@@ -194,9 +212,24 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
     return NextResponse.json({ accepted: true, duplicate: false });
   } catch (error) {
-    return (
-      authErrorResponse(error) ??
-      NextResponse.json({ error: "temporarily_unavailable" }, { status: 503 })
+    const auth = authErrorResponse(error);
+    if (auth) return auth;
+    if (error instanceof RequestBodyTooLargeError) {
+      return NextResponse.json({ error: "request_too_large" }, { status: 413 });
+    }
+    if (
+      error instanceof InvalidRequestBodyError ||
+      error instanceof InvalidRequestBodyEncodingError ||
+      error instanceof z.ZodError
+    ) {
+      return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+    }
+    if (error instanceof WebRequestRateLimitExceededError) {
+      return webRequestRateLimitResponse(error);
+    }
+    return NextResponse.json(
+      { error: "temporarily_unavailable" },
+      { status: 503 },
     );
   }
 }

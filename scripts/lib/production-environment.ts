@@ -3,6 +3,7 @@ import {
   createHmac,
   createPrivateKey,
   createPublicKey,
+  randomUUID,
 } from "node:crypto";
 import {
   chmodSync,
@@ -155,6 +156,7 @@ export function compileProductionEnvironment(
     KEY_WRAPPING_PRIVATE_KEY_CONTAINER_PATH: wrappingPrivateKeyPath,
 
     WORKER_INTERNAL_URL: required(environment, "WORKER_INTERNAL_URL"),
+    GITHUB_CONTROL_INTERNAL_URL: "http://github-control:4002/healthz",
     WORKER_INTERNAL_SECRET: workerInternalSecret,
     PROVIDER_PAYLOAD_KEY_BASE64: required(
       environment,
@@ -162,6 +164,8 @@ export function compileProductionEnvironment(
     ),
     WORKER_HOST: required(environment, "WORKER_HOST"),
     WORKER_PORT: required(environment, "WORKER_PORT"),
+    GITHUB_CONTROL_HOST: "0.0.0.0",
+    GITHUB_CONTROL_PORT: "4002",
     FFMPEG_PATH: required(environment, "FFMPEG_PATH"),
     FFPROBE_PATH: required(environment, "FFPROBE_PATH"),
   });
@@ -188,7 +192,20 @@ function quoteEnvironmentValue(value: string): string {
 export function renderProductionEnvironment(
   environment: Readonly<Record<string, string>>,
 ): string {
-  return `${Object.entries(environment)
+  const entries = Object.entries(environment);
+  if (entries.some(([name]) => !/^[A-Z][A-Z0-9_]*$/u.test(name))) {
+    throw new ProductionEnvironmentError(["environment"]);
+  }
+  const invalidFields = entries
+    .filter(
+      ([, value]) => typeof value !== "string" || /[\0\r\n']/u.test(value),
+    )
+    .map(([name]) => name);
+  if (invalidFields.length > 0) {
+    throw new ProductionEnvironmentError(invalidFields);
+  }
+
+  return `${entries
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, value]) => `${name}=${quoteEnvironmentValue(value)}`)
     .join("\n")}\n`;
@@ -219,6 +236,7 @@ const webEnvironmentNames = [
   "KEY_WRAPPING_PUBLIC_KEY_PATH",
   "KEY_WRAPPING_PUBLIC_KEY_CONTAINER_PATH",
   "WORKER_INTERNAL_URL",
+  "GITHUB_CONTROL_INTERNAL_URL",
   "WORKER_INTERNAL_SECRET",
 ] as const;
 
@@ -275,6 +293,8 @@ const githubControlEnvironmentNames = [
   "GITHUB_APP_ID",
   "GITHUB_PRIVATE_KEY_PATH",
   "GITHUB_PRIVATE_KEY_CONTAINER_PATH",
+  "GITHUB_CONTROL_HOST",
+  "GITHUB_CONTROL_PORT",
 ] as const;
 
 const proxyEnvironmentNames = ["OAUTH_TRUSTED_PROXY_SECRET"] as const;
@@ -320,6 +340,116 @@ export function writeProductionEnvironmentFile(
   writeNewProtectedFile(outputPath, contents, 0o600);
 }
 
+function productionDatabasePassword(databaseUrl: string): string {
+  try {
+    if (databaseUrl !== databaseUrl.trim()) {
+      throw new ProductionEnvironmentError(["DATABASE_URL"]);
+    }
+    const url = new URL(databaseUrl);
+    const password = decodeURIComponent(url.password);
+    if (
+      !["postgres:", "postgresql:"].includes(url.protocol) ||
+      url.username !== "slopproof" ||
+      url.hostname !== "postgres" ||
+      url.port !== "5432" ||
+      url.pathname !== "/slopproof" ||
+      url.search !== "" ||
+      url.hash !== "" ||
+      password.length < 24 ||
+      /^(?:fake|local|replace|change|test)(?:[-_:]|$)/iu.test(password) ||
+      /change-me|placeholder|never-used/iu.test(password) ||
+      /[\0\r\n]/u.test(password)
+    ) {
+      throw new ProductionEnvironmentError(["DATABASE_URL"]);
+    }
+    return password;
+  } catch (error) {
+    if (error instanceof ProductionEnvironmentError) throw error;
+    throw new ProductionEnvironmentError(["DATABASE_URL"]);
+  }
+}
+
+export function installProductionDatabasePassword(
+  databaseUrl: string,
+  outputDirectory: string,
+): void {
+  installProductionArtifactFiles(outputDirectory, [
+    {
+      contents: productionDatabasePassword(databaseUrl),
+      destinationName: "postgres-password",
+      destinationMode: 0o600,
+    },
+  ]);
+}
+
+type ProductionArtifact = Readonly<{
+  contents: string;
+  destinationName: string;
+  destinationMode: number;
+}>;
+
+function installProductionArtifactFiles(
+  outputDirectory: string,
+  artifacts: readonly ProductionArtifact[],
+): void {
+  const names = artifacts.map(({ destinationName }) => destinationName);
+  if (
+    !isAbsolute(outputDirectory) ||
+    artifacts.length === 0 ||
+    new Set(names).size !== names.length ||
+    artifacts.some(
+      ({ contents, destinationMode, destinationName }) =>
+        contents.length === 0 ||
+        !/^[a-z0-9][a-z0-9.-]*$/u.test(destinationName) ||
+        ![0o600, 0o644].includes(destinationMode),
+    )
+  ) {
+    throw new ProductionEnvironmentError(["outputDirectory"]);
+  }
+
+  try {
+    const stat = lstatSync(outputDirectory);
+    if (
+      !stat.isDirectory() ||
+      stat.isSymbolicLink() ||
+      (stat.mode & 0o077) !== 0 ||
+      readdirSync(outputDirectory).length !== 0
+    ) {
+      throw new ProductionEnvironmentError(["outputDirectory"]);
+    }
+  } catch (error) {
+    if (error instanceof ProductionEnvironmentError) throw error;
+    throw new ProductionEnvironmentError(["outputDirectory"]);
+  }
+
+  const outputPaths = names.map((name) => join(outputDirectory, name));
+  if (outputPaths.some((path) => existsSync(path))) {
+    throw new ProductionEnvironmentError(["outputDirectory"]);
+  }
+
+  const installedPaths: string[] = [];
+  try {
+    for (const [index, artifact] of artifacts.entries()) {
+      const outputPath = outputPaths[index]!;
+      writeNewProtectedFile(
+        outputPath,
+        artifact.contents,
+        artifact.destinationMode,
+      );
+      installedPaths.push(outputPath);
+    }
+  } catch {
+    for (const installedPath of installedPaths.reverse()) {
+      try {
+        if (existsSync(installedPath)) unlinkSync(installedPath);
+      } catch {
+        // Continue the bounded cleanup of the remaining exact artifact paths.
+      }
+    }
+    throw new ProductionEnvironmentError(["outputDirectory"]);
+  }
+}
+
 function writeNewProtectedFile(
   outputPath: string,
   contents: string,
@@ -335,11 +465,13 @@ function writeNewProtectedFile(
   const outputDirectory = dirname(outputPath);
   const temporaryPath = join(
     outputDirectory,
-    `.${basename(outputPath)}.${process.pid}.tmp`,
+    `.${basename(outputPath)}.${process.pid}.${randomUUID()}.tmp`,
   );
   let descriptor: number | undefined;
+  let temporaryCreated = false;
   try {
     descriptor = openSync(temporaryPath, "wx", mode);
+    temporaryCreated = true;
     writeFileSync(descriptor, contents, { encoding: "utf8" });
     fsyncSync(descriptor);
     closeSync(descriptor);
@@ -348,16 +480,13 @@ function writeNewProtectedFile(
     renameSync(temporaryPath, outputPath);
   } catch (error) {
     if (descriptor !== undefined) closeSync(descriptor);
-    if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+    if (temporaryCreated && existsSync(temporaryPath))
+      unlinkSync(temporaryPath);
     throw error;
   }
 }
 
-type LoadedKeyFile = Readonly<{
-  contents: string;
-  destinationName: string;
-  destinationMode: number;
-}>;
+type LoadedKeyFile = ProductionArtifact;
 
 function loadKeyFile(
   environment: Environment,
@@ -403,10 +532,9 @@ function loadKeyFile(
   }
 }
 
-export function installProductionKeyFiles(
+function loadProductionKeyFiles(
   environment: Environment,
-  outputDirectory: string,
-): void {
+): readonly LoadedKeyFile[] {
   const github = loadKeyFile(
     environment,
     "GITHUB_PRIVATE_KEY_PATH",
@@ -467,23 +595,53 @@ export function installProductionKeyFiles(
     ]);
   }
 
-  const installedPaths: string[] = [];
-  try {
-    for (const keyFile of [github, wrappingPrivate, wrappingPublic]) {
-      const outputPath = join(outputDirectory, keyFile.destinationName);
-      writeNewProtectedFile(
-        outputPath,
-        keyFile.contents,
-        keyFile.destinationMode,
-      );
-      installedPaths.push(outputPath);
-    }
-  } catch (error) {
-    for (const installedPath of installedPaths) {
-      if (existsSync(installedPath)) unlinkSync(installedPath);
-    }
-    throw error;
-  }
+  return Object.freeze([github, wrappingPrivate, wrappingPublic]);
+}
+
+export function installProductionKeyFiles(
+  environment: Environment,
+  outputDirectory: string,
+): void {
+  installProductionArtifactFiles(
+    outputDirectory,
+    loadProductionKeyFiles(environment),
+  );
+}
+
+export type ProductionEnvironmentPartitions = ReturnType<
+  typeof partitionProductionEnvironment
+>;
+
+export function installProductionArtifacts(
+  environment: Environment,
+  outputDirectory: string,
+  partitions: ProductionEnvironmentPartitions,
+): void {
+  const environmentArtifacts: readonly ProductionArtifact[] = [
+    ["web.env", partitions.web],
+    ["worker.env", partitions.worker],
+    ["github-control.env", partitions.githubControl],
+    ["proxy.env", partitions.proxy],
+    ["migrate.env", partitions.migrate],
+  ].map(([destinationName, scopedEnvironment]) => ({
+    contents: renderProductionEnvironment(scopedEnvironment),
+    destinationMode: 0o600,
+    destinationName,
+  }));
+  const databasePassword = productionDatabasePassword(
+    partitions.migrate.DATABASE_URL ?? "",
+  );
+  const keyFiles = loadProductionKeyFiles(environment);
+
+  installProductionArtifactFiles(outputDirectory, [
+    ...environmentArtifacts,
+    ...keyFiles,
+    {
+      contents: databasePassword,
+      destinationName: "postgres-password",
+      destinationMode: 0o600,
+    },
+  ]);
 }
 
 export function assertSafeProductionOutputDirectory(

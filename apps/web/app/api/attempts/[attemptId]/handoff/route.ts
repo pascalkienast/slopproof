@@ -1,10 +1,23 @@
 import { createHandoff, HandoffRejectedError } from "@slopproof/auth";
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import {
+  InvalidRequestBodyError,
+  requireEmptyRequestBody,
+} from "../../../../../lib/bounded-body";
 import {
   authErrorResponse,
   requireMutationSession,
 } from "../../../../../lib/http-auth";
 import { getWebRuntime } from "../../../../../lib/runtime";
+import {
+  consumeWebRequestRateLimit,
+  createWebRequestSubjectHash,
+  WebRequestRateLimitExceededError,
+  webRequestRateLimitResponse,
+} from "../../../../../lib/request-rate-limit";
+
+const AttemptIdSchema = z.string().uuid();
 
 export async function POST(
   request: Request,
@@ -13,7 +26,16 @@ export async function POST(
   try {
     const app = await getWebRuntime();
     const session = await requireMutationSession(request, app);
-    const { attemptId } = await context.params;
+    const attemptId = AttemptIdSchema.parse((await context.params).attemptId);
+    await requireEmptyRequestBody(request);
+    await consumeWebRequestRateLimit(app.database.pool, {
+      action: "handoff_create",
+      subjectKeyHash: createWebRequestSubjectHash(
+        app.config.SESSION_SECRET,
+        "handoff_create",
+        [session.actorId, session.repositoryId ?? "repository-unbound"],
+      ),
+    });
     const grant = await createHandoff(
       app.database.pool,
       { attemptId, session },
@@ -30,6 +52,15 @@ export async function POST(
     if (auth) return auth;
     if (error instanceof HandoffRejectedError) {
       return NextResponse.json({ error: "handoff_rejected" }, { status: 409 });
+    }
+    if (error instanceof WebRequestRateLimitExceededError) {
+      return webRequestRateLimitResponse(error);
+    }
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+    }
+    if (error instanceof InvalidRequestBodyError) {
+      return NextResponse.json({ error: "invalid_request" }, { status: 400 });
     }
     return NextResponse.json(
       { error: "temporarily_unavailable" },

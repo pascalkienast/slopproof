@@ -21,6 +21,7 @@ import {
   sweepDueGithubPullRequestRefreshes,
   type GithubControlDependencies,
 } from "./control";
+import { createGithubControlHealthServer } from "./health";
 import { validateGithubControlStartup } from "./startup";
 
 const config = loadGithubControlConfig();
@@ -32,7 +33,9 @@ const database = connectDatabase(config.DATABASE_URL);
 let queue: PgBoss | undefined;
 let retrySweepTimer: NodeJS.Timeout | undefined;
 let retrySweepRunning = false;
+let ready = false;
 let shuttingDown = false;
+const healthServer = createGithubControlHealthServer(() => ready);
 
 const RETRY_SWEEP_INTERVAL_MS = 5_000;
 
@@ -132,14 +135,41 @@ async function start(): Promise<void> {
   }, RETRY_SWEEP_INTERVAL_MS);
   retrySweepTimer.unref();
 
-  log.info({ adapter: config.GITHUB_ADAPTER }, "github_control.ready");
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error): void => reject(error);
+    healthServer.once("error", onError);
+    healthServer.listen(
+      config.GITHUB_CONTROL_PORT,
+      config.GITHUB_CONTROL_HOST,
+      () => {
+        healthServer.off("error", onError);
+        resolve();
+      },
+    );
+  });
+  ready = true;
+
+  log.info(
+    {
+      adapter: config.GITHUB_ADAPTER,
+      host: config.GITHUB_CONTROL_HOST,
+      port: config.GITHUB_CONTROL_PORT,
+    },
+    "github_control.ready",
+  );
 }
 
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
+  ready = false;
   log.info({ signal }, "github_control.stopping");
   if (retrySweepTimer) clearInterval(retrySweepTimer);
+  if (healthServer.listening) {
+    await new Promise<void>((resolve, reject) => {
+      healthServer.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
   if (queue) await queue.stop({ graceful: true, timeout: 5_000 });
   await database.close();
 }
@@ -164,7 +194,13 @@ start().catch((error: unknown) => {
     "github_control.start_failed",
   );
   void (async () => {
+    ready = false;
     if (retrySweepTimer) clearInterval(retrySweepTimer);
+    if (healthServer.listening) {
+      await new Promise<void>((resolve) => {
+        healthServer.close(() => resolve());
+      });
+    }
     if (queue) {
       await queue
         .stop({ graceful: false, timeout: 1_000 })

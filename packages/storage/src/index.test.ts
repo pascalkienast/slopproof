@@ -1,5 +1,6 @@
 import {
   AbortMultipartUploadCommand,
+  HeadBucketCommand,
   ListMultipartUploadsCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -32,6 +33,58 @@ describe("S3 evidence adapter", () => {
     store.destroy();
   });
 
+  it("probes only bucket capability and forwards the caller's abort signal", async () => {
+    const controller = new AbortController();
+    const send = vi
+      .spyOn(S3Client.prototype, "send")
+      .mockResolvedValueOnce({} as never);
+    const store = new S3EvidenceStore({
+      region: "us-east-1",
+      bucket: "slopproof-evidence",
+      controlEndpoint: "http://object-store:9000",
+      publicEndpoint: "https://objects.slopproof.test",
+      accessKeyId: "local",
+      secretAccessKey: "local-secret",
+      forcePathStyle: true,
+    });
+
+    await expect(
+      store.assertBucketAccessible(controller.signal),
+    ).resolves.toBeUndefined();
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const [command, options] = send.mock.calls[0]!;
+    expect(command).toBeInstanceOf(HeadBucketCommand);
+    expect(command.input).toEqual({ Bucket: "slopproof-evidence" });
+    expect(options).toEqual({ abortSignal: controller.signal });
+    store.destroy();
+  });
+
+  it("wraps bucket capability failures without exposing provider detail", async () => {
+    vi.spyOn(S3Client.prototype, "send").mockRejectedValueOnce(
+      new Error("secret endpoint and credential detail"),
+    );
+    const store = new S3EvidenceStore({
+      region: "us-east-1",
+      bucket: "slopproof-evidence",
+      controlEndpoint: "http://object-store:9000",
+      publicEndpoint: "https://objects.slopproof.test",
+      accessKeyId: "local",
+      secretAccessKey: "local-secret",
+      forcePathStyle: true,
+    });
+
+    const failure = await store
+      .assertBucketAccessible()
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect(String(failure)).toContain(
+      "Evidence storage operation failed: head_bucket",
+    );
+    expect(String(failure)).not.toContain("secret endpoint");
+    store.destroy();
+  });
+
   it("binds a presigned part to its exact byte length and SHA-256", async () => {
     const store = new S3EvidenceStore({
       region: "us-east-1",
@@ -61,6 +114,35 @@ describe("S3 evidence adapter", () => {
     expect(signed.searchParams.get("x-amz-checksum-sha256")).toBe(
       Buffer.from(sha256, "hex").toString("base64"),
     );
+    store.destroy();
+  });
+
+  it("rejects upload-part presigns longer than five minutes", async () => {
+    const send = vi.spyOn(S3Client.prototype, "send");
+    const store = new S3EvidenceStore({
+      region: "us-east-1",
+      bucket: "slopproof-evidence",
+      controlEndpoint: "http://object-store:9000",
+      publicEndpoint: "https://objects.slopproof.test",
+      accessKeyId: "local",
+      secretAccessKey: "local-secret",
+      forcePathStyle: true,
+    });
+
+    await expect(
+      store.presignUploadPart({
+        objectKey: "evidence/v1/test",
+        uploadId: "upload-id",
+        partNumber: 1,
+        byteLength: 8 * 1024 * 1024,
+        sha256: "ab".repeat(32),
+        expiresInSeconds: 301,
+      }),
+    ).rejects.toMatchObject({
+      code: "EVIDENCE_STORAGE_ERROR",
+      operation: "presign_upload_part",
+    });
+    expect(send).not.toHaveBeenCalled();
     store.destroy();
   });
 

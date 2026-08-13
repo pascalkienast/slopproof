@@ -19,11 +19,7 @@ export const RepositoryPolicyV1Schema = z
       .strict(),
     evidence: z
       .object({
-        retentionHours: z
-          .number()
-          .int()
-          .min(1)
-          .max(7 * 24),
+        retentionHours: z.number().int().min(1).max(24),
         deleteAfterMaintainerPass: z.boolean(),
       })
       .strict(),
@@ -90,7 +86,7 @@ export function calculateEvidenceDeleteAfter(
     !Number.isFinite(acceptedAt.getTime()) ||
     !Number.isSafeInteger(retentionHours) ||
     retentionHours < 1 ||
-    retentionHours > 7 * 24
+    retentionHours > 24
   ) {
     throw new Error("Evidence retention inputs are invalid");
   }

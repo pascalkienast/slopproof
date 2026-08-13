@@ -8,6 +8,7 @@ import {
 import { loadPrivateReviewContext } from "../../../lib/private-review-context";
 import { ReviewAttemptIdSchema } from "../../../lib/review-http";
 import { getWebRuntime } from "../../../lib/runtime";
+import { WebRequestRateLimitExceededError } from "../../../lib/request-rate-limit";
 import { AuthoritativeEvaluation } from "./authoritative-evaluation";
 import { EvidencePlayer } from "./evidence-player";
 import { ReviewDecisionForm } from "./review-decision-form";
@@ -39,6 +40,24 @@ export default async function ReviewDetailPage({
       parsedAttemptId.data,
     );
   } catch (error) {
+    if (error instanceof WebRequestRateLimitExceededError) {
+      return (
+        <main className="shell flow-shell review-shell">
+          <a className="back-link" href="/review">
+            ← Review queue
+          </a>
+          <section className="notice-card review-empty">
+            <p className="eyebrow">Protected review</p>
+            <h2>Review refresh is temporarily limited.</h2>
+            <p>
+              Try again in {error.retryAfterSeconds} second
+              {error.retryAfterSeconds === 1 ? "" : "s"}. No private evidence
+              was returned by this request.
+            </p>
+          </section>
+        </main>
+      );
+    }
     if (error instanceof MaintainerAuthorizationError) redirect("/review");
     if (error instanceof ReviewNotFoundError) notFound();
     throw error;
@@ -53,6 +72,7 @@ export default async function ReviewDetailPage({
     detail.deleteAfter.getTime() > Date.now();
   let privateContext: Awaited<ReturnType<typeof loadPrivateReviewContext>> =
     null;
+  let privateContextRetryAfter: number | null = null;
   if (evidenceReviewable) {
     try {
       privateContext = await loadPrivateReviewContext(
@@ -62,8 +82,13 @@ export default async function ReviewDetailPage({
         detail.attemptId,
       );
     } catch (error) {
-      if (error instanceof MaintainerAuthorizationError) redirect("/review");
-      throw error;
+      if (error instanceof WebRequestRateLimitExceededError) {
+        privateContextRetryAfter = error.retryAfterSeconds;
+      } else if (error instanceof MaintainerAuthorizationError) {
+        redirect("/review");
+      } else {
+        throw error;
+      }
     }
   }
   const authoritativeEvaluation =
@@ -107,6 +132,14 @@ export default async function ReviewDetailPage({
         <section className="notice-card error-card">
           This revision is no longer current. Its historical proof cannot
           authorize the new SHA, and no new decision is available here.
+        </section>
+      ) : null}
+      {privateContextRetryAfter !== null ? (
+        <section className="notice-card">
+          Private model context is temporarily limited. Try again in{" "}
+          {privateContextRetryAfter} second
+          {privateContextRetryAfter === 1 ? "" : "s"}. Manual review and the
+          stored proof plan remain available.
         </section>
       ) : null}
 

@@ -90,11 +90,15 @@ function readPrivateKeyFile(path: string): Buffer {
     if (resolved !== path) throw new GithubControlError("INVALID_KEY_FILE");
     descriptor = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
     const stat = fstatSync(descriptor);
+    const effectiveUserId = process.geteuid?.();
+    const groups = process.getgroups?.();
     if (
-      !stat.isFile() ||
-      stat.size < 128 ||
-      stat.size > 64 * 1_024 ||
-      (stat.mode & 0o077) !== 0
+      effectiveUserId === undefined ||
+      groups === undefined ||
+      !isPrivateKeyFileMetadataSafe(stat, {
+        effectiveUserId,
+        groups,
+      })
     ) {
       throw new GithubControlError("INVALID_KEY_FILE");
     }
@@ -105,6 +109,56 @@ function readPrivateKeyFile(path: string): Buffer {
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
   }
+}
+
+type PrivateKeyFileMetadata = Readonly<{
+  gid: number;
+  isFile(): boolean;
+  mode: number;
+  size: number;
+  uid: number;
+}>;
+
+type FileAccessIdentity = Readonly<{
+  effectiveUserId: number;
+  groups: readonly number[];
+}>;
+
+/**
+ * Accepts either a key owned privately by the effective user, or the safe stat
+ * projection of the production ACL shape: root:root ownership, no root group
+ * membership, and only the group-read mask bit. Opening the descriptor before
+ * this check proves that an ACL grants this process access; host preflight must
+ * separately prove that no additional named ACL entries exist.
+ */
+export function isPrivateKeyFileMetadataSafe(
+  stat: PrivateKeyFileMetadata,
+  identity: FileAccessIdentity,
+): boolean {
+  if (
+    !stat.isFile() ||
+    stat.size < 128 ||
+    stat.size > 64 * 1_024 ||
+    (stat.mode & 0o7000) !== 0
+  ) {
+    return false;
+  }
+
+  const permissions = stat.mode & 0o777;
+  if ((permissions & 0o400) === 0 || (permissions & 0o137) !== 0) {
+    return false;
+  }
+
+  if ((permissions & 0o040) === 0) {
+    return stat.uid === identity.effectiveUserId;
+  }
+
+  return (
+    stat.uid === 0 &&
+    stat.gid === 0 &&
+    identity.effectiveUserId !== 0 &&
+    !identity.groups.includes(0)
+  );
 }
 
 type CachedToken = {

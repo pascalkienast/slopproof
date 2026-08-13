@@ -14,6 +14,7 @@ import {
   requireEvidenceAccess,
 } from "./maintainer-review";
 import type { WebRuntime } from "./runtime";
+import { WebRequestRateLimitExceededError } from "./request-rate-limit";
 
 const NOW = new Date("2026-08-12T12:00:00.000Z");
 const SESSION_SECRET = "maintainer-callsite-secret-that-is-at-least-32-bytes";
@@ -37,7 +38,7 @@ const REPOSITORY_ROW = {
 };
 
 function productionDatabase(
-  options: Readonly<{ activeBinding?: boolean }> = {},
+  options: Readonly<{ activeBinding?: boolean; rateLimited?: boolean }> = {},
 ) {
   const query = vi.fn(async (rawSql: string) => {
     const sql = String(rawSql);
@@ -45,6 +46,17 @@ function productionDatabase(
     if (sql.includes("installation.github_installation_id")) {
       return queryResult(
         options.activeBinding === false ? [] : [REPOSITORY_ROW],
+      );
+    }
+    if (
+      sql.includes("pg_advisory_xact_lock") ||
+      sql.includes("DELETE FROM web_request_rate_limits")
+    ) {
+      return queryResult([]);
+    }
+    if (sql.includes("INSERT INTO web_request_rate_limits")) {
+      return queryResult(
+        options.rateLimited ? [{ retry_after_seconds: 60 }] : [],
       );
     }
     if (sql.includes("AS question_count")) return queryResult([]);
@@ -55,11 +67,12 @@ function productionDatabase(
     query: query as unknown as WebRuntime["database"]["pool"]["query"],
     release: vi.fn(),
   };
+  const connect = vi.fn(async () => client);
   const pool = {
     query: query as unknown as WebRuntime["database"]["pool"]["query"],
-    connect: vi.fn(async () => client),
+    connect,
   } as unknown as WebRuntime["database"]["pool"];
-  return { pool, query };
+  return { pool, query, connect };
 }
 
 function queryResult(rows: unknown[]) {
@@ -142,6 +155,27 @@ function containsQuery(
 }
 
 describe("maintainer review fresh-authorization call sites", () => {
+  it("rejects a saturated cheap quota before an authorization transaction or GitHub call", async () => {
+    const database = productionDatabase({ rateLimited: true });
+    const github = githubAuthorization();
+
+    await expect(
+      loadReviewQueue(
+        productionApp(database.pool),
+        authorizationRequest(),
+        SESSION,
+        { authorizationPort: github.port, now: NOW },
+      ),
+    ).rejects.toBeInstanceOf(WebRequestRateLimitExceededError);
+
+    expect(database.connect).toHaveBeenCalledTimes(1);
+    expect(
+      containsQuery(database.query, "installation.github_installation_id"),
+    ).toBe(false);
+    expect(github.getAuthenticatedUser).not.toHaveBeenCalled();
+    expect(github.getCollaboratorPermission).not.toHaveBeenCalled();
+  });
+
   it("rechecks both live GitHub reads and observes permission revocation", async () => {
     const database = productionDatabase();
     const github = githubAuthorization();

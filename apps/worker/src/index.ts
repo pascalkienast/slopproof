@@ -19,6 +19,7 @@ import { EncryptedFfmpegFrameSelectionAdapter } from "./frame-selection";
 import { finalizeMediaUpload } from "./media-finalize";
 import { PostgresMultimodalEvaluationRepository } from "./multimodal-evaluation-repository";
 import { createMultimodalJudgeProvider } from "./multimodal-provider-factory";
+import { handleOperationalMetricsRequest } from "./operational-metrics";
 import {
   decodeProviderPayloadKeyBase64,
   registerProviderPipelineWorkers,
@@ -99,6 +100,16 @@ async function handleHttpRequest(
     response.end(
       JSON.stringify({ status: ready ? "ok" : "starting", service: "worker" }),
     );
+    return;
+  }
+
+  if (
+    ready &&
+    (await handleOperationalMetricsRequest(request, response, {
+      database,
+      bearerSecret: config.WORKER_INTERNAL_SECRET,
+    }))
+  ) {
     return;
   }
 

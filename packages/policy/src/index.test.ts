@@ -105,6 +105,27 @@ describe("MVP repository policy v1", () => {
     ).toThrow("minimumQuestions must not exceed maximumQuestions");
   });
 
+  it("enforces the non-negotiable 24-hour evidence maximum", () => {
+    expect(() =>
+      RepositoryPolicyV1Schema.parse({
+        ...DEFAULT_REPOSITORY_POLICY_V1,
+        evidence: {
+          ...DEFAULT_REPOSITORY_POLICY_V1.evidence,
+          retentionHours: 25,
+        },
+      }),
+    ).toThrow(z.ZodError);
+    expect(() =>
+      calculateEvidenceDeleteAfter(new Date("2030-01-01T00:00:00.000Z"), 25),
+    ).toThrow("Evidence retention inputs are invalid");
+    expect(
+      calculateEvidenceDeleteAfter(
+        new Date("2030-01-01T00:00:00.000Z"),
+        24,
+      ).toISOString(),
+    ).toBe("2030-01-02T00:00:00.000Z");
+  });
+
   it("rejects stale SHA, duplicate questions and unknown input fields", () => {
     expect(() =>
       applyRepositoryPolicyV1(DEFAULT_REPOSITORY_POLICY_V1, {

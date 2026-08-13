@@ -1,0 +1,60 @@
+# Import this site block from the host Caddy configuration only after the
+# production Compose readiness check succeeds. Gate 8 owns the live backup,
+# validation, reload and rollback. SLOPPROOF_SITE, LANDING_ROOT and
+# OAUTH_TRUSTED_PROXY_SECRET are host-side environment values.
+{$SLOPPROOF_SITE} {
+	log {
+		format filter {
+			# App paths and headers can contain revision/attempt identifiers,
+			# capabilities, CSRF tokens and OAuth state. Drop the complete maps
+			# instead of trying to maintain an incomplete sensitive-field list.
+			request>uri delete
+			request>remote_ip delete
+			request>client_ip delete
+			request>headers delete
+			resp_headers delete
+		}
+	}
+
+	header {
+		>Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		>X-Content-Type-Options "nosniff"
+		>X-Frame-Options "DENY"
+		>Referrer-Policy "no-referrer"
+	}
+
+	@mobile path /m /m/*
+	header @mobile >Permissions-Policy "camera=(self), microphone=(self), geolocation=()"
+
+	@non_mobile {
+		not path /m /m/*
+	}
+	header @non_mobile >Permissions-Policy "camera=(), microphone=(), geolocation=()"
+
+	@landing {
+		method GET HEAD
+		path /
+	}
+	handle @landing {
+		root * {$LANDING_ROOT}
+		try_files /index.html
+		file_server
+	}
+
+	@app path /api /api/* /_next /_next/* /revisions /revisions/* /m /m/* /review /review/* /icon.svg
+	handle @app {
+		reverse_proxy 127.0.0.1:3000 {
+			header_up -Forwarded
+			header_up -X-Forwarded-For
+			header_up -X-Real-IP
+			header_up -X-SlopProof-Client-IP
+			header_up -X-SlopProof-Proxy-Authenticator
+			header_up X-SlopProof-Client-IP {remote_host}
+			header_up X-SlopProof-Proxy-Authenticator {$OAUTH_TRUSTED_PROXY_SECRET}
+		}
+	}
+
+	handle {
+		respond "Not found" 404
+	}
+}

@@ -22,8 +22,9 @@ import {
   requireMutationSession,
 } from "../../../../lib/http-auth";
 import {
+  InvalidRequestBodyError,
   InvalidRequestBodyEncodingError,
-  readBoundedUtf8Body,
+  readBoundedJson,
   RequestBodyTooLargeError,
 } from "../../../../lib/bounded-body";
 import { getWebRuntime } from "../../../../lib/runtime";
@@ -32,6 +33,12 @@ import {
   type StoredUploadPart,
 } from "../../../../lib/upload-part-ledger";
 import { classifyUploadFinalization } from "./finalization-state";
+import {
+  consumeWebRequestRateLimit,
+  createWebRequestSubjectHash,
+  WebRequestRateLimitExceededError,
+  webRequestRateLimitResponse,
+} from "../../../../lib/request-rate-limit";
 
 const RequestSchema = z
   .object({
@@ -44,15 +51,20 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const app = await getWebRuntime();
     const session = await requireMutationSession(request, app);
-    const raw = await readBoundedUtf8Body(request, MAX_FINALIZE_JSON_BYTES);
-    const input = RequestSchema.safeParse(JSON.parse(raw) as unknown);
-    if (!input.success) {
-      return NextResponse.json(
-        { error: "invalid_finalization" },
-        { status: 400 },
-      );
-    }
-    const finalization = input.data.finalization;
+    const input = await readBoundedJson(
+      request,
+      MAX_FINALIZE_JSON_BYTES,
+      RequestSchema,
+    );
+    await consumeWebRequestRateLimit(app.database.pool, {
+      action: "upload_finalize",
+      subjectKeyHash: createWebRequestSubjectHash(
+        app.config.SESSION_SECRET,
+        "upload_finalize",
+        [session.actorId, session.repositoryId ?? "repository-unbound"],
+      ),
+    });
+    const finalization = input.finalization;
     const upload = await app.database.pool.query<{
       object_key: string;
       provider_upload_id: string;
@@ -101,7 +113,7 @@ export async function POST(request: Request): Promise<NextResponse> {
        JOIN wrapping_materials material
          ON material.attempt_id = attempt.id AND material.object_id = upload.object_id
        WHERE upload.id = $1`,
-      [input.data.uploadSessionId],
+      [input.uploadSessionId],
     );
     const row = upload.rows[0];
     const manifest = finalization.manifest;
@@ -193,7 +205,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         `SELECT part_number, first_chunk_index, last_chunk_index, byte_length,
                 sha256, etag
          FROM recording_parts WHERE upload_session_id = $1 ORDER BY part_number`,
-        [input.data.uploadSessionId],
+        [input.uploadSessionId],
       );
       if (
         stored.rows.length !== manifest.parts.length ||
@@ -221,7 +233,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       app.database.db,
       app.jobQueue,
       {
-        uploadSessionId: input.data.uploadSessionId,
+        uploadSessionId: input.uploadSessionId,
         attemptId: row.attempt_id,
         expectedHeadSha: row.head_sha,
         manifestDigest: finalization.manifestDigest,
@@ -253,10 +265,19 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "payload_too_large" }, { status: 413 });
     }
     if (
-      error instanceof SyntaxError ||
+      error instanceof InvalidRequestBodyError ||
       error instanceof InvalidRequestBodyEncodingError
     ) {
       return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+    }
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: "invalid_finalization" },
+        { status: 400 },
+      );
+    }
+    if (error instanceof WebRequestRateLimitExceededError) {
+      return webRequestRateLimitResponse(error);
     }
     return NextResponse.json(
       { error: "temporarily_unavailable" },

@@ -6,11 +6,9 @@ import {
 import {
   assertSafeProductionOutputDirectory,
   compileProductionEnvironment,
-  installProductionKeyFiles,
+  installProductionArtifacts,
   partitionProductionEnvironment,
   ProductionEnvironmentError,
-  renderProductionEnvironment,
-  writeProductionEnvironmentFile,
 } from "./lib/production-environment";
 
 const argumentsWithoutSeparator = process.argv
@@ -31,22 +29,9 @@ if (!outputDirectory) {
     loadWebConfig(partitions.web);
     loadWorkerConfig(partitions.worker);
     loadGithubControlConfig(partitions.githubControl);
-    installProductionKeyFiles(process.env, outputDirectory);
-    const files = [
-      ["web.env", partitions.web],
-      ["worker.env", partitions.worker],
-      ["github-control.env", partitions.githubControl],
-      ["proxy.env", partitions.proxy],
-      ["migrate.env", partitions.migrate],
-    ] as const;
-    for (const [fileName, environment] of files) {
-      writeProductionEnvironmentFile(
-        `${outputDirectory}/${fileName}`,
-        renderProductionEnvironment(environment),
-      );
-    }
+    installProductionArtifacts(process.env, outputDirectory, partitions);
     console.log(
-      `Installed ${String(files.length)} process-scoped environment files and 3 key files.`,
+      "Installed 5 process-scoped environment files, 3 key files, and a database password file.",
     );
   } catch (error) {
     if (error instanceof ProductionEnvironmentError) {

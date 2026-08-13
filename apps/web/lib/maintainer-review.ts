@@ -15,6 +15,10 @@ import {
   type SqlExecutor,
 } from "./maintainer-authorization";
 import type { WebRuntime } from "./runtime";
+import {
+  consumeWebRequestRateLimit,
+  createWebRequestSubjectHash,
+} from "./request-rate-limit";
 
 export const ReviewActionSchema = z.enum(["approve", "reject", "manual_retry"]);
 
@@ -219,6 +223,7 @@ export async function loadReviewQueue(
   authorization: MaintainerAuthorization;
   items: ReviewQueueItem[];
 }> {
+  await consumeReviewRequestRateLimit(app, session, "review_queue");
   const client = await app.database.pool.connect();
   try {
     await client.query("BEGIN");
@@ -321,6 +326,7 @@ export async function loadReviewDetail(
   attemptId: string,
   authorizationDependencies: MaintainerAuthorizationDependencies = {},
 ): Promise<ReviewDetail> {
+  await consumeReviewRequestRateLimit(app, session, "review_detail");
   const client = await app.database.pool.connect();
   try {
     await client.query("BEGIN");
@@ -529,6 +535,7 @@ export async function decideReview(
 }> {
   const input = ReviewDecisionInputSchema.parse(rawInput);
   const plan = planReviewDecision(input.action, input.expectedHeadSha);
+  await consumeReviewRequestRateLimit(app, session, "review_decision");
   const client = await app.database.pool.connect();
   try {
     await client.query("BEGIN");
@@ -706,4 +713,19 @@ export async function decideReview(
   } finally {
     client.release();
   }
+}
+
+async function consumeReviewRequestRateLimit(
+  app: WebRuntime,
+  session: AuthenticatedSession,
+  action: "review_queue" | "review_detail" | "review_decision",
+): Promise<void> {
+  await consumeWebRequestRateLimit(app.database.pool, {
+    action,
+    subjectKeyHash: createWebRequestSubjectHash(
+      app.config.SESSION_SECRET,
+      action,
+      [session.actorId, session.repositoryId ?? "repository-unbound"],
+    ),
+  });
 }

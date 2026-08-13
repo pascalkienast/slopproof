@@ -1,0 +1,234 @@
+name: slopproof-production
+
+x-app-build: &app-build
+  context: .
+  args:
+    S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?set the exact public R2 endpoint}
+
+x-app-image: &app-image ${SLOPPROOF_IMAGE:-slopproof-app:production}
+
+x-app-hardening: &app-hardening
+  image: *app-image
+  build: *app-build
+  user: "1000:1000"
+  init: true
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  stop_signal: SIGTERM
+
+x-logging: &bounded-logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+    user: "70:70"
+    environment:
+      POSTGRES_DB: slopproof
+      POSTGRES_USER: slopproof
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+    secrets:
+      - source: postgres_password
+        target: postgres-password
+    volumes:
+      - type: bind
+        source: ${SLOPPROOF_DATA_DIR:-/var/lib/slopproof}/postgres
+        target: /var/lib/postgresql
+        bind:
+          create_host_path: false
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,uid=70,gid=70,mode=1770
+      - /var/run/postgresql:rw,noexec,nosuid,nodev,size=16m,uid=70,gid=70,mode=3770
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U slopproof -d slopproof"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 60s
+    cpus: 1.0
+    mem_limit: 1g
+    pids_limit: 256
+    shm_size: 128m
+    logging: *bounded-logging
+
+  migrate:
+    <<: *app-hardening
+    command: ["node", "scripts/migrate-db.mjs"]
+    environment:
+      SLOPPROOF_ENV_FILE: /run/secrets/migrate.env
+    secrets:
+      - source: migrate_environment
+        target: migrate.env
+    networks:
+      - backend
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=1770
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    stop_grace_period: 30s
+    cpus: 0.5
+    mem_limit: 512m
+    pids_limit: 128
+    logging: *bounded-logging
+
+  worker:
+    <<: *app-hardening
+    command: ["node", "apps/worker/dist/index.cjs"]
+    environment:
+      SLOPPROOF_ENV_FILE: /run/secrets/worker.env
+    secrets:
+      - source: worker_environment
+        target: worker.env
+      - source: wrapping_private_key
+        target: wrapping-private.pem
+    networks:
+      - backend
+      - egress
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=512m,uid=1000,gid=1000,mode=1770
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch("http://127.0.0.1:4001/healthz", {
+          signal: AbortSignal.timeout(2500) }).then((response) => {
+          if (!response.ok) process.exit(1); }).catch(() => process.exit(1))
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    stop_grace_period: 45s
+    cpus: 1.5
+    mem_limit: 1536m
+    pids_limit: 256
+    logging: *bounded-logging
+
+  github-control:
+    <<: *app-hardening
+    command: ["node", "apps/github-control/dist/index.cjs"]
+    environment:
+      SLOPPROOF_ENV_FILE: /run/secrets/github-control.env
+    secrets:
+      - source: github_control_environment
+        target: github-control.env
+      - source: github_private_key
+        target: github-app.pem
+    networks:
+      - backend
+      - egress
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=1770
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch("http://127.0.0.1:4002/healthz", {
+          signal: AbortSignal.timeout(2500) }).then((response) => {
+          if (!response.ok) process.exit(1); }).catch(() => process.exit(1))
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    cpus: 0.5
+    mem_limit: 512m
+    pids_limit: 128
+    logging: *bounded-logging
+
+  web:
+    <<: *app-hardening
+    command: ["node", "apps/web/server.js"]
+    environment:
+      SLOPPROOF_ENV_FILE: /run/secrets/web.env
+    secrets:
+      - source: web_environment
+        target: web.env
+      - source: wrapping_public_key
+        target: wrapping-public.pem
+    networks:
+      - backend
+      - egress
+    ports:
+      - "127.0.0.1:3000:3000"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=1770
+      - /app/apps/web/.next/cache:rw,noexec,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=0750
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      worker:
+        condition: service_healthy
+      github-control:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch("http://127.0.0.1:3000/api/health/ready", {
+          signal: AbortSignal.timeout(2500) }).then((response) => {
+          if (!response.ok) process.exit(1); }).catch(() => process.exit(1))
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    cpus: 1.0
+    mem_limit: 1g
+    pids_limit: 256
+    logging: *bounded-logging
+
+networks:
+  backend:
+    internal: true
+  egress: {}
+
+secrets:
+  web_environment:
+    file: ${SLOPPROOF_SECRET_DIR:-/etc/slopproof/secrets}/web.env
+  worker_environment:
+    file: ${SLOPPROOF_SECRET_DIR:-/etc/slopproof/secrets}/worker.env
+  github_control_environment:
+    file: ${SLOPPROOF_SECRET_DIR:-/etc/slopproof/secrets}/github-control.env
+  migrate_environment:
+    file: ${SLOPPROOF_SECRET_DIR:-/etc/slopproof/secrets}/migrate.env
+  github_private_key:
+    file: ${SLOPPROOF_SECRET_DIR:-/etc/slopproof/secrets}/github-app.pem
+  wrapping_private_key:
+    file: ${SLOPPROOF_SECRET_DIR:-/etc/slopproof/secrets}/wrapping-private.pem
+  wrapping_public_key:
+    file: ${SLOPPROOF_SECRET_DIR:-/etc/slopproof/secrets}/wrapping-public.pem
+  postgres_password:
+    file: ${SLOPPROOF_SECRET_DIR:-/etc/slopproof/secrets}/postgres-password

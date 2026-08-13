@@ -17,7 +17,8 @@ export async function teardown(): Promise<void> {
         practice_sessions, generation_contexts, analysis_snapshots,
         github_revision_sources,
         github_recovery_candidates,
-        github_oauth_flows, oauth_start_rate_limits, webhook_deliveries,
+        github_oauth_flows, oauth_start_rate_limits, web_request_rate_limits,
+        webhook_deliveries,
         pull_request_revisions, pull_requests, repository_policies,
         repositories, installations
       RESTART IDENTITY CASCADE

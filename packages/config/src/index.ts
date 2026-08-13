@@ -1,3 +1,5 @@
+import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
+import { basename, isAbsolute } from "node:path";
 import { z } from "zod";
 
 export const DeploymentProfileSchema = z.enum(["local", "production"]);
@@ -82,6 +84,7 @@ const webSchema = z
     KEY_WRAPPING_PUBLIC_KEY_PATH: z.string().min(1),
     KEY_WRAPPING_PUBLIC_KEY_CONTAINER_PATH: z.string().min(1).optional(),
     WORKER_INTERNAL_URL: z.url(),
+    GITHUB_CONTROL_INTERNAL_URL: z.url().optional(),
     WORKER_INTERNAL_SECRET: z.string().min(32),
   })
   .strip()
@@ -134,6 +137,10 @@ const webSchema = z
       "S3_PUBLIC_ENDPOINT",
     );
     requireInternalWorkerEndpoint(context, value.WORKER_INTERNAL_URL);
+    requireInternalGithubControlEndpoint(
+      context,
+      value.GITHUB_CONTROL_INTERNAL_URL,
+    );
     requireSafeSecret(
       context,
       value.S3_SECRET_ACCESS_KEY,
@@ -240,6 +247,14 @@ const workerSchema = z
       "WORKER_INTERNAL_SECRET",
       32,
     );
+    requireValue(context, value.WORKER_HOST === "0.0.0.0", ["WORKER_HOST"]);
+    requireValue(context, value.WORKER_PORT === 4001, ["WORKER_PORT"]);
+    requireValue(context, value.FFMPEG_PATH === "/usr/bin/ffmpeg", [
+      "FFMPEG_PATH",
+    ]);
+    requireValue(context, value.FFPROBE_PATH === "/usr/bin/ffprobe", [
+      "FFPROBE_PATH",
+    ]);
     if (value.KEY_WRAPPING_PROVIDER === "local") {
       requireAbsolutePath(
         context,
@@ -257,6 +272,13 @@ const githubControlSchema = z
     GITHUB_APP_ID: z.string().trim().min(1).optional(),
     GITHUB_PRIVATE_KEY_PATH: z.string().min(1).optional(),
     GITHUB_PRIVATE_KEY_CONTAINER_PATH: z.string().min(1).optional(),
+    GITHUB_CONTROL_HOST: z.string().trim().min(1).default("127.0.0.1"),
+    GITHUB_CONTROL_PORT: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(65_535)
+      .default(4002),
   })
   .strip()
   .superRefine((value, context) => {
@@ -285,12 +307,34 @@ const githubControlSchema = z
       value.GITHUB_PRIVATE_KEY_CONTAINER_PATH,
       "GITHUB_PRIVATE_KEY_CONTAINER_PATH",
     );
+    requireValue(context, value.GITHUB_CONTROL_HOST === "0.0.0.0", [
+      "GITHUB_CONTROL_HOST",
+    ]);
+    requireValue(context, value.GITHUB_CONTROL_PORT === 4002, [
+      "GITHUB_CONTROL_PORT",
+    ]);
+  });
+
+const migrationSchema = z
+  .object({
+    NODE_ENV: z
+      .enum(["development", "test", "production"])
+      .default("development"),
+    DEPLOYMENT_PROFILE: DeploymentProfileSchema.default("local"),
+    DATABASE_URL: z.string().min(1),
+  })
+  .strip()
+  .superRefine((value, context) => {
+    if (!isProduction(value)) return;
+    requireValue(context, value.NODE_ENV === "production", ["NODE_ENV"]);
+    requireProductionDatabase(context, value.DATABASE_URL);
   });
 
 export type BaseConfig = z.output<typeof baseSchema>;
 export type WebConfig = z.output<typeof webSchema>;
 export type WorkerConfig = z.output<typeof workerSchema>;
 export type GithubControlConfig = z.output<typeof githubControlSchema>;
+export type MigrationConfig = z.output<typeof migrationSchema>;
 
 export class ConfigurationError extends Error {
   readonly fields: string[];
@@ -523,6 +567,30 @@ function requireInternalWorkerEndpoint(
   }
 }
 
+function requireInternalGithubControlEndpoint(
+  context: z.RefinementCtx,
+  value: string | undefined,
+): void {
+  try {
+    if (!value) throw new Error("missing internal GitHub Control URL");
+    const url = new URL(value);
+    requireValue(
+      context,
+      url.protocol === "http:" &&
+        url.hostname === "github-control" &&
+        url.port === "4002" &&
+        url.pathname === "/healthz" &&
+        url.username === "" &&
+        url.password === "" &&
+        url.search === "" &&
+        url.hash === "",
+      ["GITHUB_CONTROL_INTERNAL_URL"],
+    );
+  } catch {
+    requireValue(context, false, ["GITHUB_CONTROL_INTERNAL_URL"]);
+  }
+}
+
 function isProductionEndpoint(value: string): boolean {
   try {
     const url = new URL(value);
@@ -569,11 +637,19 @@ function requireProductionDatabase(
 ): void {
   try {
     const url = new URL(value);
+    const password = decodeURIComponent(url.password);
     requireValue(
       context,
       ["postgres:", "postgresql:"].includes(url.protocol) &&
-        url.password.length >= 24 &&
-        !looksLikePlaceholder(url.password),
+        url.username === "slopproof" &&
+        password.length >= 24 &&
+        !looksLikePlaceholder(password) &&
+        !/[\0\r\n]/u.test(password) &&
+        url.hostname === "postgres" &&
+        url.port === "5432" &&
+        url.pathname === "/slopproof" &&
+        url.search === "" &&
+        url.hash === "",
       ["DATABASE_URL"],
     );
   } catch {
@@ -657,6 +733,195 @@ const githubControlForbiddenProductionFields = [
   "KEY_WRAPPING_PRIVATE_KEY_PATH",
 ] as const;
 
+const webEnvironmentFileFields = [
+  "NODE_ENV",
+  "DEPLOYMENT_PROFILE",
+  "APP_BASE_URL",
+  "DEMO_MODE",
+  "DEMO_FAKE_MEDIA",
+  "DATABASE_URL",
+  "SESSION_SECRET",
+  "LOG_LEVEL",
+  "GITHUB_ADAPTER",
+  "GITHUB_WEBHOOK_SECRET",
+  "GITHUB_CLIENT_ID",
+  "GITHUB_CLIENT_SECRET",
+  "OAUTH_TRUSTED_PROXY_SECRET",
+  "EVIDENCE_STORAGE_PROVIDER",
+  "S3_CONTROL_ENDPOINT",
+  "S3_PUBLIC_ENDPOINT",
+  "S3_REGION",
+  "S3_BUCKET",
+  "S3_ACCESS_KEY_ID",
+  "S3_SECRET_ACCESS_KEY",
+  "KEY_WRAPPING_PROVIDER",
+  "KEY_WRAPPING_PUBLIC_KEY_PATH",
+  "KEY_WRAPPING_PUBLIC_KEY_CONTAINER_PATH",
+  "WORKER_INTERNAL_URL",
+  "GITHUB_CONTROL_INTERNAL_URL",
+  "WORKER_INTERNAL_SECRET",
+] as const;
+
+const workerEnvironmentFileFields = [
+  "NODE_ENV",
+  "DEPLOYMENT_PROFILE",
+  "APP_BASE_URL",
+  "DEMO_MODE",
+  "DEMO_FAKE_MEDIA",
+  "DATABASE_URL",
+  "LOG_LEVEL",
+  "GITHUB_ADAPTER",
+  "GENERATION_PROVIDER",
+  "GENERATION_BASE_URL",
+  "GENERATION_API_KEY",
+  "LEARNING_MODEL",
+  "PRACTICE_MODEL",
+  "PROOF_QUESTION_MODEL",
+  "MULTIMODAL_JUDGE_PROVIDER",
+  "JUDGE_BASE_URL",
+  "JUDGE_API_KEY",
+  "JUDGE_MODEL",
+  "JUDGE_FALLBACK_MODEL",
+  "TRANSCRIPTION_PROVIDER",
+  "TRANSCRIPTION_BASE_URL",
+  "TRANSCRIPTION_API_KEY",
+  "TRANSCRIPTION_MODEL",
+  "EVIDENCE_STORAGE_PROVIDER",
+  "S3_CONTROL_ENDPOINT",
+  "S3_REGION",
+  "S3_BUCKET",
+  "S3_ACCESS_KEY_ID",
+  "S3_SECRET_ACCESS_KEY",
+  "KEY_WRAPPING_PROVIDER",
+  "KEY_WRAPPING_PRIVATE_KEY_PATH",
+  "KEY_WRAPPING_PRIVATE_KEY_CONTAINER_PATH",
+  "WORKER_INTERNAL_SECRET",
+  "PROVIDER_PAYLOAD_KEY_BASE64",
+  "WORKER_HOST",
+  "WORKER_PORT",
+  "FFMPEG_PATH",
+  "FFPROBE_PATH",
+] as const;
+
+const githubControlEnvironmentFileFields = [
+  "NODE_ENV",
+  "DEPLOYMENT_PROFILE",
+  "APP_BASE_URL",
+  "DEMO_MODE",
+  "DEMO_FAKE_MEDIA",
+  "DATABASE_URL",
+  "LOG_LEVEL",
+  "GITHUB_ADAPTER",
+  "GITHUB_APP_ID",
+  "GITHUB_PRIVATE_KEY_PATH",
+  "GITHUB_PRIVATE_KEY_CONTAINER_PATH",
+  "GITHUB_CONTROL_HOST",
+  "GITHUB_CONTROL_PORT",
+] as const;
+
+const migrationEnvironmentFileFields = [
+  "NODE_ENV",
+  "DEPLOYMENT_PROFILE",
+  "DATABASE_URL",
+] as const;
+
+const environmentFileMaximumBytes = 64 * 1024;
+
+function resolveScopedEnvironment(
+  environment: Environment,
+  expectedFileName: string,
+  allowedFields: readonly string[],
+): Environment {
+  const environmentFile = environment.SLOPPROOF_ENV_FILE;
+  if (environmentFile === undefined) return environment;
+
+  const fail = (): never => {
+    throw new ConfigurationError(["SLOPPROOF_ENV_FILE"]);
+  };
+  if (
+    !isAbsolute(environmentFile) ||
+    basename(environmentFile) !== expectedFileName
+  ) {
+    return fail();
+  }
+
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(
+      environmentFile,
+      constants.O_RDONLY | constants.O_NOFOLLOW,
+    );
+    const stat = fstatSync(descriptor);
+    if (
+      !stat.isFile() ||
+      stat.size < 1 ||
+      stat.size > environmentFileMaximumBytes ||
+      (stat.mode & 0o7137) !== 0 ||
+      (stat.mode & 0o400) === 0
+    ) {
+      return fail();
+    }
+    const bytes = Buffer.alloc(stat.size);
+    let offset = 0;
+    while (offset < bytes.byteLength) {
+      const count = readSync(
+        descriptor,
+        bytes,
+        offset,
+        bytes.byteLength - offset,
+        null,
+      );
+      if (count === 0) return fail();
+      offset += count;
+    }
+    if (readSync(descriptor, Buffer.alloc(1), 0, 1, null) !== 0) return fail();
+    closeSync(descriptor);
+    descriptor = undefined;
+
+    const contents = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    if (
+      contents.length === 0 ||
+      !contents.endsWith("\n") ||
+      contents.includes("\0") ||
+      contents.includes("\r")
+    ) {
+      return fail();
+    }
+
+    const allowed = new Set(allowedFields);
+    const loaded: Record<string, string> = {};
+    for (const line of contents.slice(0, -1).split("\n")) {
+      const match = /^([A-Z][A-Z0-9_]*)='([^']*)'$/u.exec(line);
+      const name = match?.[1];
+      if (
+        !name ||
+        !match ||
+        !allowed.has(name) ||
+        Object.hasOwn(loaded, name)
+      ) {
+        return fail();
+      }
+      loaded[name] = match[2] ?? "";
+    }
+
+    const conflictingFields = Object.entries(loaded)
+      .filter(
+        ([name, value]) =>
+          environment[name] !== undefined && environment[name] !== value,
+      )
+      .map(([name]) => name)
+      .sort();
+    if (conflictingFields.length > 0) {
+      throw new ConfigurationError(conflictingFields);
+    }
+    return Object.freeze({ ...environment, ...loaded });
+  } catch (error) {
+    if (descriptor !== undefined) closeSync(descriptor);
+    if (error instanceof ConfigurationError) throw error;
+    return fail();
+  }
+}
+
 function parseScopedConfig<T>(
   schema: z.ZodType<T>,
   environment: Environment,
@@ -694,9 +959,14 @@ export function loadBaseConfig(
 export function loadWebConfig(
   environment: Environment = process.env,
 ): WebConfig {
+  const scopedEnvironment = resolveScopedEnvironment(
+    environment,
+    "web.env",
+    webEnvironmentFileFields,
+  );
   return parseScopedConfig(
     webSchema,
-    environment,
+    scopedEnvironment,
     webForbiddenProductionFields,
   );
 }
@@ -704,9 +974,14 @@ export function loadWebConfig(
 export function loadWorkerConfig(
   environment: Environment = process.env,
 ): WorkerConfig {
+  const scopedEnvironment = resolveScopedEnvironment(
+    environment,
+    "worker.env",
+    workerEnvironmentFileFields,
+  );
   return parseScopedConfig(
     workerSchema,
-    environment,
+    scopedEnvironment,
     workerForbiddenProductionFields,
   );
 }
@@ -714,9 +989,29 @@ export function loadWorkerConfig(
 export function loadGithubControlConfig(
   environment: Environment = process.env,
 ): GithubControlConfig {
+  const scopedEnvironment = resolveScopedEnvironment(
+    environment,
+    "github-control.env",
+    githubControlEnvironmentFileFields,
+  );
   return parseScopedConfig(
     githubControlSchema,
-    environment,
+    scopedEnvironment,
     githubControlForbiddenProductionFields,
+  );
+}
+
+export function loadMigrationConfig(
+  environment: Environment = process.env,
+): MigrationConfig {
+  const scopedEnvironment = resolveScopedEnvironment(
+    environment,
+    "migrate.env",
+    migrationEnvironmentFileFields,
+  );
+  return parseScopedConfig(
+    migrationSchema,
+    scopedEnvironment,
+    baseForbiddenProductionFields,
   );
 }

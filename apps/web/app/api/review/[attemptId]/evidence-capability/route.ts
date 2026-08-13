@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import {
+  InvalidRequestBodyError,
+  requireEmptyRequestBody,
+} from "../../../../../lib/bounded-body";
+import {
   EVIDENCE_CAPABILITY_COOKIE,
   EVIDENCE_CAPABILITY_MAX_TTL_MS,
   issueEvidenceCapability,
@@ -15,6 +19,10 @@ import {
   reviewRouteErrorResponse,
 } from "../../../../../lib/review-http";
 import { getWebRuntime } from "../../../../../lib/runtime";
+import {
+  consumeWebRequestRateLimit,
+  createWebRequestSubjectHash,
+} from "../../../../../lib/request-rate-limit";
 
 export async function POST(
   request: Request,
@@ -26,6 +34,15 @@ export async function POST(
     const attemptId = ReviewAttemptIdSchema.parse(
       (await context.params).attemptId,
     );
+    await requireEmptyRequestBody(request);
+    await consumeWebRequestRateLimit(app.database.pool, {
+      action: "evidence_capability",
+      subjectKeyHash: createWebRequestSubjectHash(
+        app.config.SESSION_SECRET,
+        "evidence_capability",
+        [session.actorId, session.repositoryId ?? "repository-unbound"],
+      ),
+    });
     const client = await app.database.pool.connect();
     let issued: ReturnType<typeof issueEvidenceCapability>;
     try {
@@ -80,6 +97,9 @@ export async function POST(
     });
     return response;
   } catch (error) {
+    if (error instanceof InvalidRequestBodyError) {
+      return jsonError("invalid_request", 400);
+    }
     return (
       reviewRouteErrorResponse(error) ??
       jsonError("temporarily_unavailable", 503)

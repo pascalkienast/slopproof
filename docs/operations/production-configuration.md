@@ -13,8 +13,8 @@ closed if the runtime still selects demo mode, a fake adapter, an HTTP public
 URL, a loopback public storage endpoint, a placeholder secret or incomplete
 provider material.
 
-The compiler creates five mode-0600 environment files and three validated key
-files in a new mode-0700 directory:
+The compiler creates one fail-closed set of nine artifacts in a new mode-0700
+directory:
 
 - `web.env`: OAuth, webhook, session, storage runtime and worker-capability
   configuration; no model keys or private wrapping key;
@@ -25,7 +25,9 @@ files in a new mode-0700 directory:
 - `proxy.env`: only the derived OAuth proxy authenticator;
 - `migrate.env`: database access only;
 - `github-app.pem` and `wrapping-private.pem`: unchanged copies with mode 0600;
-- `wrapping-public.pem`: unchanged copy with mode 0644.
+- `wrapping-public.pem`: unchanged copy with mode 0644;
+- `postgres-password`: a mode-0600 password-only file derived from and bound
+  to the canonical process `DATABASE_URL` values.
 
 The web receives only the public RSA wrapping-key mount, the media worker only
 the private wrapping-key mount, and GitHub Control only the GitHub App PEM. The
@@ -73,14 +75,52 @@ source "$HOME/.secrets/slopproof.env"
 pnpm production:env -- /absolute/new-output-directory
 ```
 
-The command reports only the number of files. It never prints values and
-requires a new, empty directory; it cannot overwrite or rotate existing
-production material. It rejects symlinks, unsafe modes, a GitHub RSA key below
-2048 bits, a wrapping keypair other than matching RSA-3072 material, or
-unexpected `/run/secrets/*` destinations. The R2 S3 access ID is mapped from the existing
-bucket-scoped source and the S3 secret is derived locally as specified by the
-deployment contract. The historical `CLOUDFLARE_R2_SEC_ACCESSKEY` is never
-consumed.
+The compiler validates every process value against the strict single-quoted
+runtime grammar before writing anything. It then installs one fail-closed set
+of nine artifacts:
+
+- five mode-0600 process files: `web.env`, `worker.env`,
+  `github-control.env`, `proxy.env` and `migrate.env`;
+- `github-app.pem` and `wrapping-private.pem`, both mode 0600;
+- the intentionally public `wrapping-public.pem`, mode 0644;
+- `postgres-password`, mode 0600, derived by strict parse and percent-decoding
+  from the canonical
+  `postgres://slopproof:<password>@postgres:5432/slopproof` URL.
+
+The command reports counts only and never prints values. It requires a new,
+empty directory and cannot overwrite or rotate existing production material.
+Predictable conflicts are checked before the first write; each write is
+same-directory atomic, and an unexpected mid-set failure triggers bounded
+cleanup of only the exact files created by that invocation. It rejects
+symlinks, unsafe modes, a GitHub RSA key below 2048 bits, a wrapping keypair
+other than matching RSA-3072 material, or unexpected `/run/secrets/*`
+destinations. The R2 S3 access ID is mapped from the existing bucket-scoped
+source and the S3 secret is derived locally as specified by the deployment
+contract. The historical `CLOUDFLARE_R2_SEC_ACCESSKEY` is never consumed.
+
+On the deployment host, keep the artifacts root-owned. Grant uid 1000 a
+read-only ACL only for each service's process file and required PEMs; grant uid
+70 a read-only ACL only for `postgres-password`. The compiler binds the
+password file to every process `DATABASE_URL`, so operators must not copy or
+print a password separately.
+
+The GitHub App key reader accepts only the runtime-enforceable projection of
+the resulting private-file shapes. A root-owned `0600` key may be exposed to
+container uid 1000 with one named, read-only ACL; the ACL mask appears as mode
+`0640` inside the container. The reader first opens with `O_NOFOLLOW`, then
+requires a regular bounded file, `root:root` ownership, an unprivileged process
+outside group 0, no special, execute, write-group or world bits, and that exact
+read-mask bit. It therefore does not broadly accept ordinary group-readable
+private keys. Locally, a mode-`0600` key owned by the effective process uid
+remains valid.
+
+POSIX stat metadata cannot enumerate named ACL entries. The host preflight must
+therefore additionally verify, without reading file contents, that each uid
+1000 private file's `getfacl -cp` entries are exactly `user::rw-`,
+`user:1000:r--`, `group::---`, `mask::r--`, `other::---`, with no additional
+named users or groups. Compose drops all capabilities, and uid 1000 is not a
+member of group 0; a successfully opened root-owned `0640` mount then proves
+that the named ACL is the process's access path.
 
 Before installing the result, validate presence and modes by filename only.
 Never run `cat`, `head`, `env`, `set`, `printenv` or a shell trace in the loaded
@@ -139,6 +179,13 @@ secondary-limit responses without that header wait at least 60 seconds. App and
 repository lifecycle events never reactivate access on event data alone. A
 fresh repository-scoped read and exact database fence must win before a binding
 can become active again.
+
+GitHub Control exposes only a value-free `GET /healthz` response on its
+container-only `0.0.0.0:4002` listener. Production Web accepts only the exact
+`http://github-control:4002/healthz` destination and includes its exact,
+bounded JSON response in public readiness. Compose additionally marks GitHub
+Control unhealthy from a loopback probe and gates Web startup on that health;
+no GitHub Control port is published on the host.
 
 These local contracts do not prove that the real GitHub App is installed on a
 suitable repository. Gate 10 performs that read-only discovery and the live PR

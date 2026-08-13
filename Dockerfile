@@ -1,23 +1,47 @@
-FROM node:24.13.0-bookworm-slim
+FROM node:24.13.0-bookworm-slim@sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f AS builder
 
 ARG S3_PUBLIC_ENDPOINT=http://localhost:9000
 
-ENV PNPM_HOME=/home/node/.local/share/pnpm
-ENV PATH=$PNPM_HOME:$PATH
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV S3_PUBLIC_ENDPOINT=$S3_PUBLIC_ENDPOINT
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    S3_PUBLIC_ENDPOINT=$S3_PUBLIC_ENDPOINT
 
+WORKDIR /build
+COPY . .
 RUN corepack enable \
-    && apt-get update \
+    && corepack pnpm install --frozen-lockfile \
+    && corepack pnpm build \
+    && corepack pnpm exec tsup --config scripts/tsup.config.ts
+
+FROM node:24.13.0-bookworm-slim@sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f AS runtime
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000
+
+RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /app /home/node/.local/share/pnpm \
-    && chown -R node:node /app /home/node/.local/share/pnpm
+    && rm -f /usr/local/bin/corepack /usr/local/bin/npm /usr/local/bin/npx \
+      /usr/local/bin/pnpm /usr/local/bin/pnpx \
+    && rm -rf /usr/local/lib/node_modules/corepack \
+      /usr/local/lib/node_modules/npm
 
 WORKDIR /app
-COPY --chown=node:node . .
-USER node
-RUN corepack pnpm install --frozen-lockfile
-RUN corepack pnpm build
+COPY --from=builder --chown=1000:1000 /build/apps/web/.next/standalone/ ./
+COPY --from=builder --chown=1000:1000 /build/apps/web/.next/static/ ./apps/web/.next/static/
+COPY --from=builder --chown=1000:1000 /build/apps/worker/dist/index.cjs ./apps/worker/dist/index.cjs
+COPY --from=builder --chown=1000:1000 /build/apps/github-control/dist/index.cjs ./apps/github-control/dist/index.cjs
+COPY --from=builder --chown=1000:1000 /build/scripts/dist/migrate-db.mjs ./scripts/migrate-db.mjs
+COPY --from=builder --chown=1000:1000 /build/packages/db/migrations/ ./packages/db/migrations/
+RUN find /app -type f -name '*.map' -delete \
+    && find /app/node_modules -type d \
+      \( -name test -o -name tests -o -name __tests__ \) \
+      -prune -exec rm -rf '{}' '+' \
+    && find /app/node_modules -type d -path '*/next/dist/compiled/tar' \
+      -prune -exec rm -rf '{}' '+'
 
-CMD ["corepack", "pnpm", "--filter", "@slopproof/web", "exec", "next", "start", "--hostname", "0.0.0.0"]
+USER 1000:1000
+
+CMD ["node", "apps/web/server.js"]

@@ -198,6 +198,41 @@ export const oauthStartRateLimits = pgTable(
   ],
 );
 
+export const webRequestRateLimits = pgTable(
+  "web_request_rate_limits",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    action: text("action").notNull(),
+    subjectKeyHash: text("subject_key_hash").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("web_request_rate_limits_subject_window_idx").on(
+      table.action,
+      table.subjectKeyHash,
+      table.occurredAt,
+    ),
+    index("web_request_rate_limits_global_window_idx").on(
+      table.action,
+      table.occurredAt,
+    ),
+    index("web_request_rate_limits_cleanup_idx").on(table.expiresAt, table.id),
+    check(
+      "web_request_rate_limits_subject_hash_v1",
+      sql`${table.subjectKeyHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "web_request_rate_limits_action_v1",
+      sql`${table.action} IN ('handoff_create', 'handoff_exchange', 'upload_start', 'upload_part_url', 'upload_part_complete', 'upload_finalize', 'review_queue', 'review_detail', 'review_context', 'evidence_capability', 'evidence_stream', 'review_decision')`,
+    ),
+    check(
+      "web_request_rate_limits_expiry_v1",
+      sql`${table.expiresAt} > ${table.occurredAt}`,
+    ),
+  ],
+);
+
 export const repositoryPolicies = pgTable(
   "repository_policies",
   {
