@@ -87,6 +87,14 @@ test("Caddy renderer preserves exact non-SlopProof bytes and leaves only a runti
     1,
   );
   assert.doesNotMatch(candidate, /\{\$(?:OAUTH|.*SECRET)|\{env\.OAUTH/u);
+  assert.match(
+    candidate,
+    /header_up X-SlopProof-Client-IP \{http\.request\.remote\.host\}/u,
+  );
+  assert.doesNotMatch(
+    candidate,
+    /header_up X-SlopProof-Client-IP \{remote_host\}/u,
+  );
   assert.match(candidate, /header @landing >Content-Security-Policy/u);
 });
 
@@ -181,6 +189,13 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
     assert.match(deploy, new RegExp(`trap '${cleanup} 130' INT`, "u"));
     assert.match(deploy, new RegExp(`trap '${cleanup} 143' TERM`, "u"));
   }
+  assert.match(deploy, /^CUTOVER_ROLLBACK_RELEASE_ID=''$/mu);
+  assert.match(deploy, /^FINALIZE_ROLLBACK_RELEASE_ID=''$/mu);
+  assert.match(deploy, /^RESTORE_CLEANUP_CREATION_ATTEMPTED=false$/mu);
+  assert.doesNotMatch(
+    deploy,
+    /local[^\n]*(?:mutation_started|cutover_complete|finalize_complete)/u,
+  );
   assert.match(deploy, /sed -n '1,108p'/u);
   assert.match(deploy, /Caddy snapshot reconstruction mismatch/u);
   const cutover = deploy.slice(
@@ -203,33 +218,22 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
   assert.match(cutover, /sync -f "\$SECRET_ROOT"/u);
   assert.match(cutover, /sync -f "\$\(dirname "\$CADDY_DROPIN"\)"/u);
   assert.match(cutover, /sync -f "\$\(dirname "\$CADDYFILE"\)"/u);
-  const failedCutover = cutover.slice(
-    cutover.indexOf("restore_failed_cutover()"),
-    cutover.indexOf("trap 'restore_failed_cutover $?'"),
+  const failedCutover = deploy.slice(
+    deploy.indexOf("restore_failed_cutover()"),
+    deploy.indexOf("phase_initial_caddy_cutover()"),
   );
-  const recoveryCaddy = failedCutover.indexOf(
-    'mv -Tf "$caddy_temporary.restore" "$CADDYFILE"',
+  assert.match(
+    failedCutover,
+    /\(phase_rollback "\$CUTOVER_ROLLBACK_RELEASE_ID"\)/u,
   );
-  const recoveryCaddySync = failedCutover.indexOf(
-    'sync -f "$(dirname "$CADDYFILE")"',
+  const failedFinalize = deploy.slice(
+    deploy.indexOf("restore_failed_finalize()"),
+    deploy.indexOf("phase_finalize()"),
   );
-  const recoveryDropin = failedCutover.indexOf(
-    'mv -Tf "$dropin_temporary.restore" "$CADDY_DROPIN"',
+  assert.match(
+    failedFinalize,
+    /\(phase_rollback "\$FINALIZE_ROLLBACK_RELEASE_ID"\)/u,
   );
-  const recoveryDropinSync = failedCutover.indexOf(
-    'sync -f "$(dirname "$CADDY_DROPIN")"',
-  );
-  const recoverySecret = failedCutover.indexOf(
-    'mv -Tf "$SECRET_ROOT/current.restore" "$SECRET_ROOT/current"',
-  );
-  const recoverySecretSync = failedCutover.indexOf('sync -f "$SECRET_ROOT"');
-  assert.ok(
-    recoveryCaddy < recoveryCaddySync && recoveryCaddySync < recoveryDropin,
-  );
-  assert.ok(
-    recoveryDropin < recoveryDropinSync && recoveryDropinSync < recoverySecret,
-  );
-  assert.ok(recoverySecret < recoverySecretSync);
 
   const rollback = deploy.slice(
     deploy.indexOf("phase_rollback()"),
@@ -372,7 +376,7 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
   assert.match(deploy, /com\.slopproof\.restore\.owner=\$owner_token/u);
   assert.match(
     deploy,
-    /"\$cleanup_identity" == "\$owner_token\|\$release_id\|\$restore_database\|\$postgres_image_id"/u,
+    /"\$cleanup_identity" == "\$RESTORE_CLEANUP_OWNER_TOKEN\|\$RESTORE_CLEANUP_RELEASE_ID\|\$RESTORE_CLEANUP_DATABASE\|\$RESTORE_CLEANUP_POSTGRES_IMAGE_ID"/u,
   );
   assert.doesNotMatch(
     deploy,
@@ -482,6 +486,8 @@ test("production smoke covers exact app boundaries and every existing cohost", (
     assert.ok(smoke.includes(value), value);
   assert.match(smoke, /findmnt -n -o FSTYPE -T \/run\) == tmpfs/u);
   assert.match(smoke, /mktemp -d \/run\/slopproof-smoke/u);
+  assert.match(smoke, /^smoke_scratch=''$/mu);
+  assert.doesNotMatch(smoke, /local scratch/u);
   assert.doesNotMatch(
     smoke,
     /mktemp -d \/tmp|find "\$scratch" -depth -delete/u,
@@ -612,6 +618,11 @@ test("trusted host bootstrap pins apt provenance, tools and zero-core service li
   assert.match(bootstrap, /trap 'rollback_failed_bootstrap 129' HUP/u);
   assert.match(bootstrap, /trap 'rollback_failed_bootstrap 130' INT/u);
   assert.match(bootstrap, /trap 'rollback_failed_bootstrap 143' TERM/u);
+  assert.match(bootstrap, /^BOOTSTRAP_ROLLBACK_STATE=''$/mu);
+  assert.doesNotMatch(
+    bootstrap,
+    /local[^\n]*(?:mutation_started|complete=false)/u,
+  );
   assert.match(bootstrap, /ulimit -S -c 0[\s\S]*ulimit -H -c 0/u);
   assert.doesNotMatch(
     bootstrap,

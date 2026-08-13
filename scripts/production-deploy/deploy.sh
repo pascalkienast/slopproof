@@ -31,6 +31,18 @@ readonly EXPECTED_SLOPPROOF_UNIT_SHA256='264d6a7ac114ce82fc723a3dcf3839b0e0f72f4
 readonly EXPECTED_NODEJS_PACKAGE='18.19.1+dfsg-6ubuntu5'
 readonly EXPECTED_JQ_PACKAGE='1.7.1-3ubuntu0.24.04.2'
 
+# EXIT traps run after a failing function's local scope has unwound. Keep every
+# cleanup identity needed by those traps in explicitly initialized script
+# state, never in function-local variables.
+RESTORE_CLEANUP_CREATION_ATTEMPTED=false
+RESTORE_CLEANUP_CONTAINER_NAME=''
+RESTORE_CLEANUP_OWNER_TOKEN=''
+RESTORE_CLEANUP_RELEASE_ID=''
+RESTORE_CLEANUP_DATABASE=''
+RESTORE_CLEANUP_POSTGRES_IMAGE_ID=''
+CUTOVER_ROLLBACK_RELEASE_ID=''
+FINALIZE_ROLLBACK_RELEASE_ID=''
+
 die() {
   printf '%s\n' "$1" >&2
   exit 1
@@ -610,10 +622,26 @@ assert_all_restore_containers_absent() {
     die "A stale restore-only PostgreSQL container must be removed before another rehearsal"
 }
 
+cleanup_failed_restore_start() {
+  local status=${1:-$?} cleanup_identity=''
+  trap - EXIT HUP INT TERM
+  if [[ "$RESTORE_CLEANUP_CREATION_ATTEMPTED" == true ]]; then
+    cleanup_identity=$(timeout --signal=TERM --kill-after=5s 10 docker inspect \
+      --format '{{index .Config.Labels "com.slopproof.restore.owner"}}|{{index .Config.Labels "com.slopproof.restore.release"}}|{{index .Config.Labels "com.slopproof.restore.database"}}|{{.Image}}' \
+      "$RESTORE_CLEANUP_CONTAINER_NAME" 2>/dev/null || true)
+    if [[ "$cleanup_identity" == "$RESTORE_CLEANUP_OWNER_TOKEN|$RESTORE_CLEANUP_RELEASE_ID|$RESTORE_CLEANUP_DATABASE|$RESTORE_CLEANUP_POSTGRES_IMAGE_ID" ]]; then
+      timeout --signal=KILL 30 docker rm --force --volumes \
+        "$RESTORE_CLEANUP_CONTAINER_NAME" >/dev/null 2>&1 ||
+        printf '%s\n' "Owned restore-only PostgreSQL cleanup failed." >&2
+    fi
+  fi
+  exit "$status"
+}
+
 phase_restore_start() {
   require_root
   local release_id=${1:-} restore_database=${2:-} container_name postgres_image_id owner_token
-  local cleanup_identity='' started_container_id='' creation_attempted=false ready=false
+  local started_container_id='' ready=false
   require_release_id "$release_id"
   require_restore_database "$restore_database"
   require_bootstrapped_host
@@ -627,25 +655,16 @@ phase_restore_start() {
     die "Restore-only ownership token generation failed"
   [[ "$owner_token" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] ||
     die "Restore-only ownership token generation failed"
-  cleanup_failed_restore_start() {
-    local status=${1:-$?}
-    trap - EXIT HUP INT TERM
-    if [[ "$creation_attempted" == true ]]; then
-      cleanup_identity=$(timeout --signal=TERM --kill-after=5s 10 docker inspect \
-        --format '{{index .Config.Labels "com.slopproof.restore.owner"}}|{{index .Config.Labels "com.slopproof.restore.release"}}|{{index .Config.Labels "com.slopproof.restore.database"}}|{{.Image}}' \
-        "$container_name" 2>/dev/null || true)
-      if [[ "$cleanup_identity" == "$owner_token|$release_id|$restore_database|$postgres_image_id" ]]; then
-        timeout --signal=KILL 30 docker rm --force --volumes "$container_name" >/dev/null 2>&1 ||
-          printf '%s\n' "Owned restore-only PostgreSQL cleanup failed." >&2
-      fi
-    fi
-    exit "$status"
-  }
+  RESTORE_CLEANUP_CONTAINER_NAME=$container_name
+  RESTORE_CLEANUP_OWNER_TOKEN=$owner_token
+  RESTORE_CLEANUP_RELEASE_ID=$release_id
+  RESTORE_CLEANUP_DATABASE=$restore_database
+  RESTORE_CLEANUP_POSTGRES_IMAGE_ID=$postgres_image_id
   trap 'cleanup_failed_restore_start $?' EXIT
   trap 'cleanup_failed_restore_start 129' HUP
   trap 'cleanup_failed_restore_start 130' INT
   trap 'cleanup_failed_restore_start 143' TERM
-  creation_attempted=true
+  RESTORE_CLEANUP_CREATION_ATTEMPTED=true
   if ! started_container_id=$(timeout --signal=TERM --kill-after=10s 90 docker run --detach \
     --name "$container_name" \
     --pull never \
@@ -712,6 +731,7 @@ phase_restore_start() {
   timeout --signal=TERM --kill-after=5s 10 docker exec "$container_name" /bin/sh -ceu \
     'test "$(ulimit -S -c)" = 0 && test "$(ulimit -H -c)" = 0' >/dev/null 2>&1 ||
     die "Restore-only PostgreSQL effective core limit is not zero"
+  RESTORE_CLEANUP_CREATION_ATTEMPTED=false
   trap - EXIT HUP INT TERM
   printf '%s\n' "Restore-only PostgreSQL is ready in bounded tmpfs."
 }
@@ -779,6 +799,16 @@ phase_restore_absent() {
   require_restore_database "$restore_database"
   assert_restore_absent "$release_id"
   printf '%s\n' "Restore-only PostgreSQL container is absent."
+}
+
+restore_failed_cutover() {
+  local exit_status=${1:-$?}
+  trap - EXIT HUP INT TERM
+  if [[ -n "$CUTOVER_ROLLBACK_RELEASE_ID" ]]; then
+    (phase_rollback "$CUTOVER_ROLLBACK_RELEASE_ID") ||
+      printf '%s\n' "Automatic cutover rollback failed; manual recovery is required." >&2
+  fi
+  exit "$exit_status"
 }
 
 phase_initial_caddy_cutover() {
@@ -885,37 +915,10 @@ phase_initial_caddy_cutover() {
   sync -f "$SECRET_ROOT/$release_id"
   sync -f "$SECRET_ROOT"
 
-  local mutation_started=false cutover_complete=false caddy_temporary dropin_temporary
+  local caddy_temporary dropin_temporary
   caddy_temporary="$(dirname "$CADDYFILE")/.Caddyfile.$release_id.tmp"
   dropin_temporary="$(dirname "$CADDY_DROPIN")/.10-slopproof-credential.$release_id.tmp"
-  restore_failed_cutover() {
-    local exit_status=${1:-$?}
-    trap - EXIT HUP INT TERM
-    if [[ "$mutation_started" == true && "$cutover_complete" != true ]]; then
-      install -o root -g caddy -m 0640 "$backup/Caddyfile" "$caddy_temporary.restore"
-      sync -f "$caddy_temporary.restore" || true
-      mv -Tf "$caddy_temporary.restore" "$CADDYFILE"
-      sync -f "$(dirname "$CADDYFILE")" || true
-      if [[ -f "$backup/caddy-dropin-absent" ]]; then
-        rm -f -- "$CADDY_DROPIN"
-      else
-        install -o root -g root -m 0644 "$backup/10-slopproof-credential.conf" "$dropin_temporary.restore"
-        sync -f "$dropin_temporary.restore" || true
-        mv -Tf "$dropin_temporary.restore" "$CADDY_DROPIN"
-      fi
-      sync -f "$(dirname "$CADDY_DROPIN")" || true
-      if [[ -f "$backup/previous-secret-current-absent" ]]; then
-        rm -f -- "$SECRET_ROOT/current"
-      else
-        ln -sfn "$(cat "$backup/previous-secret-current")" "$SECRET_ROOT/current.restore"
-        mv -Tf "$SECRET_ROOT/current.restore" "$SECRET_ROOT/current"
-      fi
-      sync -f "$SECRET_ROOT" || true
-      systemctl daemon-reload || true
-      systemctl restart caddy || true
-    fi
-    exit "$exit_status"
-  }
+  CUTOVER_ROLLBACK_RELEASE_ID=$release_id
   trap 'restore_failed_cutover $?' EXIT
   trap 'restore_failed_cutover 129' HUP
   trap 'restore_failed_cutover 130' INT
@@ -927,7 +930,6 @@ phase_initial_caddy_cutover() {
   install -o root -g caddy -m 0640 "$candidate" "$caddy_temporary"
   sync -f "$dropin_temporary"
   sync -f "$caddy_temporary"
-  mutation_started=true
   # The credential link is harmless to the old configuration and must become
   # durable first. This guarantees that either old Caddy boots, or every new
   # boot-visible state can resolve its LoadCredential source.
@@ -953,14 +955,24 @@ phase_initial_caddy_cutover() {
   ! grep -Fq -f "$SECRET_ROOT/$release_id/oauth-proxy-authenticator" "$backup/active-admin.json" ||
     die "Caddy admin JSON expanded the protected credential"
   "$(release_source "$release_id")/scripts/production-deploy/smoke-production.sh" pre-finalize
-  cutover_complete=true
   trap - EXIT HUP INT TERM
+  CUTOVER_ROLLBACK_RELEASE_ID=''
   printf '%s\n' "Caddy cutover and cohost smoke passed."
+}
+
+restore_failed_finalize() {
+  local exit_status=${1:-$?}
+  trap - EXIT HUP INT TERM
+  if [[ -n "$FINALIZE_ROLLBACK_RELEASE_ID" ]]; then
+    (phase_rollback "$FINALIZE_ROLLBACK_RELEASE_ID") ||
+      printf '%s\n' "Automatic finalize rollback failed; manual recovery is required." >&2
+  fi
+  exit "$exit_status"
 }
 
 phase_finalize() {
   require_root
-  local release_id=${1:-} source final backup app_id postgres_id release_env_temporary unit_temporary rollback_boundary finalize_complete=false
+  local release_id=${1:-} source final backup app_id postgres_id release_env_temporary unit_temporary rollback_boundary
   require_release_id "$release_id"
   source=$(release_source "$release_id")
   final=$(release_final "$release_id")
@@ -969,15 +981,7 @@ phase_finalize() {
   rollback_boundary="$(release_incoming "$release_id")/.rollback-boundary.json"
   [[ -d "$backup" && -f "$rollback_boundary" && ! -L "$rollback_boundary" ]] ||
     die "Caddy or rollback boundary is absent"
-  restore_failed_finalize() {
-    local exit_status=${1:-$?}
-    trap - EXIT HUP INT TERM
-    if [[ "$finalize_complete" != true ]]; then
-      phase_rollback "$release_id" ||
-        printf '%s\n' "Automatic finalize rollback failed; manual recovery is required." >&2
-    fi
-    exit "$exit_status"
-  }
+  FINALIZE_ROLLBACK_RELEASE_ID=$release_id
   trap 'restore_failed_finalize $?' EXIT
   trap 'restore_failed_finalize 129' HUP
   trap 'restore_failed_finalize 130' INT
@@ -1016,8 +1020,8 @@ phase_finalize() {
   timeout --signal=TERM --kill-after=5s 300 systemctl is-active --quiet slopproof-compose.service
   assert_release_container_images "$release_id" postgres migrate worker github-control web
   "$CURRENT_LINK/scripts/production-deploy/smoke-production.sh" final
-  finalize_complete=true
   trap - EXIT HUP INT TERM
+  FINALIZE_ROLLBACK_RELEASE_ID=''
   printf '%s\n' "Finalized immutable release $release_id."
 }
 

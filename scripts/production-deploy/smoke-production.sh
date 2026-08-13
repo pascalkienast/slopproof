@@ -14,6 +14,7 @@ readonly BASE_URL='https://slopproof.paskie.me'
 readonly PASKIE_URL='https://paskie.me'
 readonly WUNDERBLUETE_URL='https://wunderbluete.club'
 readonly REPLIKATOR_URL='https://replikator.paskie.me/api/health'
+smoke_scratch=''
 
 die() {
   printf '%s\n' "$1" >&2
@@ -38,18 +39,17 @@ main() {
   local phase=${1:-}
   [[ "$phase" == pre-finalize || "$phase" == final || "$phase" == rollback-bootstrap ]] ||
     die "Usage: smoke-production.sh pre-finalize|final|rollback-bootstrap"
-  local scratch
   [[ -d /run && ! -L /run && $(realpath -e -- /run) == /run &&
     $(findmnt -n -o FSTYPE -T /run) == tmpfs ]] ||
     die "Production smoke requires the verified /run tmpfs"
-  scratch=$(mktemp -d /run/slopproof-smoke.XXXXXXXX)
-  [[ -d "$scratch" && ! -L "$scratch" && $(stat -c '%u %a' "$scratch") == "${EUID:-$(id -u)} 700" ]] ||
+  smoke_scratch=$(mktemp -d /run/slopproof-smoke.XXXXXXXX)
+  [[ -d "$smoke_scratch" && ! -L "$smoke_scratch" && $(stat -c '%u %a' "$smoke_scratch") == "${EUID:-$(id -u)} 700" ]] ||
     die "Production smoke scratch identity is invalid"
   cleanup_scratch() {
     local exit_status=${1:-$?}
     trap - EXIT HUP INT TERM
-    rm -f -- "$scratch"/* 2>/dev/null || true
-    rmdir -- "$scratch" 2>/dev/null || true
+    rm -f -- "$smoke_scratch"/* 2>/dev/null || true
+    rmdir -- "$smoke_scratch" 2>/dev/null || true
     exit "$exit_status"
   }
   trap 'cleanup_scratch $?' EXIT
@@ -58,17 +58,17 @@ main() {
   trap 'cleanup_scratch 143' TERM
   local status
 
-  status=$(request_status GET "$BASE_URL/" "$scratch/landing")
+  status=$(request_status GET "$BASE_URL/" "$smoke_scratch/landing")
   require_status '^200$' "$status" 'Landing page'
 
   if [[ "$phase" == rollback-bootstrap ]]; then
-    status=$(request_status GET "$BASE_URL/api/health/live" "$scratch/bootstrap-api")
+    status=$(request_status GET "$BASE_URL/api/health/live" "$smoke_scratch/bootstrap-api")
     require_status '^503$' "$status" 'Bootstrap API boundary'
     for url in "$PASKIE_URL" "$WUNDERBLUETE_URL"; do
-      status=$(request_status GET "$url/" "$scratch/cohost")
+      status=$(request_status GET "$url/" "$smoke_scratch/cohost")
       require_status '^(2[0-9]{2}|3[0-9]{2})$' "$status" "Existing cohost"
     done
-    status=$(request_status GET "$REPLIKATOR_URL" "$scratch/replikator")
+    status=$(request_status GET "$REPLIKATOR_URL" "$smoke_scratch/replikator")
     require_status '^200$' "$status" 'Existing Replikator health'
     printf '%s\n' "Bootstrap rollback and cohost smoke passed."
     return
@@ -76,7 +76,7 @@ main() {
 
   status=$(
     curl --silent --show-error --max-redirs 0 --connect-timeout 5 --max-time 15 \
-      --output "$scratch/oauth-start" --dump-header "$scratch/oauth-start.headers" \
+      --output "$smoke_scratch/oauth-start" --dump-header "$smoke_scratch/oauth-start.headers" \
       --header 'sec-fetch-site: same-origin' \
       --header 'sec-fetch-mode: navigate' \
       --header 'sec-fetch-dest: document' \
@@ -85,15 +85,15 @@ main() {
   )
   require_status '^30[2378]$' "$status" 'OAuth start'
   grep -Eiq '^location: https://github\.com/login/oauth/authorize\?' \
-    "$scratch/oauth-start.headers" || die "OAuth start did not target GitHub"
+    "$smoke_scratch/oauth-start.headers" || die "OAuth start did not target GitHub"
 
-  status=$(request_status GET "$BASE_URL/api/auth/github/callback" "$scratch/oauth-callback")
+  status=$(request_status GET "$BASE_URL/api/auth/github/callback" "$smoke_scratch/oauth-callback")
   require_status '^400$' "$status" 'OAuth callback failure path'
   jq -e '.error == "oauth_rejected" and (keys | length) == 1' \
-    "$scratch/oauth-callback" >/dev/null || die "OAuth error response exposed unexpected data"
+    "$smoke_scratch/oauth-callback" >/dev/null || die "OAuth error response exposed unexpected data"
 
   status=$(
-    request_status POST "$BASE_URL/api/github/webhooks" "$scratch/webhook" \
+    request_status POST "$BASE_URL/api/github/webhooks" "$smoke_scratch/webhook" \
       --header 'content-type: application/json' \
       --header 'x-github-event: ping' \
       --header 'x-github-delivery: 00000000-0000-4000-8000-000000000009' \
@@ -102,27 +102,27 @@ main() {
   )
   require_status '^401$' "$status" 'Invalid webhook signature'
   jq -e '.error == "invalid_signature" and (keys | length) == 1' \
-    "$scratch/webhook" >/dev/null || die "Webhook error response exposed unexpected data"
+    "$smoke_scratch/webhook" >/dev/null || die "Webhook error response exposed unexpected data"
 
   for endpoint in live ready; do
-    status=$(request_status GET "$BASE_URL/api/health/$endpoint" "$scratch/health-$endpoint")
+    status=$(request_status GET "$BASE_URL/api/health/$endpoint" "$smoke_scratch/health-$endpoint")
     require_status '^200$' "$status" "Health $endpoint"
   done
-  jq -e '.status == "ok" and (keys | length) == 1' "$scratch/health-live" >/dev/null ||
+  jq -e '.status == "ok" and (keys | length) == 1' "$smoke_scratch/health-live" >/dev/null ||
     die "Liveness response was not value-free"
-  jq -e '.status == "ready" and (keys | length) == 1' "$scratch/health-ready" >/dev/null ||
+  jq -e '.status == "ready" and (keys | length) == 1' "$smoke_scratch/health-ready" >/dev/null ||
     die "Readiness response was not value-free"
 
   for path in /review /icon.svg; do
-    status=$(request_status GET "$BASE_URL$path" "$scratch/app")
+    status=$(request_status GET "$BASE_URL$path" "$smoke_scratch/app")
     require_status '^200$' "$status" "Application path $path"
   done
 
   for url in "$PASKIE_URL" "$WUNDERBLUETE_URL"; do
-    status=$(request_status GET "$url/" "$scratch/cohost")
+    status=$(request_status GET "$url/" "$smoke_scratch/cohost")
     require_status '^(2[0-9]{2}|3[0-9]{2})$' "$status" "Existing cohost"
   done
-  status=$(request_status GET "$REPLIKATOR_URL" "$scratch/replikator")
+  status=$(request_status GET "$REPLIKATOR_URL" "$smoke_scratch/replikator")
   require_status '^200$' "$status" 'Existing Replikator health'
   printf 'Production and cohost smoke passed (%s).\n' "$phase"
 }

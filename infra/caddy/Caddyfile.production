@@ -52,7 +52,7 @@
 			header_up -X-Real-IP
 			header_up -X-SlopProof-Client-IP
 			header_up -X-SlopProof-Proxy-Authenticator
-			header_up X-SlopProof-Client-IP {remote_host}
+			header_up X-SlopProof-Client-IP {http.request.remote.host}
 			header_up X-SlopProof-Proxy-Authenticator {file./run/credentials/caddy.service/oauth-proxy-authenticator}
 		}
 	}

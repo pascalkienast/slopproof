@@ -15,6 +15,7 @@ readonly STATE_ROOT=/opt/slopproof/shared/host-bootstrap
 readonly DOCKER_DROPIN=/etc/systemd/system/docker.service.d/99-slopproof-core-limit.conf
 readonly CONTAINERD_DROPIN=/etc/systemd/system/containerd.service.d/99-slopproof-core-limit.conf
 readonly SSH_DROPIN=/etc/systemd/system/ssh.service.d/99-slopproof-core-limit.conf
+BOOTSTRAP_ROLLBACK_STATE=''
 
 die() {
   printf '%s\n' "$1" >&2
@@ -228,8 +229,29 @@ install_pinned_host_tools() {
   [[ "$jq_runtime" =~ ^jq-1\.7([.]|$) ]] || die "jq runtime must be 1.7.x"
 }
 
+rollback_failed_bootstrap() {
+  local status=${1:-$?} rollback_containers
+  trap - EXIT HUP INT TERM
+  if [[ -n "$BOOTSTRAP_ROLLBACK_STATE" ]]; then
+    restore_dropin "$DOCKER_DROPIN" docker "$BOOTSTRAP_ROLLBACK_STATE" || true
+    restore_dropin "$CONTAINERD_DROPIN" containerd "$BOOTSTRAP_ROLLBACK_STATE" || true
+    restore_dropin "$SSH_DROPIN" ssh "$BOOTSTRAP_ROLLBACK_STATE" || true
+    restore_dropin_parent "$DOCKER_DROPIN" docker "$BOOTSTRAP_ROLLBACK_STATE" || true
+    restore_dropin_parent "$CONTAINERD_DROPIN" containerd "$BOOTSTRAP_ROLLBACK_STATE" || true
+    restore_dropin_parent "$SSH_DROPIN" ssh "$BOOTSTRAP_ROLLBACK_STATE" || true
+    bounded 30 systemctl daemon-reload || true
+    if bounded 30 /usr/sbin/sshd -t; then
+      bounded 90 systemctl restart ssh.service || true
+    fi
+    if rollback_containers=$(bounded 30 docker ps -aq --no-trunc) && [[ -z "$rollback_containers" ]]; then
+      bounded 90 systemctl restart containerd.service docker.service || true
+    fi
+  fi
+  exit "$status"
+}
+
 main() {
-  local command state timestamp mutation_started=false complete=false shared_mode
+  local command state timestamp shared_mode
   [[ $# -eq 0 ]] || die "Usage: bootstrap-host.sh"
   for command in apt-cache apt-get awk chmod chown cp date dirname docker dpkg dpkg-query env grep install mv realpath rm rmdir sed sha256sum stat systemctl timeout uname; do
     require_command "$command"
@@ -273,33 +295,12 @@ main() {
     "$(dpkg-query -W -f='${Version}' jq)" "$(jq --version)" \
     "${timestamp:0:8}T${timestamp:9:6}Z" > "$state/receipt"
 
-  rollback_failed_bootstrap() {
-    local status=${1:-$?}
-    trap - EXIT HUP INT TERM
-    if [[ "$mutation_started" == true && "$complete" != true ]]; then
-      restore_dropin "$DOCKER_DROPIN" docker "$state" || true
-      restore_dropin "$CONTAINERD_DROPIN" containerd "$state" || true
-      restore_dropin "$SSH_DROPIN" ssh "$state" || true
-      restore_dropin_parent "$DOCKER_DROPIN" docker "$state" || true
-      restore_dropin_parent "$CONTAINERD_DROPIN" containerd "$state" || true
-      restore_dropin_parent "$SSH_DROPIN" ssh "$state" || true
-      bounded 30 systemctl daemon-reload || true
-      if bounded 30 /usr/sbin/sshd -t; then
-        bounded 90 systemctl restart ssh.service || true
-      fi
-      local rollback_containers
-      if rollback_containers=$(bounded 30 docker ps -aq --no-trunc) && [[ -z "$rollback_containers" ]]; then
-        bounded 90 systemctl restart containerd.service docker.service || true
-      fi
-    fi
-    exit "$status"
-  }
+  BOOTSTRAP_ROLLBACK_STATE=$state
   trap 'rollback_failed_bootstrap $?' EXIT
   trap 'rollback_failed_bootstrap 129' HUP
   trap 'rollback_failed_bootstrap 130' INT
   trap 'rollback_failed_bootstrap 143' TERM
 
-  mutation_started=true
   ensure_dropin_parent "$DOCKER_DROPIN"
   ensure_dropin_parent "$CONTAINERD_DROPIN"
   ensure_dropin_parent "$SSH_DROPIN"
@@ -320,8 +321,8 @@ main() {
   [[ $(ulimit -S -c) == 0 && $(ulimit -H -c) == 0 ]] || die "Bootstrap shell core limit changed"
   require_no_docker_containers
 
-  complete=true
   trap - EXIT HUP INT TERM
+  BOOTSTRAP_ROLLBACK_STATE=''
   printf 'Host bootstrap passed: nodejs=%s jq=%s state=%s docker_containerd_ssh_core_limits=zero apport=not-relied-on\n' \
     "$EXPECTED_NODEJS_PACKAGE" "$EXPECTED_JQ_PACKAGE" "$state"
 }
