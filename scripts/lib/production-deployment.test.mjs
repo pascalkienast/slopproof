@@ -343,13 +343,15 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
   );
   assert.equal(
     execFileSync(
-      "stat",
-      ["-f", "%Lp", "scripts/production-deploy/verify-runtime-release.sh"],
-      {
-        encoding: "utf8",
-      },
+      "git",
+      [
+        "ls-files",
+        "--format=%(objectmode)",
+        "scripts/production-deploy/verify-runtime-release.sh",
+      ],
+      { encoding: "utf8" },
     ).trim(),
-    "755",
+    "100755",
   );
   assert.match(runtimeVerifier, /slopproof\.image-stage\.v2/u);
   assert.match(

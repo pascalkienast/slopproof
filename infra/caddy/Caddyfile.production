@@ -37,9 +37,17 @@
 		method GET HEAD
 		path /
 	}
+	@landing_script {
+		method GET HEAD
+		path /landing.js
+	}
+	root * {$LANDING_ROOT}
 	header @landing >Content-Security-Policy "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; connect-src 'self' https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'"
+	header @landing_script >Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+	handle @landing_script {
+		file_server
+	}
 	handle @landing {
-		root * {$LANDING_ROOT}
 		try_files /index.html
 		file_server
 	}

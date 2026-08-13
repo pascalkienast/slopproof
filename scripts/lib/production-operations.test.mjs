@@ -13,6 +13,11 @@ test("Caddy keeps the landing root exact and proxies only named app paths", () =
   const caddy = read("infra/caddy/Caddyfile.production");
 
   assert.match(caddy, /@landing \{\s*method GET HEAD\s*path \/\s*\}/u);
+  assert.match(
+    caddy,
+    /@landing_script \{\s*method GET HEAD\s*path \/landing\.js\s*\}/u,
+  );
+  assert.match(caddy, /handle @landing_script \{[\s\S]*?file_server\s*\}/u);
   assert.match(caddy, /handle @landing \{[\s\S]*?file_server\s*\}/u);
   assert.match(
     caddy,
@@ -25,6 +30,27 @@ test("Caddy keeps the landing root exact and proxies only named app paths", () =
   assert.match(caddy, />X-Content-Type-Options "nosniff"/u);
   assert.match(caddy, />X-Frame-Options "DENY"/u);
   assert.match(caddy, />Referrer-Policy "no-referrer"/u);
+});
+
+test("landing interactions obey the strict script policy and default to Proof", () => {
+  const landing = read("slopproof-brand-ui-concept-v3.html");
+  const behavior = read("landing.js");
+
+  assert.match(landing, /<script src="\/landing\.js" defer><\/script>/u);
+  assert.doesNotMatch(landing, /<script(?:\s|>)(?![^>]*\bsrc=)/u);
+  assert.match(
+    landing,
+    /id="proof-tab"[^>]*aria-selected="true"[^>]*>Prove · required</u,
+  );
+  assert.match(
+    landing,
+    /class="mode-panel proof-ui active"[^>]*id="proof-panel"/u,
+  );
+  assert.match(landing, /class="check-choice proof active"/u);
+  assert.match(landing, /class="check-choice optional"/u);
+  assert.match(landing, /Optional: practice the patch/u);
+  assert.match(behavior, /panel\.hidden = !selected/u);
+  assert.match(behavior, /\[data-open-mode\]/u);
 });
 
 test("Caddy preserves mobile capture and strips private access-log fields", () => {

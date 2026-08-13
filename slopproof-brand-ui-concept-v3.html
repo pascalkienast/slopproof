@@ -97,6 +97,7 @@
     .button:hover { transform: translate(2px, 2px); box-shadow: 1px 2px 0 var(--ink); }
     .button.primary { background: var(--orange); }
     .button.green { background: var(--green); }
+    .button.optional { background: #e4e2dc; color: #5f5d57; }
     .button.dark { background: var(--ink); color: var(--sheet); box-shadow: 3px 4px 0 var(--orange); }
 
     .hero {
@@ -155,9 +156,10 @@
     .status i { width: 10px; height: 10px; border-radius: 50%; background: var(--yellow); border: 1px solid var(--ink); }
     .check-meta { margin-top: 6px; color: var(--muted); font: 500 10px/1.5 var(--mono); }
     .check-choice { width: 100%; margin-top: 16px; padding: 18px; display: grid; grid-template-columns: 48px 1fr auto; align-items: center; gap: 14px; border: var(--line); border-radius: 22px 13px 18px 15px; background: transparent; text-align: left; cursor: pointer; transition: background .2s ease, transform .2s ease; }
-    .check-choice:hover, .check-choice.active { background: #ffe8de; transform: translateX(4px) rotate(-.4deg); }
+    .check-choice:hover, .check-choice.active { background: #e9e7e1; transform: translateX(4px) rotate(-.4deg); }
     .check-choice.proof:hover, .check-choice.proof.active { background: #ecf9c8; transform: translateX(4px) rotate(.4deg); }
-    .choice-icon { width: 46px; aspect-ratio: 1; display: grid; place-items: center; border: var(--line); border-radius: 50%; background: var(--orange); font: 700 17px/1 var(--mono); }
+    .check-choice.optional { color: #5f5d57; border-color: #8a877e; }
+    .choice-icon { width: 46px; aspect-ratio: 1; display: grid; place-items: center; border: var(--line); border-radius: 50%; background: #d8d5ce; font: 700 17px/1 var(--mono); }
     .proof .choice-icon { background: var(--green); }
     .choice-copy strong { display: block; font: 700 16px/1.2 var(--display); }
     .choice-copy span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
@@ -183,9 +185,9 @@
     .section-intro { max-width: 700px; margin: 20px 0 0; color: var(--muted); font-size: 19px; }
 
     .two-moments { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
-    .moment { min-height: 410px; padding: 34px; border: var(--line); border-radius: 64px 26px 48px 28px; background: var(--sheet); position: relative; overflow: hidden; }
+    .moment { min-height: 410px; padding: 34px; border: var(--line); border-radius: 64px 26px 48px 28px; background: #e8e6e0; color: #5f5d57; position: relative; overflow: hidden; }
     .moment:nth-child(2) { border-radius: 30px 72px 31px 55px; background: var(--ink); color: var(--sheet); }
-    .moment-no { display: inline-grid; place-items: center; width: 58px; aspect-ratio: 1; border: var(--line); border-radius: 50% 44% 52% 40%; background: var(--orange); font: 650 13px/1 var(--mono); transform: rotate(-7deg); }
+    .moment-no { display: inline-grid; place-items: center; width: 58px; aspect-ratio: 1; border: var(--line); border-radius: 50% 44% 52% 40%; background: #d1cec7; font: 650 13px/1 var(--mono); transform: rotate(-7deg); }
     .moment:nth-child(2) .moment-no { color: var(--ink); background: var(--green); }
     .moment h3 { max-width: 470px; margin: 54px 0 14px; font: 750 clamp(35px, 4vw, 54px)/.95 var(--display); letter-spacing: -.035em; }
     .moment p { max-width: 520px; color: var(--muted); font-size: 17px; }
@@ -369,8 +371,8 @@
         <p class="brand-claim">Prove you know what you ship.</p>
         <p class="lede">Practice when it helps. When you're ready, answer a focused set of questions on live video before the pull request can merge.</p>
         <div class="hero-actions">
-          <a class="button primary" href="#product" data-open-mode="practice">Practice the patch ↘</a>
-          <a class="button" href="#product" data-open-mode="proof">See the live proof</a>
+          <a class="button green" href="#product" data-open-mode="proof">See the live proof ↘</a>
+          <a class="button optional" href="#product" data-open-mode="practice">Optional: practice the patch</a>
         </div>
       </div>
 
@@ -379,12 +381,12 @@
           <div><div class="check-title">SlopProof / understanding required</div><div class="check-meta">PR #184 · head 9f31c2e · callback rollback</div></div>
           <span class="status"><i></i> action needed</span>
         </div>
-        <button class="check-choice active" type="button" data-open-mode="practice">
+        <button class="check-choice optional" type="button" data-open-mode="practice">
           <span class="choice-icon">OPT</span>
           <span class="choice-copy"><strong>Practice your understanding</strong><span>Optional deep dive when you want more context.</span></span>
           <span class="choice-arrow">↗</span>
         </button>
-        <button class="check-choice proof" type="button" data-open-mode="proof">
+        <button class="check-choice proof active" type="button" data-open-mode="proof">
           <span class="choice-icon">GO</span>
           <span class="choice-copy"><strong>Prove your understanding</strong><span>Go straight to the required live challenge.</span></span>
           <span class="choice-arrow">↗</span>
@@ -414,7 +416,7 @@
       <div class="two-moments">
         <article class="moment">
           <span class="moment-no">OPTIONAL</span>
-          <svg class="moment-scribble" viewBox="0 0 160 120" aria-hidden="true"><path d="M15 88c19-79 126-88 130-24 4 63-109 54-105 5 3-33 60-37 85-15" fill="none" stroke="var(--orange)" stroke-width="5" stroke-linecap="round"/><path d="m114 42 17 10-15 12" fill="none" stroke="var(--orange)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg class="moment-scribble" viewBox="0 0 160 120" aria-hidden="true"><path d="M15 88c19-79 126-88 130-24 4 63-109 54-105 5 3-33 60-37 85-15" fill="none" stroke="#8a877e" stroke-width="5" stroke-linecap="round"/><path d="m114 42 17 10-15 12" fill="none" stroke="#8a877e" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <h3>Practice your understanding.</h3>
           <p>Explore changed behavior, risky paths and missing tests. Answer rehearsal questions. Let the coach show you what you can explain—and what you still need to learn.</p>
         </article>
@@ -438,12 +440,12 @@
           <div class="window-bar">
             <span class="window-name">cachekit / pull / 184 · 9f31c2e</span>
             <div class="mode-tabs" role="tablist" aria-label="SlopProof modes">
-              <button class="mode-tab" id="practice-tab" role="tab" aria-selected="true" aria-controls="practice-panel">Practice</button>
-              <button class="mode-tab" id="proof-tab" role="tab" aria-selected="false" aria-controls="proof-panel">Prove</button>
+              <button class="mode-tab" id="practice-tab" role="tab" aria-selected="false" aria-controls="practice-panel" tabindex="-1">Practice · optional</button>
+              <button class="mode-tab" id="proof-tab" role="tab" aria-selected="true" aria-controls="proof-panel">Prove · required</button>
             </div>
           </div>
 
-          <section class="mode-panel practice-ui active" id="practice-panel" role="tabpanel" aria-labelledby="practice-tab">
+          <section class="mode-panel practice-ui" id="practice-panel" role="tabpanel" aria-labelledby="practice-tab" hidden>
             <div class="diff-pane">
               <div class="diff-head"><strong class="mono">src/runtime/reload.ts</strong><span class="pill">3 learning goals</span></div>
               <div class="code"><span class="minus">- state.publish(candidate)</span><br/><span class="plus">+ const snapshot = state.capture()</span><br/><span class="plus">+ state.publish(candidate)</span><br/><span class="plus">+ try { await callback() }</span><br/><span class="plus">+ catch (error) {</span><br/><span class="plus">+ &nbsp;state.restore(snapshot)</span><br/><span class="plus">+ &nbsp;throw error</span><br/><span class="plus">+ }</span></div>
@@ -466,7 +468,7 @@
             </div>
           </section>
 
-          <section class="mode-panel proof-ui" id="proof-panel" role="tabpanel" aria-labelledby="proof-tab">
+          <section class="mode-panel proof-ui active" id="proof-panel" role="tabpanel" aria-labelledby="proof-tab">
             <div class="handoff">
               <p class="eyebrow">Live proof handoff</p>
               <h3>Scan when you're ready. The questions are still sealed.</h3>
@@ -545,41 +547,6 @@
     </div>
   </dialog>
 
-  <script>
-    const tabs = [...document.querySelectorAll('.mode-tab')];
-    const panels = [...document.querySelectorAll('.mode-panel')];
-
-    function showMode(mode, shouldScroll = false) {
-      tabs.forEach(tab => tab.setAttribute('aria-selected', String(tab.id === `${mode}-tab`)));
-      panels.forEach(panel => panel.classList.toggle('active', panel.id === `${mode}-panel`));
-      document.querySelectorAll('.check-choice').forEach(choice => choice.classList.toggle('active', choice.dataset.openMode === mode));
-      if (shouldScroll) document.querySelector('#product').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-
-    tabs.forEach(tab => tab.addEventListener('click', () => showMode(tab.id.replace('-tab', ''))));
-    document.querySelectorAll('[data-open-mode]').forEach(control => control.addEventListener('click', event => {
-      const mode = control.dataset.openMode;
-      showMode(mode, control.tagName === 'BUTTON');
-      if (control.tagName === 'BUTTON') event.preventDefault();
-    }));
-
-    document.querySelectorAll('.hotspot').forEach(button => button.addEventListener('click', () => {
-      document.querySelectorAll('.hotspot').forEach(item => item.classList.remove('active'));
-      button.classList.add('active');
-      document.querySelector('#coach-title').textContent = button.dataset.title;
-      document.querySelector('#coach-question').textContent = button.dataset.question;
-      document.querySelector('#coach-note').textContent = button.dataset.note;
-    }));
-
-    const dialog = document.querySelector('#proof-dialog');
-    document.querySelector('#open-proof').addEventListener('click', () => dialog.showModal());
-    dialog.querySelector('.close').addEventListener('click', () => dialog.close());
-    dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
-    document.querySelector('#demo-start').addEventListener('click', event => {
-      document.querySelector('.demo-result').style.display = 'block';
-      event.currentTarget.textContent = 'Demo recording started';
-      event.currentTarget.disabled = true;
-    });
-  </script>
+  <script src="/landing.js" defer></script>
 </body>
 </html>
