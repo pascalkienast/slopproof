@@ -21,6 +21,7 @@ import { requestCookieValue, SESSION_COOKIE } from "./http-auth";
 import {
   GithubOAuthHttpClient,
   type GithubOAuthProviderFailureStage,
+  type GithubOAuthProviderFailureReason,
 } from "./github-oauth-client";
 import {
   GithubOAuthWiringError,
@@ -90,9 +91,14 @@ type GithubOAuthOperationalFailureStage =
 
 function reportGithubOAuthFailure(
   stage: GithubOAuthOperationalFailureStage,
+  reason?: GithubOAuthProviderFailureReason,
 ): void {
   process.stderr.write(
-    `${JSON.stringify({ event: "github.oauth.unavailable", stage })}\n`,
+    `${JSON.stringify({
+      event: "github.oauth.unavailable",
+      stage,
+      ...(reason ? { reason } : {}),
+    })}\n`,
   );
 }
 

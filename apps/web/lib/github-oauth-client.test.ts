@@ -67,6 +67,7 @@ describe("GitHub OAuth HTTP client", () => {
           expires_in: 28_800,
           refresh_token: "github-refresh-token-value",
           refresh_token_expires_in: 15897600,
+          future_provider_field: "ignored-at-the-boundary",
         }),
     );
     const client = new GithubOAuthHttpClient({
@@ -230,12 +231,39 @@ describe("GitHub OAuth HTTP client", () => {
     expect(failures).toEqual(["user_fetch"]);
   });
 
-  it("reports only a fixed token-exchange stage when provider payloads fail", async () => {
-    const failures: string[] = [];
+  it("reports only fixed token-exchange diagnostics when GitHub rejects a code", async () => {
+    const failures: unknown[] = [];
     const client = new GithubOAuthHttpClient({
       clientId: "Iv1.client",
       clientSecret: "client-secret-placeholder",
-      onFailure: (stage) => failures.push(stage),
+      onFailure: (stage, reason) => failures.push({ stage, reason }),
+      fetchImpl: async () =>
+        jsonResponse({
+          error: "bad_verification_code",
+          error_description: "provider-private-marker",
+          error_uri: "https://docs.github.com/private-marker",
+        }),
+    });
+
+    await expect(
+      client.exchangeCode({
+        code: "one-use-code",
+        codeVerifier: "a".repeat(43),
+        redirectUri: "https://slopproof.example/api/auth/github/callback",
+        repositoryId: "987654321",
+      }),
+    ).rejects.toBeInstanceOf(GithubOAuthProviderError);
+    expect(failures).toEqual([
+      { stage: "token_exchange", reason: "bad_verification_code" },
+    ]);
+  });
+
+  it("classifies unknown token payloads without logging provider fields", async () => {
+    const failures: unknown[] = [];
+    const client = new GithubOAuthHttpClient({
+      clientId: "Iv1.client",
+      clientSecret: "client-secret-placeholder",
+      onFailure: (stage, reason) => failures.push({ stage, reason }),
       fetchImpl: async () => jsonResponse({ error: "provider-private-marker" }),
     });
 
@@ -247,6 +275,8 @@ describe("GitHub OAuth HTTP client", () => {
         repositoryId: "987654321",
       }),
     ).rejects.toBeInstanceOf(GithubOAuthProviderError);
-    expect(failures).toEqual(["token_exchange"]);
+    expect(failures).toEqual([
+      { stage: "token_exchange", reason: "invalid_provider_response" },
+    ]);
   });
 });

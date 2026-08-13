@@ -40,7 +40,7 @@ const TokenResponseSchema = z
       .max(365 * 24 * 60 * 60)
       .optional(),
   })
-  .strict()
+  .passthrough()
   .superRefine((value, context) => {
     if (
       (value.refresh_token === undefined) !==
@@ -59,6 +59,17 @@ const TokenResponseSchema = z
     }
   });
 
+const GithubOAuthProviderErrorResponseSchema = z
+  .object({
+    error: z.enum([
+      "bad_verification_code",
+      "incorrect_client_credentials",
+      "redirect_uri_mismatch",
+      "unverified_user_email",
+    ]),
+  })
+  .passthrough();
+
 /**
  * GitHub may omit or null profile fields according to the exact user-token
  * permissions. Only the durable numeric id and login participate in our
@@ -72,10 +83,17 @@ export const GithubAuthenticatedUserResponseSchema = z
   })
   .passthrough();
 
+export type GithubOAuthProviderFailureReason =
+  | z.infer<typeof GithubOAuthProviderErrorResponseSchema>["error"]
+  | "invalid_provider_response"
+  | "provider_request_failed";
+
 export class GithubOAuthProviderError extends Error {
   readonly code = "GITHUB_OAUTH_PROVIDER_ERROR" as const;
 
-  constructor() {
+  constructor(
+    readonly reason: GithubOAuthProviderFailureReason = "provider_request_failed",
+  ) {
     super("GitHub OAuth provider request failed.");
     this.name = "GithubOAuthProviderError";
   }
@@ -88,7 +106,10 @@ export type GithubOAuthHttpClientOptions = Readonly<{
   timeoutMs?: number;
   maxResponseBytes?: number;
   now?: () => number;
-  onFailure?: (stage: GithubOAuthProviderFailureStage) => void;
+  onFailure?: (
+    stage: GithubOAuthProviderFailureStage,
+    reason: GithubOAuthProviderFailureReason,
+  ) => void;
 }>;
 
 export type GithubOAuthProviderFailureStage = "token_exchange" | "user_fetch";
@@ -100,7 +121,10 @@ export class GithubOAuthHttpClient implements GithubOAuthClient {
   readonly #timeoutMs: number;
   readonly #maxResponseBytes: number;
   readonly #now: () => number;
-  readonly #onFailure: (stage: GithubOAuthProviderFailureStage) => void;
+  readonly #onFailure: (
+    stage: GithubOAuthProviderFailureStage,
+    reason: GithubOAuthProviderFailureReason,
+  ) => void;
 
   constructor(options: GithubOAuthHttpClientOptions) {
     if (
@@ -143,8 +167,8 @@ export class GithubOAuthHttpClient implements GithubOAuthClient {
   ): Promise<GithubOAuthAccessGrant> {
     try {
       return await this.#exchangeCode(input);
-    } catch {
-      this.#reportFailure("token_exchange");
+    } catch (error) {
+      this.#reportFailure("token_exchange", providerFailureReason(error));
       throw new GithubOAuthProviderError();
     }
   }
@@ -177,18 +201,24 @@ export class GithubOAuthHttpClient implements GithubOAuthClient {
       code_verifier: input.codeVerifier,
       repository_id: repositoryId.data,
     });
-    const response = TokenResponseSchema.safeParse(
-      await this.#requestJson(TOKEN_URL, {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
-          "user-agent": "slopproof/0.1.0",
-        },
-        body,
-      }),
-    );
-    if (!response.success) throw new GithubOAuthProviderError();
+    const payload = await this.#requestJson(TOKEN_URL, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
+        "user-agent": "slopproof/0.1.0",
+      },
+      body,
+    });
+    const providerError =
+      GithubOAuthProviderErrorResponseSchema.safeParse(payload);
+    if (providerError.success) {
+      throw new GithubOAuthProviderError(providerError.data.error);
+    }
+    const response = TokenResponseSchema.safeParse(payload);
+    if (!response.success) {
+      throw new GithubOAuthProviderError("invalid_provider_response");
+    }
     const now = this.#now();
     if (!Number.isFinite(now)) throw new GithubOAuthProviderError();
     return Object.freeze({
@@ -204,8 +234,8 @@ export class GithubOAuthHttpClient implements GithubOAuthClient {
   async getUser(accessToken: string): Promise<GithubOAuthUser> {
     try {
       return await this.#getUser(accessToken);
-    } catch {
-      this.#reportFailure("user_fetch");
+    } catch (error) {
+      this.#reportFailure("user_fetch", providerFailureReason(error));
       throw new GithubOAuthProviderError();
     }
   }
@@ -238,9 +268,12 @@ export class GithubOAuthHttpClient implements GithubOAuthClient {
     return projected.data;
   }
 
-  #reportFailure(stage: GithubOAuthProviderFailureStage): void {
+  #reportFailure(
+    stage: GithubOAuthProviderFailureStage,
+    reason: GithubOAuthProviderFailureReason,
+  ): void {
     try {
-      this.#onFailure(stage);
+      this.#onFailure(stage, reason);
     } catch {
       // Telemetry must never replace the fixed provider error.
     }
@@ -270,6 +303,14 @@ export class GithubOAuthHttpClient implements GithubOAuthClient {
       clearTimeout(timeout);
     }
   }
+}
+
+function providerFailureReason(
+  error: unknown,
+): GithubOAuthProviderFailureReason {
+  return error instanceof GithubOAuthProviderError
+    ? error.reason
+    : "provider_request_failed";
 }
 
 async function readBoundedJson(
