@@ -1028,20 +1028,40 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
       const material = bundle.rows[0];
       if (material === undefined)
         throw new Error("Learning bundle is unavailable.");
-      const existing = await client.query<{ id: string; delete_after: Date }>(
-        `SELECT id, delete_after FROM practice_sessions
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [`semantic-practice-session:${input.revisionId}:${input.userId}`],
+      );
+      const existing = await client.query<{
+        id: string;
+        learning_bundle_id: string;
+        delete_after: Date;
+      }>(
+        `SELECT id, learning_bundle_id, delete_after FROM practice_sessions
           WHERE revision_id = $1 AND user_id = $2
             AND generation_context_id = $3
             AND invalidated_at IS NULL AND deleted_at IS NULL
           FOR UPDATE`,
         [input.revisionId, input.userId, input.generationContextId],
       );
-      if (existing.rows[0] !== undefined) {
+      const activeSession = existing.rows[0];
+      if (
+        activeSession !== undefined &&
+        activeSession.learning_bundle_id === input.learningBundleId
+      ) {
         await client.query("COMMIT");
         return {
-          sessionId: existing.rows[0].id,
-          deleteAfter: existing.rows[0].delete_after,
+          sessionId: activeSession.id,
+          deleteAfter: activeSession.delete_after,
         };
+      }
+      if (activeSession !== undefined) {
+        await client.query(
+          `UPDATE practice_sessions
+              SET invalidated_at = clock_timestamp()
+            WHERE id = $1 AND invalidated_at IS NULL AND deleted_at IS NULL`,
+          [activeSession.id],
+        );
       }
       const sessionId = randomUUID();
       await client.query(

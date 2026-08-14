@@ -384,12 +384,19 @@ async function authorizeAndConsumePracticeCapability(
           AND budget.repository_id = repository.id
           AND budget.revision_id = revision.id
           AND budget.head_sha = revision.head_sha
-         LEFT JOIN semantic_learning_bundles bundle
-           ON bundle.generation_context_id = context.id
-          AND bundle.revision_id = revision.id
-          AND bundle.repository_id = repository.id
-          AND bundle.deleted_at IS NULL
-          AND bundle.delete_after > $4
+         LEFT JOIN LATERAL (
+           SELECT learning_bundle.id
+             FROM semantic_learning_bundles learning_bundle
+            WHERE learning_bundle.generation_context_id = context.id
+              AND learning_bundle.revision_id = revision.id
+              AND learning_bundle.repository_id = repository.id
+              AND learning_bundle.deleted_at IS NULL
+              AND learning_bundle.delete_after > $4
+            ORDER BY (learning_bundle.generation_outcome = 'fallback') ASC,
+                     learning_bundle.created_at DESC,
+                     learning_bundle.id DESC
+            LIMIT 1
+         ) bundle ON true
         WHERE revision.id = $1
           AND repository.id = $2
           AND pull_request.author_id = $3

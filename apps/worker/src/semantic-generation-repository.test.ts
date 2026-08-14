@@ -88,6 +88,74 @@ describe("Gate 4 persistence boundary", () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it("replaces an active Practice session when a newer Learning bundle is selected", async () => {
+    const previousSessionId = IDS.session;
+    const previousBundleId = IDS.bundle;
+    const nextBundleId = "82000000-0000-4000-8000-000000000008";
+    const deleteAfter = new Date("2026-08-14T00:00:00.000Z");
+    const now = new Date("2026-08-13T00:00:00.000Z");
+    const query = vi.fn(async (statement: string) => {
+      if (statement.includes("SELECT clock_timestamp() AS now")) {
+        return { rows: [{ now }], rowCount: 1 };
+      }
+      if (statement.includes("count(*)::int AS event_count")) {
+        return {
+          rows: [{ event_count: 0, retry_after: null }],
+          rowCount: 1,
+        };
+      }
+      if (
+        statement.includes("FROM semantic_learning_bundles bundle") &&
+        statement.includes("bundle.id = $1")
+      ) {
+        return {
+          rows: [
+            {
+              head_sha: HEAD,
+              context_hash: "b".repeat(64),
+              delete_after: deleteAfter,
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+      if (statement.includes("SELECT id, learning_bundle_id, delete_after")) {
+        return {
+          rows: [
+            {
+              id: previousSessionId,
+              learning_bundle_id: previousBundleId,
+              delete_after: deleteAfter,
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const repository = repositoryFixture(query, schedulerFixture());
+
+    const started = await repository.startPracticeSession({
+      repositoryId: IDS.repository,
+      revisionId: IDS.revision,
+      generationContextId: IDS.context,
+      learningBundleId: nextBundleId,
+      userId: "author-1",
+      actorKeyHash: "c".repeat(64),
+    });
+
+    expect(started.sessionId).not.toBe(previousSessionId);
+    expect(started.deleteAfter).toEqual(deleteAfter);
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("SET invalidated_at = clock_timestamp()"),
+      [previousSessionId],
+    );
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO practice_sessions"),
+      expect.arrayContaining([nextBundleId]),
+    );
+  });
+
   it("returns unavailable without decrypting when actor/lifecycle binding is absent", async () => {
     const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
     const decryptJson = vi.fn();

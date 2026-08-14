@@ -408,8 +408,8 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
     await generatedLearningHandlers(repository, generationContext)[
       "semantic.generate-learning"
     ](learningJob(generationContextId));
-    const bundle = await database.pool.query<{ id: string }>(
-      "SELECT id FROM semantic_learning_bundles",
+    const bundle = await database.pool.query<{ id: string; run_id: string }>(
+      "SELECT id, run_id FROM semantic_learning_bundles",
     );
     const bundleId = bundle.rows[0]!.id;
     await expect(
@@ -423,13 +423,74 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
       }),
     ).rejects.toThrow("Learning bundle is unavailable");
 
+    const obsoleteRunId = randomUUID();
+    const obsoleteBundleId = randomUUID();
+    await database.pool.query(
+      `INSERT INTO semantic_generation_runs
+         (id, idempotency_key, purpose, repository_id, revision_id,
+          generation_context_id, artifact_seed, question_count, created_at,
+          deadline_at, delete_after, completed_at, artifact_id, degraded)
+       SELECT $1, $2, purpose, repository_id, revision_id,
+              generation_context_id, artifact_seed, question_count,
+              created_at - interval '1 second', deadline_at - interval '1 second',
+              delete_after - interval '1 second', completed_at, $3, degraded
+         FROM semantic_generation_runs
+        WHERE id = $4`,
+      [
+        obsoleteRunId,
+        `semantic.learning.obsolete-test:${generationContextId}`,
+        obsoleteBundleId,
+        bundle.rows[0]!.run_id,
+      ],
+    );
+    await database.pool.query(
+      `INSERT INTO semantic_learning_bundles
+         (id, run_id, repository_id, revision_id, generation_context_id,
+          head_sha, context_hash, schema_version, content_hash,
+          generation_outcome, encrypted_payload, delete_after, created_at)
+       SELECT $1, $2, repository_id, revision_id, generation_context_id,
+              head_sha, context_hash, schema_version, content_hash,
+              generation_outcome, encrypted_payload,
+              delete_after - interval '1 second',
+              created_at - interval '1 second'
+         FROM semantic_learning_bundles
+        WHERE id = $3`,
+      [obsoleteBundleId, obsoleteRunId, bundleId],
+    );
+    const obsoleteSession = await repository.startPracticeSession({
+      repositoryId: IDS.repository,
+      revisionId: IDS.revision,
+      generationContextId,
+      learningBundleId: obsoleteBundleId,
+      userId: AUTHOR,
+      actorKeyHash: "2".repeat(64),
+    });
     const session = await repository.startPracticeSession({
       repositoryId: IDS.repository,
       revisionId: IDS.revision,
       generationContextId,
       learningBundleId: bundleId,
       userId: AUTHOR,
-      actorKeyHash: "2".repeat(64),
+      actorKeyHash: "3".repeat(64),
+    });
+    expect(session.sessionId).not.toBe(obsoleteSession.sessionId);
+    await expect(
+      database.pool.query<{
+        learning_bundle_id: string;
+        invalidated_at: Date | null;
+      }>(
+        `SELECT learning_bundle_id, invalidated_at
+           FROM practice_sessions
+          WHERE id = $1`,
+        [obsoleteSession.sessionId],
+      ),
+    ).resolves.toMatchObject({
+      rows: [
+        {
+          learning_bundle_id: obsoleteBundleId,
+          invalidated_at: expect.any(Date),
+        },
+      ],
     });
     const ready = await repository.readPracticeView({
       repositoryId: IDS.repository,
@@ -449,7 +510,7 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
       practiceSessionId: session.sessionId,
       practiceQuestionId: question.id,
       userId: AUTHOR,
-      actorKeyHash: "3".repeat(64),
+      actorKeyHash: "4".repeat(64),
       answer: {
         trust: "untrusted",
         source: "contributor_answer",

@@ -56,6 +56,16 @@ describe("private practice worker HTTP boundary", () => {
       expect.stringContaining("pull_request.author_id = $3"),
       [REVISION_ID, REPOSITORY_ID, ACTOR_ID, NOW],
     );
+    const bindingStatement = String(
+      clientQuery.mock.calls.find((call) =>
+        String(call[0]).includes("SELECT repository.id AS repository_id"),
+      )?.[0] ?? "",
+    );
+    expect(bindingStatement).toContain("LEFT JOIN LATERAL");
+    expect(bindingStatement).toContain(
+      "ORDER BY (learning_bundle.generation_outcome = 'fallback') ASC",
+    );
+    expect(bindingStatement).toContain("learning_bundle.created_at DESC");
     expect(clientQuery).toHaveBeenCalledWith(
       expect.stringContaining("semantic_practice_capability_uses"),
       [
