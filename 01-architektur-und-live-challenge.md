@@ -554,4 +554,4 @@ ein kontrollierter Dogfood-PR zeigen:
 10. alle Medien und Derivate werden fristgerecht gelöscht.
 
 Der ausführbare Bauplan steht in
-[[02-mvp-implementation-guide|02-mvp-implementation-guide.md]].
+[02-mvp-implementation-guide.md](02-mvp-implementation-guide.md).

@@ -1,6 +1,8 @@
 # Hand-authored visual prototypes and archived explorations are not source-formatted.
 archive/
 *.html
+.env.production.example
+.github/CODEOWNERS
 
 # Canonical brand manuscripts retain their hand-maintained wrapping.
 04-brand-marketing-interface.md

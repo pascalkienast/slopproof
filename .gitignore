@@ -11,6 +11,7 @@ reports/
 backups/
 .env*
 !.env.example
+!.env.production.example
 *.env
 !.env.example
 *.pem

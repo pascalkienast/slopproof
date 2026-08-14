@@ -195,10 +195,7 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
     smoke,
     /GitHub authorization did not finish[\s\S]*Return to SlopProof/u,
   );
-  assert.match(
-    smoke,
-    /oauth-callback\.headers[\s\S]*frame-ancestors 'none'/u,
-  );
+  assert.match(smoke, /oauth-callback\.headers[\s\S]*frame-ancestors 'none'/u);
   assert.doesNotMatch(
     smoke,
     /jq -e '\.error == "oauth_rejected"[^\n]*\n[^\n]*oauth-callback/u,
@@ -464,17 +461,26 @@ test("managed upgrades are reversible only across an unchanged schema and Caddy 
     prepare,
     /Managed automatic rollback requires an unchanged migration set/u,
   );
-  assert.match(prepare, /cmp -s "\$previous_secret\/oauth-proxy-authenticator"/u);
+  assert.match(
+    prepare,
+    /cmp -s "\$previous_secret\/oauth-proxy-authenticator"/u,
+  );
   assert.match(prepare, /slopproof\.managed-rollback-boundary\.v1/u);
   assert.match(prepare, /sync -f "\$boundary"/u);
   assert.match(finalize, /trap 'restore_failed_managed_finalize \$\?' EXIT/u);
   assert.match(finalize, /Caddy changed after managed preparation/u);
   assert.match(finalize, /systemctl restart slopproof-compose\.service/u);
   assert.match(finalize, /smoke-production\.sh" final/u);
-  assert.doesNotMatch(`${prepare}\n${finalize}`, /systemctl (?:restart|reload) caddy/u);
+  assert.doesNotMatch(
+    `${prepare}\n${finalize}`,
+    /systemctl (?:restart|reload) caddy/u,
+  );
   assert.match(rollback, /Managed rollback migration proof failed/u);
   assert.match(rollback, /Managed rollback refuses a changed Caddy boundary/u);
-  assert.match(rollback, /assert_release_container_images "\$previous_release_id"/u);
+  assert.match(
+    rollback,
+    /assert_release_container_images "\$previous_release_id"/u,
+  );
   assert.match(
     rollback,
     /previous release's existing full application smoke contract[\s\S]*smoke-production\.sh" final/u,

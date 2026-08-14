@@ -28,7 +28,7 @@ const sourceEnvironment = {
   NODE_ENV: "production",
   APP_BASE_URL: "https://slopproof.example",
   DEMO_MODE: "false",
-  DATABASE_URL: "postgres://production.example/slopproof",
+  DATABASE_URL: `postgres://slopproof:${"d".repeat(32)}@postgres:5432/slopproof`,
   SESSION_SECRET: "s".repeat(48),
   LOG_LEVEL: "info",
   GITHUB_ADAPTER: "octokit",
@@ -53,15 +53,12 @@ const sourceEnvironment = {
   TRANSCRIPTION_API_KEY: "t".repeat(48),
   TRANSCRIPTION_MODEL: "stt-model",
   EVIDENCE_STORAGE_PROVIDER: "s3",
-  S3_CONTROL_ENDPOINT:
-    "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com",
-  S3_PUBLIC_ENDPOINT:
-    "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com",
-  S3_REGION: "auto",
-  S3_BUCKET: "slopproof-eu",
-  CLOUDFLARE_R2_AK: "bucket-scoped-access-id",
-  CLOUDFLARE_R2_API: "bucket-scoped-api-token",
-  CLOUDFLARE_R2_SEC_ACCESSKEY: "must-never-be-used",
+  S3_CONTROL_ENDPOINT: "https://objects.example.com",
+  S3_PUBLIC_ENDPOINT: "https://uploads.example.com",
+  S3_REGION: "eu-central-1",
+  S3_BUCKET: "slopproof-evidence",
+  S3_ACCESS_KEY_ID: "bucket-scoped-access-id",
+  S3_SECRET_ACCESS_KEY: "e".repeat(48),
   KEY_WRAPPING_PROVIDER: "local",
   KEY_WRAPPING_PUBLIC_KEY_CONTAINER_PATH: "/run/secrets/wrapping-public.pem",
   KEY_WRAPPING_PRIVATE_KEY_CONTAINER_PATH: "/run/secrets/wrapping-private.pem",
@@ -75,17 +72,12 @@ const sourceEnvironment = {
 } as const;
 
 describe("production environment compiler", () => {
-  it("maps only canonical runtime names and derives the R2 S3 secret", () => {
+  it("maps canonical S3 runtime names without provider-specific aliases", () => {
     const compiled = compileProductionEnvironment(sourceEnvironment);
 
-    expect(compiled.S3_ACCESS_KEY_ID).toBe(sourceEnvironment.CLOUDFLARE_R2_AK);
+    expect(compiled.S3_ACCESS_KEY_ID).toBe(sourceEnvironment.S3_ACCESS_KEY_ID);
     expect(compiled.S3_SECRET_ACCESS_KEY).toBe(
-      createHash("sha256")
-        .update(sourceEnvironment.CLOUDFLARE_R2_API, "utf8")
-        .digest("hex"),
-    );
-    expect(compiled.S3_SECRET_ACCESS_KEY).not.toBe(
-      sourceEnvironment.CLOUDFLARE_R2_SEC_ACCESSKEY,
+      sourceEnvironment.S3_SECRET_ACCESS_KEY,
     );
     expect(compiled).not.toHaveProperty("CLOUDFLARE_R2_AK");
     expect(compiled).not.toHaveProperty("CLOUDFLARE_R2_API");
@@ -111,6 +103,26 @@ describe("production environment compiler", () => {
     ).toBe(compiled.OAUTH_TRUSTED_PROXY_SECRET);
   });
 
+  it("keeps the original hosted R2 credential source backward compatible", () => {
+    const {
+      S3_ACCESS_KEY_ID: _accessKeyId,
+      S3_SECRET_ACCESS_KEY: _secretAccessKey,
+      ...withoutCanonicalCredentials
+    } = sourceEnvironment;
+    const compiled = compileProductionEnvironment({
+      ...withoutCanonicalCredentials,
+      CLOUDFLARE_R2_AK: "legacy-bucket-access-id",
+      CLOUDFLARE_R2_API: "legacy-bucket-api-token",
+    });
+
+    expect(compiled.S3_ACCESS_KEY_ID).toBe("legacy-bucket-access-id");
+    expect(compiled.S3_SECRET_ACCESS_KEY).toBe(
+      createHash("sha256")
+        .update("legacy-bucket-api-token", "utf8")
+        .digest("hex"),
+    );
+  });
+
   it("fails closed without echoing a supplied secret", () => {
     const secret = "must-not-appear-in-an-error";
     const malformed = {
@@ -132,68 +144,37 @@ describe("production environment compiler", () => {
   it.each([
     [
       "path-bearing control endpoint",
-      {
-        S3_CONTROL_ENDPOINT:
-          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com/slopproof-eu",
-      },
+      { S3_CONTROL_ENDPOINT: "https://objects.example.com/slopproof-evidence" },
       "S3_CONTROL_ENDPOINT",
     ],
     [
       "query-bearing public endpoint",
-      {
-        S3_PUBLIC_ENDPOINT:
-          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com?region=auto",
-      },
+      { S3_PUBLIC_ENDPOINT: "https://uploads.example.com?region=eu-central-1" },
       "S3_PUBLIC_ENDPOINT",
     ],
     [
       "userinfo-bearing control endpoint",
-      {
-        S3_CONTROL_ENDPOINT:
-          "https://operator@bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com",
-      },
+      { S3_CONTROL_ENDPOINT: "https://operator@objects.example.com" },
       "S3_CONTROL_ENDPOINT",
     ],
     [
       "port-bearing public endpoint",
-      {
-        S3_PUBLIC_ENDPOINT:
-          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com:443",
-      },
+      { S3_PUBLIC_ENDPOINT: "https://uploads.example.com:444" },
       "S3_PUBLIC_ENDPOINT",
     ],
     [
-      "case-variant account endpoint",
-      {
-        S3_CONTROL_ENDPOINT:
-          "https://BF2F734C49E05A3ED1CBAD16F0049E6C.eu.r2.cloudflarestorage.com",
-      },
+      "HTTP control endpoint",
+      { S3_CONTROL_ENDPOINT: "http://objects.example.com" },
       "S3_CONTROL_ENDPOINT",
     ],
     [
-      "other account public endpoint",
-      {
-        S3_PUBLIC_ENDPOINT:
-          "https://00000000000000000000000000000000.eu.r2.cloudflarestorage.com",
-      },
+      "loopback public endpoint",
+      { S3_PUBLIC_ENDPOINT: "https://localhost" },
       "S3_PUBLIC_ENDPOINT",
     ],
-    [
-      "non-EU control endpoint",
-      {
-        S3_CONTROL_ENDPOINT:
-          "https://bf2f734c49e05a3ed1cbad16f0049e6c.r2.cloudflarestorage.com",
-      },
-      "S3_CONTROL_ENDPOINT",
-    ],
-    [
-      "mismatched endpoints",
-      { S3_PUBLIC_ENDPOINT: "https://objects.example" },
-      "S3_PUBLIC_ENDPOINT",
-    ],
-    ["non-auto region", { S3_REGION: "eu" }, "S3_REGION"],
-    ["other bucket", { S3_BUCKET: "slopproof-evidence" }, "S3_BUCKET"],
-  ])("rejects a %s", (_name, override, field) => {
+    ["malformed region", { S3_REGION: "eu central 1" }, "S3_REGION"],
+    ["malformed bucket", { S3_BUCKET: "SlopProof_Evidence" }, "S3_BUCKET"],
+  ])("rejects a malformed %s", (_name, override, field) => {
     const rejectedValue = Object.values(override)[0];
     try {
       compileProductionEnvironment({ ...sourceEnvironment, ...override });

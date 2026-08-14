@@ -178,7 +178,11 @@ test("turns a signed fake webhook into a contributor-ready proof", async ({
     },
   });
   expect(first.status()).toBe(202);
-  expect(await first.json()).toEqual({ accepted: true, duplicate: false });
+  expect(await first.json()).toEqual({
+    accepted: true,
+    duplicate: false,
+    ignored: false,
+  });
 
   await expect
     .poll(
@@ -207,5 +211,9 @@ test("turns a signed fake webhook into a contributor-ready proof", async ({
     },
   });
   expect(duplicate.status()).toBe(202);
-  expect(await duplicate.json()).toEqual({ accepted: true, duplicate: true });
+  expect(await duplicate.json()).toEqual({
+    accepted: true,
+    duplicate: true,
+    ignored: false,
+  });
 });

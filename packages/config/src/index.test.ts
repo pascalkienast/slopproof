@@ -85,10 +85,9 @@ const productionGithubControlRuntime = {
 
 const productionStorage = {
   EVIDENCE_STORAGE_PROVIDER: "s3",
-  S3_CONTROL_ENDPOINT:
-    "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com",
-  S3_REGION: "auto",
-  S3_BUCKET: "slopproof-eu",
+  S3_CONTROL_ENDPOINT: "https://objects.example.com",
+  S3_REGION: "eu-central-1",
+  S3_BUCKET: "slopproof-evidence",
   S3_ACCESS_KEY_ID: "runtime-access-id",
   S3_SECRET_ACCESS_KEY: "e".repeat(64),
 };
@@ -103,7 +102,7 @@ const productionWeb = {
   GITHUB_CLIENT_ID: "Iv1.production-client-id",
   GITHUB_CLIENT_SECRET: "c".repeat(40),
   OAUTH_TRUSTED_PROXY_SECRET: "p".repeat(48),
-  S3_PUBLIC_ENDPOINT: productionStorage.S3_CONTROL_ENDPOINT,
+  S3_PUBLIC_ENDPOINT: "https://uploads.example.com",
   KEY_WRAPPING_PROVIDER: "local",
   KEY_WRAPPING_PUBLIC_KEY_PATH: "/run/secrets/wrapping-public.pem",
   KEY_WRAPPING_PUBLIC_KEY_CONTAINER_PATH: "/run/secrets/wrapping-public.pem",
@@ -261,7 +260,7 @@ describe("process-scoped configuration", () => {
       GITHUB_CLIENT_ID: "Iv1.production-client-id",
       GITHUB_CLIENT_SECRET: "c".repeat(40),
       OAUTH_TRUSTED_PROXY_SECRET: "p".repeat(48),
-      S3_PUBLIC_ENDPOINT: productionStorage.S3_CONTROL_ENDPOINT,
+      S3_PUBLIC_ENDPOINT: "https://uploads.example.com",
       KEY_WRAPPING_PROVIDER: "local",
       KEY_WRAPPING_PUBLIC_KEY_PATH: "/host/secrets/wrapping-public.pem",
       KEY_WRAPPING_PUBLIC_KEY_CONTAINER_PATH:
@@ -314,63 +313,45 @@ describe("process-scoped configuration", () => {
     [
       "path-bearing control endpoint",
       {
-        S3_CONTROL_ENDPOINT:
-          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com/slopproof-eu",
+        S3_CONTROL_ENDPOINT: "https://objects.example.com/slopproof-evidence",
       },
       "S3_CONTROL_ENDPOINT",
     ],
     [
       "query-bearing control endpoint",
       {
-        S3_CONTROL_ENDPOINT:
-          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com?region=auto",
+        S3_CONTROL_ENDPOINT: "https://objects.example.com?region=eu-central-1",
       },
       "S3_CONTROL_ENDPOINT",
     ],
     [
       "userinfo-bearing control endpoint",
       {
-        S3_CONTROL_ENDPOINT:
-          "https://operator@bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com",
+        S3_CONTROL_ENDPOINT: "https://operator@objects.example.com",
       },
       "S3_CONTROL_ENDPOINT",
     ],
     [
       "port-bearing control endpoint",
       {
-        S3_CONTROL_ENDPOINT:
-          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com:443",
+        S3_CONTROL_ENDPOINT: "https://objects.example.com:444",
       },
       "S3_CONTROL_ENDPOINT",
     ],
     [
-      "case-variant account endpoint",
-      {
-        S3_CONTROL_ENDPOINT:
-          "https://BF2F734C49E05A3ED1CBAD16F0049E6C.eu.r2.cloudflarestorage.com",
-      },
+      "HTTP control endpoint",
+      { S3_CONTROL_ENDPOINT: "http://objects.example.com" },
       "S3_CONTROL_ENDPOINT",
     ],
     [
-      "other account endpoint",
-      {
-        S3_CONTROL_ENDPOINT:
-          "https://00000000000000000000000000000000.eu.r2.cloudflarestorage.com",
-      },
+      "loopback control endpoint",
+      { S3_CONTROL_ENDPOINT: "https://127.0.0.1" },
       "S3_CONTROL_ENDPOINT",
     ],
-    [
-      "non-EU account endpoint",
-      {
-        S3_CONTROL_ENDPOINT:
-          "https://bf2f734c49e05a3ed1cbad16f0049e6c.r2.cloudflarestorage.com",
-      },
-      "S3_CONTROL_ENDPOINT",
-    ],
-    ["non-auto region", { S3_REGION: "eu" }, "S3_REGION"],
-    ["other bucket", { S3_BUCKET: "slopproof-evidence" }, "S3_BUCKET"],
+    ["malformed region", { S3_REGION: "eu central 1" }, "S3_REGION"],
+    ["malformed bucket", { S3_BUCKET: "SlopProof_Evidence" }, "S3_BUCKET"],
   ])(
-    "rejects %s in the production worker R2 identity",
+    "rejects %s in the production worker storage identity",
     (_name, override, field) => {
       expectConfigurationFields(
         () =>
@@ -412,20 +393,15 @@ describe("process-scoped configuration", () => {
 
   it.each([
     [
-      "mismatched public endpoint",
-      {
-        S3_PUBLIC_ENDPOINT:
-          "https://00000000000000000000000000000000.eu.r2.cloudflarestorage.com",
-      },
+      "HTTP public endpoint",
+      { S3_PUBLIC_ENDPOINT: "http://objects.example.com" },
     ],
     [
       "path-bearing public endpoint",
-      {
-        S3_PUBLIC_ENDPOINT:
-          "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com/slopproof-eu",
-      },
+      { S3_PUBLIC_ENDPOINT: "https://objects.example.com/slopproof-evidence" },
     ],
-  ])("rejects %s in the production web R2 identity", (_name, override) => {
+    ["loopback public endpoint", { S3_PUBLIC_ENDPOINT: "https://localhost" }],
+  ])("rejects %s in the production web storage identity", (_name, override) => {
     expectConfigurationFields(
       () => loadWebConfig({ ...productionWeb, ...override }),
       "S3_PUBLIC_ENDPOINT",
@@ -497,7 +473,7 @@ describe("process-scoped configuration", () => {
           GITHUB_CLIENT_SECRET: "c".repeat(40),
           OAUTH_TRUSTED_PROXY_SECRET: "p".repeat(48),
           GITHUB_PRIVATE_KEY_PATH: "/must-not-enter-web/github.pem",
-          S3_PUBLIC_ENDPOINT: productionStorage.S3_CONTROL_ENDPOINT,
+          S3_PUBLIC_ENDPOINT: "https://uploads.example.com",
           KEY_WRAPPING_PROVIDER: "local",
           KEY_WRAPPING_PUBLIC_KEY_PATH: "/host/public.pem",
           KEY_WRAPPING_PUBLIC_KEY_CONTAINER_PATH: "/run/secrets/public.pem",
@@ -638,7 +614,7 @@ describe("process-scoped configuration", () => {
           GITHUB_CLIENT_ID: "Iv1.production-client-id",
           GITHUB_CLIENT_SECRET: "c".repeat(40),
           OAUTH_TRUSTED_PROXY_SECRET: "p".repeat(48),
-          S3_PUBLIC_ENDPOINT: productionStorage.S3_CONTROL_ENDPOINT,
+          S3_PUBLIC_ENDPOINT: "https://uploads.example.com",
           KEY_WRAPPING_PROVIDER: "local",
           KEY_WRAPPING_PUBLIC_KEY_PATH: "/host/public.pem",
           KEY_WRAPPING_PUBLIC_KEY_CONTAINER_PATH: "/run/secrets/public.pem",

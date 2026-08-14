@@ -3,7 +3,7 @@ name: slopproof-production
 x-app-build: &app-build
   context: .
   args:
-    S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?set the exact public R2 endpoint}
+    S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?set the exact public S3 endpoint}
 
 x-app-image: &app-image ${SLOPPROOF_IMAGE:-slopproof-app:production}
 
@@ -30,7 +30,7 @@ x-no-core: &no-core
     soft: 0
     hard: 0
 
-# Gate 9 Mobileup envelope, observed read-only on 2026-08-13: 2 vCPU,
+# Official hosted profile, observed read-only on 2026-08-13: 2 vCPU,
 # 3.73 GiB RAM (3,819 MiB rounded down), no swap, with native Caddy and other
 # sites sharing the host. Long-running hard limits total 1.5 CPU/2,368 MiB.
 # Counting migrate as a deliberately conservative upgrade overlap raises that

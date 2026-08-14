@@ -3,8 +3,8 @@
 Stand: 2026-08-12
 
 This runbook describes configuration preparation only. It does not authorize a
-deployment, a paid provider call, a GitHub App installation or a Cloudflare
-management operation.
+deployment, a paid provider call, a GitHub App installation or a cloud-account
+change.
 
 ## Process boundaries
 
@@ -98,9 +98,16 @@ same-directory atomic, and an unexpected mid-set failure triggers bounded
 cleanup of only the exact files created by that invocation. It rejects
 symlinks, unsafe modes, a GitHub RSA key below 2048 bits, a wrapping keypair
 other than matching RSA-3072 material, or unexpected `/run/secrets/*`
-destinations. The R2 S3 access ID is mapped from the existing bucket-scoped
-source and the S3 secret is derived locally as specified by the deployment
-contract. The historical `CLOUDFLARE_R2_SEC_ACCESSKEY` is never consumed.
+destinations. New deployments supply bucket-scoped credentials through
+`S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`. The original hosted deployment's
+`CLOUDFLARE_R2_AK` plus `CLOUDFLARE_R2_API` compiler input remains available as
+a backward-compatible source; new deployments should not adopt that alias.
+
+Production accepts provider-neutral S3 endpoints when both use HTTPS, have a
+root path and contain no user info, explicit port, query or fragment. Control
+and browser endpoints may differ. Region and bucket names use bounded S3-safe
+syntax. Provider-specific CORS, lifecycle and path-style behavior still require
+an operator test before accepting evidence.
 
 On the deployment host, keep the artifacts root-owned. Grant uid 1000 a
 read-only ACL only for each service's process file and required PEMs; grant uid

@@ -10,6 +10,12 @@ const webServers = [
           reuseExistingServer: true,
           timeout: 120_000,
         },
+        {
+          command: "pnpm --filter @slopproof/github-control start",
+          url: "http://127.0.0.1:4002/healthz",
+          reuseExistingServer: true,
+          timeout: 120_000,
+        },
       ]
     : []),
   {

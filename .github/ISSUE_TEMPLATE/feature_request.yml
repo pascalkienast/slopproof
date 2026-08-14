@@ -1,0 +1,34 @@
+name: Feature request
+description: Propose a bounded product or operator improvement.
+title: "proposal: "
+labels: [proposal]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the maintainer or contributor problem with a concrete example.
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Security and privacy impact
+      description: Note new data, permissions, providers, retention or public output.
+    validations:
+      required: true
+  - type: checkboxes
+    id: non_goals
+    attributes:
+      label: Product boundaries
+      options:
+        - label: This proposal does not add biometric analysis or persistent contributor scoring.
+          required: true
+        - label: This proposal does not execute untrusted pull-request code without a separate threat model.
+          required: true

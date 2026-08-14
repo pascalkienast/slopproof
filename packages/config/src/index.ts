@@ -8,11 +8,6 @@ export const GenerationProviderSchema = z.enum(["fake", "hetzner"]);
 export const TranscriptionProviderSchema = z.enum(["fake", "openrouter"]);
 export const MultimodalJudgeProviderSchema = z.enum(["fake", "hetzner"]);
 
-export const PRODUCTION_R2_ENDPOINT =
-  "https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com";
-export const PRODUCTION_R2_REGION = "auto";
-export const PRODUCTION_R2_BUCKET = "slopproof-eu";
-
 const booleanFromEnv = z
   .enum(["true", "false"])
   .default("false")
@@ -131,10 +126,12 @@ const webSchema = z
       "WORKER_INTERNAL_SECRET",
       32,
     );
-    requireProductionR2ControlIdentity(context, value);
-    requireValue(context, value.S3_PUBLIC_ENDPOINT === PRODUCTION_R2_ENDPOINT, [
+    requireProductionS3Identity(context, value);
+    requireProductionS3Endpoint(
+      context,
+      value.S3_PUBLIC_ENDPOINT,
       "S3_PUBLIC_ENDPOINT",
-    ]);
+    );
     requireInternalWorkerEndpoint(context, value.WORKER_INTERNAL_URL);
     requireInternalGithubControlEndpoint(
       context,
@@ -229,7 +226,7 @@ const workerSchema = z
     requireValue(context, value.MULTIMODAL_JUDGE_PROVIDER === "hetzner", [
       "MULTIMODAL_JUDGE_PROVIDER",
     ]);
-    requireProductionR2ControlIdentity(context, value);
+    requireProductionS3Identity(context, value);
     requireSafeSecret(
       context,
       value.S3_SECRET_ACCESS_KEY,
@@ -539,7 +536,7 @@ function requireProductionEndpoint(
   requireValue(context, isProductionEndpoint(value), [field]);
 }
 
-function requireProductionR2ControlIdentity(
+function requireProductionS3Identity(
   context: z.RefinementCtx,
   value: {
     S3_CONTROL_ENDPOINT: string;
@@ -547,15 +544,43 @@ function requireProductionR2ControlIdentity(
     S3_BUCKET: string;
   },
 ): void {
-  requireValue(context, value.S3_CONTROL_ENDPOINT === PRODUCTION_R2_ENDPOINT, [
+  requireProductionS3Endpoint(
+    context,
+    value.S3_CONTROL_ENDPOINT,
     "S3_CONTROL_ENDPOINT",
-  ]);
-  requireValue(context, value.S3_REGION === PRODUCTION_R2_REGION, [
-    "S3_REGION",
-  ]);
-  requireValue(context, value.S3_BUCKET === PRODUCTION_R2_BUCKET, [
-    "S3_BUCKET",
-  ]);
+  );
+  requireValue(
+    context,
+    /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/u.test(value.S3_REGION),
+    ["S3_REGION"],
+  );
+  requireValue(
+    context,
+    /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/u.test(value.S3_BUCKET) &&
+      !value.S3_BUCKET.includes(".."),
+    ["S3_BUCKET"],
+  );
+}
+
+function requireProductionS3Endpoint(
+  context: z.RefinementCtx,
+  value: string,
+  field: string,
+): void {
+  try {
+    const url = new URL(value);
+    requireValue(
+      context,
+      isProductionEndpoint(value) &&
+        url.pathname === "/" &&
+        url.port === "" &&
+        url.search === "" &&
+        url.hash === "",
+      [field],
+    );
+  } catch {
+    requireValue(context, false, [field]);
+  }
 }
 
 function requireInternalWorkerEndpoint(

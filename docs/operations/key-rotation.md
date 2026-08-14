@@ -49,7 +49,8 @@ format provides that compatibility.
 
 ## Compromise
 
-For suspected compromise, follow [incident-response.md](incident-response.md).
+For suspected compromise, follow
+[incident-response.md](../security/incident-response.md).
 Revoke network credentials first, block new private effects, preserve
 evidence-free audit metadata, and accelerate deletion where policy and legal
 requirements permit. Never download private evidence for convenience.

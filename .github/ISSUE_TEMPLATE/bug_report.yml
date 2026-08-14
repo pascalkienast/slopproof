@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible SlopProof defect without private evidence.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Do not include secrets, repository content, video, transcripts, frames,
+        provider payloads or signed URLs. Use the private security flow for a
+        vulnerability.
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+      placeholder: 4afbc5f or v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: profile
+    attributes:
+      label: Deployment profile
+      options:
+        - Local Compose demo
+        - Local development
+        - Self-hosted production
+        - Hosted SlopProof instance
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened?
+      description: Include the safe error class and visible state, not payload data.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Use synthetic data where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed credentials, private repository data and all evidence artifacts.
+          required: true
+        - label: This report does not describe an undisclosed security vulnerability.
+          required: true

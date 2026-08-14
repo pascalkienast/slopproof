@@ -1,120 +1,88 @@
-# SlopProof MVP and Production Readiness Status
+# Implementation status
 
-Stand: 2026-08-13
+Last updated: 2026-08-14
 
-## Abnahmeurteil
+SlopProof is a working pre-1.0 system. The hosted deployment at
+<https://slopproof.paskie.me> has completed the full GitHub flow against a real
+pull request:
 
-Der lokale, offlinefähige MVP-Schnitt ist als zusammenhängender Web-, Worker-,
-PostgreSQL- und Adapterflow implementiert und im Compose-Referenzprofil
-abgenommen. Fake-GitHub und Fake-Modellprovider sind bewusst lokal; Auth-,
-SHA-, Zustands-, Browser-Krypto-, Multipart-, Review-, Policy- und
-Retentiongrenzen sind reale Implementierungsteile.
+1. GitHub App installation, webhook ingestion and SHA-bound Check creation;
+2. GitHub OAuth for contributor and maintainer access;
+3. generated patch-bound Practice and private coaching;
+4. QR handoff to a physical phone;
+5. browser encryption, multipart object upload and worker-only decryption;
+6. per-question transcription, bounded frame selection and multimodal review;
+7. maintainer approval and a successful GitHub Check on the current head SHA;
+8. early evidence deletion and retention processing;
+9. encrypted database backup, isolated restore rehearsal, deployment finalize
+   and a real service restart.
 
-Der Stand ist noch **nicht vollständig produktionsreif**. Der vollständige containerisierte
-Medienrundlauf `Browser → S3-Referenzspeicher → Worker/FFmpeg → Review →
-physische Löschung` ist mit synthetischer Kamera und synthetischem Mikrofon
-grün. Die produktive GitHub-Control- und OAuth-Implementierung steht; ihre
-Interoperabilität mit der real installierten App ist noch nicht live bestätigt.
-Ein physischer Smartphone-Smoke über öffentliches HTTPS, produktive
-Modellprovider und das reversible VM-Deployment bleiben offen.
+The production release verified on 2026-08-14 passed its full release gate.
+The current open-source-readiness branch passes 690 unit/contract tests, 106
+PostgreSQL integration tests and five Playwright product flows, plus strict TypeScript,
+ESLint, format, package-boundary and secret audits, a production-image contract,
+0 HIGH/CRITICAL findings in the release Trivy policy and an SPDX SBOM containing
+362 packages.
 
-## Phasengates
+## Open-source readiness
 
-| Gate                              | Status                              | Befund                                                                                                                                                                                                                                                                                                         |
-| --------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A — Workspace                     | bestanden                           | pnpm-Workspace, Next-Web, separater Worker, Node-24-Containerziel, CI und Boundary-Audit stehen. Das Containerimage läuft laut Dockerfile als unprivilegierter `node`-User.                                                                                                                                    |
-| B — Domain und DB                 | bestanden                           | Explizite 11-Status-Zustandsmaschine, eingefrorene Repository-Policy, Transaktionen, Constraints, Session-/Handoff-/Uploadzustand und kanonische Evidence-Deadline sind implementiert.                                                                                                                         |
-| C — Fake GitHub                   | bestanden                           | Signaturprüfung, Delivery-Dedupe, Current-SHA-Invalidierung, Checkadapter und die Kette `Webhook → Analysejob → Proof-Plan → Attempt` laufen lokal.                                                                                                                                                            |
-| D — Analyse, Practice, Proof-Plan | bestanden                           | Begrenzte Diffanalyse, drei Risikobudgets, Mega-/Split-Pfad, optionale Practice und davon getrennte Proof-Fragen sind deterministisch umgesetzt.                                                                                                                                                               |
-| E — Handoff und Aufnahme          | bestanden mit externem Restnachweis | One-Time-Handoff, repository-/autor-/SHA-gebundene Session, Kamera-/Codec-Preflight, echte MediaRecorder-/WebCrypto-Implementierung sowie technischer Abort und Ersatzversuch stehen. Ein vollständiger Take lief im 390-px-Browser mit Fake-Medien; der physische Telefon-Smoke bleibt offen.                 |
-| F — Evidence Security             | bestanden                           | `SP-RC1`, clientseitige AEAD-Verschlüsselung, RSA-OAEP-Wrapping, HMAC-Manifest, generisches Multipart-Packing, worker-only Streaming-Entschlüsselung, verschlüsselte Frame-Derivate und kurzlebige Review-Capabilities sind implementiert, negativ getestet und im S3-/FFmpeg-Compose-Rundlauf bestätigt.      |
-| G — Provider und Policy           | bestanden                           | Versionierte Fake-Transkription und Fake-Auswertung, Injection-Abwehr, verschlüsselte Providerpayloads und manuelle Policy sind umgesetzt. Jede Providerempfehlung endet zwingend in `review_required`.                                                                                                        |
-| H — Maintainer und Check          | bestanden                           | Repositorygebundener Reviewzugriff, Current-SHA-Prüfung, append-only Entscheidung, Reviewkontext mit Zeitmarken/Frames und manuelle Check-Reconciliation stehen.                                                                                                                                               |
-| I — End-to-End                    | bestanden mit externem Restnachweis | Produktionsbuild, Worker-Health, PostgreSQL-Produktfluss, vier Playwright-Flows und der vollständige Browser-/Ciphertext-/Worker-/Review-/Check-/Löschpfad im Compose-Referenzprofil sind grün. Offen bleiben ein physisches Smartphone und der Lifecycle-Backstop des später gewählten produktiven Speichers. |
+The `release/open-source-readiness` branch now contains the public README,
+self-hosting guide, contributor and security policies, issue forms, pull-request
+template, governance, support, CODEOWNERS, Dependabot configuration and a
+dogfooding runbook. CI actions and service images are immutable-pinned. The CI
+golden path starts PostgreSQL, private S3-compatible test storage, Worker and
+GitHub Control before exercising the signed-webhook browser flow.
 
-## Verifizierter Stand
+The working tree and reachable history passed generic and exact-value secret
+audits with the hosted operator environment loaded. Documentation links,
+workflow syntax, dependency advisories, production dependency licenses and
+large historical blobs were also reviewed. No GitHub repository or public
+remote has been created from this branch. The remaining legal gate is the
+project license; publication remains a separate maintainer action after that
+choice.
 
-- ESLint: grün;
-- TypeScript strict: grün;
-- Unit-/Contracttests im Gate-2-Snapshot: 46 Dateien, 300 Tests grün;
-- Provider-Live-Smoke-Verträge: 13 Tests grün, ohne Live-Aufruf;
-- PostgreSQL-Integration im Gate-2-Snapshot: 10 Dateien, 67 Tests grün,
-  darunter 39 produktive
-  GitHub-Persistenz-, Replay- und Lifecycle-Race-Tests;
-- Playwright gegen Produktionsbuild: 4 von 4 Flows grün;
-- Next-Web-, Node-Worker- und GitHub-Control-Build: grün;
-- Package-Boundary-Audit: grün;
-- `docker compose config`: grün;
-- Integrationsteardown: Domain- und pg-boss-Zustand anschließend leer;
-- Demo-Migration und Seed: grün; Seed zweimal ausgeführt und strukturell auf
-  Idempotenz, Policy-Bindung sowie numerische GitHub-IDs geprüft;
-- effektive Compose-Grenze geprüft: Web mountet nur den öffentlichen Wrapping-
-  Key, Worker nur den privaten Key und den Provider-Payload-Key.
-- vollständiger 390-px-Browser-Smoke mit Fake-Kamera/-Mikrofon: direkter
-  Ciphertext-Multipart-Upload, vollständige Authentifizierung und
-  FFprobe-Auswertung, Fake-Transkript/Frame/Evaluation, `review_required` und
-  private Wiedergabe über eine einmalige Worker-Capability;
-- expliziter Maintainer-Pass erzeugte genau eine append-only Entscheidung für
-  den aktuellen SHA und einen öffentlichen erfolgreichen Check ohne Evidence;
-- die eingefrorene Early-Delete-Policy löschte Recording und Frame-Derivat
-  physisch aus dem Bucket und schredderte Manifest, Wrapped-Key-Metadaten,
-  Transkript und Evaluation; der Bucket war danach leer;
-- der Worker blieb im korrigierten Medienpfad ohne Neustart und hinterließ keine
-  Klartext-Mediendatei in seinem temporären Dateisystem.
+## Current guarantees
 
-## Production-V1-Gates
+- Every attempt binds to one installation, repository, pull request, author and
+  exact head SHA.
+- A push invalidates prior evidence and decisions.
+- Practice remains private, optional and excluded from Proof evaluation.
+- Recording chunks leave the browser as authenticated ciphertext.
+- The Worker holds the private wrapping key; Web receives the public key only.
+- Provider calls use bounded material, strict schemas, byte limits and absolute
+  deadlines.
+- Provider output cannot complete the Check. A maintainer decides.
+- Public Check output contains no evidence, transcript, answer, frame, score or
+  private rationale.
+- Evidence retention cannot exceed 24 hours and successful approval may trigger
+  immediate deletion.
+- SlopProof never executes pull-request code in the current architecture.
 
-Der produktive Ausbau wird getrennt vom weiterhin offlinefähigen Fake-Compose-
-Golden-Path abgenommen. Ein grünes MVP-Gate wird nicht als Nachweis für einen
-externen Provider oder eine reale GitHub-Interaktion wiederverwendet.
+## Deployment state
 
-| Gate                          | Status                                  | Befund                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ----------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0 — Baseline und Preflight    | bestanden                               | Mac-Workspace und Bootstrap-Release auf der VM sind inhaltlich synchron. Der vollständige lokale Lauf ist grün: Format, ESLint, TypeScript, 129 Unit-, 19 PostgreSQL-Integrations- und 4 Playwright-Tests, Build, Compose-Config und Boundary-Audit. Der Browserlauf wurde reproduzierbar gegen eine isolierte, zweimal idempotent gesäte Datenbank ausgeführt. Ein eigener Repository-Secret-Audit prüft bekannte Schlüsselmarker und – wenn die lokale Secret-Datei bewusst geladen wird – exakte Laufzeitwerte, ohne Werte auszugeben. Lokale Package-Stores, Ausgaben, Backups, `.env`-Dateien und Schlüsseldateien sind aus Git- und Docker-Kontext ausgeschlossen.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| 1 — Produktionskonfiguration  | bestanden                               | Ein zwingendes `local\|production`-Profil, getrennte Web-/Media-Worker-/GitHub-Control-/Migration-Konfigurationen, kanonische Providerfelder und wertfreie Fehler sind implementiert. Production verweigert Demo/Fakes, HTTP-/Loopback-Public-Endpoints, Platzhalter, kurze Secrets, Legacy-Namen und prozessfremde Secrets. Der Compiler mappt R2 blind nach Vertrag, validiert und installiert vorhandene GitHub-/RSA-3072-Keydateien unverändert in ein geschütztes externes Staging und überschreibt nichts. 13 nicht-netzwerkende Capability-Vertragstests decken Hetzner Text/JSON, Hetzner Vision und OpenRouter STT ab; echte, potenziell kostenpflichtige Calls bleiben strikt hinter `LIVE_SMOKE=1` und wurden in diesem Gate nicht wiederholt. Der lokale Fake-Compose-Pfad bleibt unter Node 24 grün.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 2 — GitHub App und OAuth      | bestanden mit externem Restnachweis     | Ein getrennter GitHub-Control-Prozess mintet kurzlebige repositorygebundene Installation-Tokens aus einem validierten App-PEM, liest PR-Zustand und bounded Patches ohne Checkout, reconciliert Check Runs über eine transaktionale DB-Outbox und heilt Rate-Limit-, Crash- und Replayfälle dauerhaft. Raw-Body-HMAC, Delivery-Lease/Dedupe, `pull_request`- und App-Lifecycle-Events, `(Head, Base)`-Invalidierung sowie bounded, CAS-geschützte Installations-Recovery sind PostgreSQL-negativ getestet. OAuth verwendet State, PKCE, one-time DB-Flows, strikte Redirects, rotierte Sessions und einen kurzlebig versiegelten GitHub-Token-Cookie; Contributor- und Maintainerzugriffe werden repositorygebunden und Maintainerrechte vor jedem privaten Zugriff live geprüft. Das lokale Fake-Profil bleibt internetfrei. Offen ist ausschließlich der Live-Smoke mit einer tatsächlich installierten GitHub App.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| 3 — Generation Context        | bestanden                               | Octokit-/Production-Revisionen werden ausschließlich aus dem unveränderlichen `github_revision_sources`-Snapshot geladen; LocalFake materialisiert denselben strikt validierten Offline-Vertrag. Der autoritative bounded Analyzer erzeugt danach in derselben Transaktion genau einen unveränderlichen `GenerationContextV1`, dessen Head/Base, Source-Hash, Snapshot, Anchor-IDs und vollständige Anchor-Deskriptoren PostgreSQL-seitig gebunden sind. Kanonisches Kontextmaterial und Provider-Material werden bytegenau gehasht und auf 512 KiB begrenzt; Lockfiles, generierter Code, Archive, LFS, Git-Symlinks, Submodule und ungewöhnliche Pfade bleiben metadata-only. Proof-Pläne/Fragen binden den persistierten Context und werden bei Replays exakt verglichen. Es gibt keinen Clone, keine Repository-Suche und keinen Blob-Download; die GitHub-Steuerung liest ausschließlich bounded PR-Dateien und exakte Tree-Metadaten. Unit-, Fresh-PostgreSQL-0000–0011-, LocalFake-Produktflow-, Type-, Lint- und Build-Nachweise sind grün.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| 4 — Learning, Practice, Proof | bestanden                               | Drei getrennte, worker-only Learning-, Practice- und Proof-Ports nutzen versionierte Zod-Verträge, servereigene IDs/Hashes/Deadlines und entweder drei vollständig offline laufende LocalFake-Adapter oder getrennte Hetzner-Modelle. Provideroutput wird strikt an den unveränderlichen GenerationContext und dessen exakte Anchor-Deskriptoren gebunden, höchstens einmal kontrolliert repariert und danach durch einen ankergebundenen, sichtbar degradierten deterministischen Fallback ersetzt. Proof wird vor Learning eingefroren; serverseitig geladene Proof-Texte verlassen den Worker nie und blockieren kollidierende Learning-/Feedback-Inhalte vor Persistenz, ohne Practice-Daten an Proof-Provider oder Judge zu geben. Learning, Antworten und Feedback sind AES-GCM-verschlüsselt, kurzlebig, repository-/author-/current-SHA-gebunden und über one-time Capabilities, CSRF, Rate-Limits und atomare JTI-Claims geschützt. V2-Proof wird atomar in den served Plan gespiegelt und erst danach an einen Attempt gebunden; nur Maintainer können weiter entscheiden. Fresh-PostgreSQL-0000–0012, Retry/Crash/Replay/Retention, Legacy-Fallback, +16-Minuten-Recovery, Unit-, Type-, Lint-, Build-, Boundary- und Secret-Nachweise sind grün.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| 5 — Transkription             | bestanden                               | Die mobile Aufnahme persistiert exakte, authentifizierte Frageintervalle; Finalize, Datenbanktrigger und Worker binden lückenlose Pflichtfragen, Current-SHA, PR-/Repository-/Installation-Lifecycle und Evidence-Deadline transaktional. Production streamt nur authentifiziert entschlüsseltes Audio via FFmpeg in bounded RAM, erzeugt pro Frage mono 16-kHz-WAV, ruft OpenRouter mit `store=false`, absoluter Deadline und begrenzten Transportversuchen auf und speichert ausschließlich verschlüsselte Transkripte. Crash-Replays verwenden das exakt persistierte Transcript ohne erneute Audiooffenlegung; failed strict-FIFO-Singletons werden geheilt, Providererschöpfung wird kontrolliert `technical_retry`, und Retention schreddert Intervalle mit der Evidence. LocalFake bleibt offline, nutzt aber denselben exakten Intervallvertrag; Production verwendet keinen Fake und führt den erst in Gate 6 aktivierten Judge bis dahin kontrolliert in den manuellen Review. Fresh-PostgreSQL-0000–0013 (93 Tests), 533 Unit-/Contracttests, Type-, Lint-, Build-, Boundary- und Secret-Nachweise sind grün.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| 6 — Multimodaler Judge        | bestanden                               | Production und LocalFake verwenden denselben strikt gebundenen multimodalen Pipelinepfad. Der Worker lädt höchstens vier normalisierte 320×180-JPEG-Frames ausschließlich aus dem privaten Ciphertextspeicher, prüft Objektkey, Hash, AAD, Byte-/Zeitlimits und löscht Klartextpuffer; Hetzner erhält inline über TLS nur Head-SHA, gespeicherte Fragen/Rubriken, exakte Patch-Anker, fragegebundene Transcriptsegmente, Timing und diese Frames. Kimi ist das Primärmodell, Qwen nur der einmalige konfigurierte Vision-Capability-Fallback; Transport-Retry, Content-Repair und absolute Evidence-Deadline sind hart begrenzt. Strukturierte Codes verhindern Identitäts-, Personen-, Biometrie-, Raum-, Akzent-, Behinderungs- und Toolanalyse; unbekannte IDs/Kriterien oder widersprüchliche Evidence-Bindungen werden verworfen. Das vollständige Ergebnis inklusive `not_evaluable`, Widersprüchen und Unsicherheit wird AES-GCM-verschlüsselt als autoritativer, AAD-gebundener Sidecar atomar mit einer konservativen Compatibility-Projektion und dem Folgejob persistiert; Replay verursacht keine erneute private Provideroffenlegung. Retention schreddert beide Payloads. Der one-time Maintainer-Kontext entschlüsselt und zeigt den exakten V2-Sidecar unter Current-SHA-, PR-/Repository-/Installation-, Capability- und Deadline-Locks; Legacy-only bleibt ausdrücklich manuell. Jede Empfehlung endet weiter in `review_required`. Fresh PostgreSQL 0000–0014 und 13 Integrationsdateien/97 Tests, 77 Unit-/Contractdateien/576 Tests, Type-, Lint-, Format-, Boundary-, Secret- und unabhängige P0/P1-Audits sind grün. Live-Providerqualität bleibt dem expliziten kostenpflichtigen Smoke vorbehalten.                                                                                                                                                             |
-| 7 — Produktions-Compose       | bestanden                               | Ein getrenntes Produktionsprofil startet PostgreSQL, einmalige Migration, Worker, GitHub Control und Web in einer gehärteten, nicht-rootfähigen Compose-Topologie; nur Web bindet Loopback, R2 ersetzt lokalen Objektspeicher und alle Prozesskonfigurationen/PEMs sind read-only sowie strikt partitioniert. Liveness und Readiness prüfen unter einer gemeinsamen Deadline DB, pg-boss, HeadBucket und GitHub Control; Quotas, fatal UTF-8-/Bodygrenzen, CSRF/CSP, route-spezifische Kamera-/Mikrofonrechte und vollständig header-/URI-freie Caddy-Zugriffslogs schützen alle OAuth-, Handoff-, Practice-, Upload-, Evidence- und Reviewpfade. Feste, inhaltsfreie Metriken decken Queue, semantische Providerartefakte, STT/Judge, Retention und Check-Reconciliation ab. Backup/Restore, Rotation, Threat/Incident/Privacy, Deployment und Observability sind als getestete Runbooks gebunden; ein frischer 0000–0015-PostgreSQL-Lauf, 101 Integrationstests, 648 Unit-/Contracttests und die vollständige Verify-Kette sind grün. Das finale Node-24-Runtimeimage ist 260,22 MiB, enthält keine Quellen/Tests/Paketmanager und hat im lokalen Trivy-HIGH/CRITICAL-Scan null fixbare Findings; der lokale SPDX-Nachweis enthält 358 Pakete.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| 8 — Cloudflare R2             | bestanden                               | Das Production-Profil akzeptiert ausschließlich den privaten EU-Bucket `slopproof-eu`, Region `auto` und den exakten accountgebundenen EU-S3-Endpunkt. R2-CORS ist live auf `https://slopproof.paskie.me`, `PUT`, `content-type`, exponiertes `ETag` und 300 Sekunden begrenzt; Public Development URL und öffentliche Bucketdomain bleiben aus. Live rückgelesene Lifecycle-Regeln löschen `evidence/v1/` und `provider-frame/` nach zwei Tagen und brechen verwaiste Evidence-Multipart-Uploads nach einem Tag ab; die Anwendung bleibt mit höchstens 24 Stunden und Early Delete autoritativ. Der echte Chromium-Smoke hat einen 8-MiB-Nicht-Final-Part plus Final-Part per kurzlebiger Presigned URL hochgeladen, ETags verwendet, Complete ausgeführt, den Ciphertext serverautorisiert bytegenau ohne Klartextmarker gelesen, gelöscht sowie abgelaufene und fremde Origins ohne Side Effect abgewiesen; der private Bucket war danach wieder leer. Transportteile sind deterministisch 8 MiB groß, unveränderte AEAD-Records dürfen nur an genau einer Partgrenze überlappen und Migration 0016 erzwingt dies in PostgreSQL.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| 9 — Deployment und Caddy      | lokal abgenommen; Live-Ausführung offen | Das reversible Mobileup-Deployment ist als fail-closed Phasenlauf implementiert und auf den beobachteten 2-vCPU-/3,73-GiB-No-Swap-Host kalibriert. Ein secretfreies, rekursiv allowlist-/Git-/SHA-gebundenes Release-Bundle transportiert ausschließlich geprüfte Quellen plus gescanntes amd64-Image, Trivy- und SPDX-Artefakt; der Host baut oder pullt die Anwendung nie. Prozesssecrets werden root-owned und per exakten UID-ACLs partitioniert, Runtime- und PostgreSQL-Images bei jedem Start an unveränderliche IDs gebunden, PostgreSQL unter `/var/lib/slopproof-production` exklusiv vom gleichnamigen Cohost-Account getrennt und alle Core-Dumps für Docker, containerd, SSH, Compose und Caddy geschlossen. Der verpflichtende Pre-Migrations-Dump wird ohne Klartextdatei als passwortgeschütztes CMS AES-256-GCM/RSA-OAEP gestreamt und nur in einem global exklusiven, netzwerk-/log-/bindfreien tmpfs-PostgreSQL wiederhergestellt; Receipt, Frische, Drop-Proof und Elternverzeichnis-Durability sind gebunden. Caddy verwendet ein systemd-`LoadCredential`, keine Secret-Environment und einen geschützten Unix-Adminsocket. Cutover, Finalize, automatisches Fehler-Recovery und Bootstrap-Rollback publizieren Backup, Caddyfile, Drop-in, Secret-/App-Symlinks, Unit und Runtime-Env in crash-dauerhafter Abhängigkeitsreihenfolge; Rollback stoppt ohne `down`, bewahrt exakt PostgreSQL/R2 und smookt alle Cohosts. Zwei unabhängige P0/P1-Audits sowie 13 Deployment-, 12 echte Backup-/PTY-, 5 Compose- und 6 Operationsverträge, 671 Unit-/Contracttests, Builds, Format, Lint, Typecheck, Image-, Boundary- und Secret-Audit sind grün. Der Live-Host und Bootstrap sind weiterhin unverändert; Host-Bootstrap, Transfer, internes Starten, Caddy-Cutover und Rebootbeleg folgen erst nach dem separaten menschlichen Offline-Backup-Passphrasen-Boundary. |
-| 10 — Gesamtakzeptanz          | offen                                   | Lokale und Live-Smokes werden erst nach den vorherigen Gates versionsgebunden wiederholt.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+The hosted deployment uses PostgreSQL 18, private Cloudflare R2, Hetzner model
+adapters, OpenRouter transcription, Docker Compose and Caddy. It runs separate
+Web, Worker, GitHub Control and migration processes with file-backed,
+process-scoped secrets.
 
-## Sicherheits- und Self-Host-Grenzen
+The checked-in hardened release, backup and Caddy scripts describe that specific
+operator profile. The core production configuration now accepts provider-neutral
+secure S3 endpoints and canonical S3 credentials, but operators must adapt host,
+reverse-proxy, resource and backup automation to their environment.
 
-- Aufnahmechunks werden im Smartphone-Browser vor dem Netzwerk
-  authentifiziert verschlüsselt; Medienbytes laufen nicht durch die Web-API.
-- Der Worker schreibt kein temporäres Klartextvideo auf Disk, sondern pipet
-  entschlüsselte Bytes unter Ressourcenlimits an FFmpeg/ffprobe.
-- Ausgewählte Frames werden unmittelbar als AES-GCM-Ciphertextderivate
-  gespeichert. Transkript, Evaluation und privater Reviewkontext bleiben
-  verschlüsselt beziehungsweise kurzlebig autorisiert.
-- Web und Worker teilen keinen privaten Wrapping-Key. Ein kompromittierter
-  Bucket oder die Datenbank allein reicht nicht zur Entschlüsselung.
-- Kein externer KMS ist erforderlich. Das Self-Host-Profil nutzt ein lokales
-  RSA-3072-Schlüsselpaar; externe KMS-Adapter bleiben optional.
-- Der Storage-Port ist produktneutral. Compose verwendet VersityGW als eine
-  S3-kompatible Referenz; MinIO ist weder Abhängigkeit noch feste Architektur.
-- Es gibt kein Auto-Pass oder Auto-Fail. Ausschließlich ein berechtigter
-  Maintainer kann den aktuellen Check freigeben.
-- Retention löscht Objekt, Derivate und Key-Metadaten idempotent; fehlgeschlagene
-  Jobs werden neu eingeplant und verwaiste Multipart-Uploads aktiv abgebrochen.
+## Pre-1.0 limitations
 
-## Offene externe Nachweise
+- The database schema and deployment compiler may still change between commits.
+- The only decision mode is maintainer review. Calibrated auto-pass is not
+  implemented.
+- Production generation and judge adapters currently target Hetzner-compatible
+  APIs; transcription targets the OpenRouter adapter.
+- No high-availability topology or multi-region retention proof is provided.
+- The hosted service has not yet carried sustained public contributor traffic.
+- Public repository dogfooding and the first tagged release remain to be
+  completed.
 
-1. Einen echten Smartphone-Smoke mit physischer Kamera und physischem Mikrofon
-   über die öffentlich erreichbare HTTPS-URL durchführen. Der echte
-   Chromium-/R2-Ciphertextpfad einschließlich CORS ist bereits live grün.
-2. Die produktive GitHub-App-Implementierung ist ohne Netzwerk mit Octokit-
-   Contracttests und echten PostgreSQL-Races abgenommen. Ihre Interoperabilität
-   mit einer tatsächlich installierten App sowie echte Providerqualität bleiben
-   bis zu den späteren Live-Smokes unbestätigt.
-3. Vor der ersten VM-Migration muss Pascal einmalig die separate, nicht aus
-   Runtime-Keys abgeleitete RSA-3072-Backupidentität mit einer nur im
-   Passwortmanager gehaltenen Passphrase sowie eine unabhängige Recovery-Kopie
-   anlegen. Erst danach darf der bereits getestete Dump-/Restore-Workflow die
-   frische Migrationsfreigabe erzeugen.
-4. Der lokale Host läuft mit Node 23.9.0 und meldet deshalb einen Engine-Hinweis;
-   Zielruntime, CI und Dockerfile sind auf Node 24 festgelegt.
+See the [threat model](docs/security/threat-model.md),
+[provider data flow](docs/privacy/provider-data-flow.md) and
+[self-hosting guide](docs/operations/self-hosting.md) before operating the
+service for other people.

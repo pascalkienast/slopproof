@@ -23,11 +23,12 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import {
-  PRODUCTION_R2_BUCKET,
-  PRODUCTION_R2_ENDPOINT,
-  PRODUCTION_R2_REGION,
+  ConfigurationError,
+  loadGithubControlConfig,
+  loadMigrationConfig,
+  loadWebConfig,
+  loadWorkerConfig,
 } from "@slopproof/config";
-
 type Environment = Readonly<Record<string, string | undefined>>;
 
 export class ProductionEnvironmentError extends Error {
@@ -98,31 +99,14 @@ export function compileProductionEnvironment(
     "KEY_WRAPPING_PRIVATE_KEY_CONTAINER_PATH",
     "wrapping-private.pem",
   );
-  const r2AccessKeyId = required(environment, "CLOUDFLARE_R2_AK");
-  const r2ApiToken = required(environment, "CLOUDFLARE_R2_API");
-  const r2ControlEndpoint = requiredExact(
-    environment,
-    "S3_CONTROL_ENDPOINT",
-    PRODUCTION_R2_ENDPOINT,
-  );
-  const r2PublicEndpoint = requiredExact(
-    environment,
-    "S3_PUBLIC_ENDPOINT",
-    PRODUCTION_R2_ENDPOINT,
-  );
-  const r2Region = requiredExact(
-    environment,
-    "S3_REGION",
-    PRODUCTION_R2_REGION,
-  );
-  const r2Bucket = requiredExact(
-    environment,
-    "S3_BUCKET",
-    PRODUCTION_R2_BUCKET,
-  );
+  const storageCredentials = resolveProductionStorageCredentials(environment);
+  const storageControlEndpoint = required(environment, "S3_CONTROL_ENDPOINT");
+  const storagePublicEndpoint = required(environment, "S3_PUBLIC_ENDPOINT");
+  const storageRegion = required(environment, "S3_REGION");
+  const storageBucket = required(environment, "S3_BUCKET");
   const workerInternalSecret = required(environment, "WORKER_INTERNAL_SECRET");
 
-  return Object.freeze({
+  const compiled = Object.freeze({
     NODE_ENV: "production",
     DEPLOYMENT_PROFILE: "production",
     APP_BASE_URL: required(environment, "APP_BASE_URL"),
@@ -161,14 +145,12 @@ export function compileProductionEnvironment(
     TRANSCRIPTION_MODEL: required(environment, "TRANSCRIPTION_MODEL"),
 
     EVIDENCE_STORAGE_PROVIDER: "s3",
-    S3_CONTROL_ENDPOINT: r2ControlEndpoint,
-    S3_PUBLIC_ENDPOINT: r2PublicEndpoint,
-    S3_REGION: r2Region,
-    S3_BUCKET: r2Bucket,
-    S3_ACCESS_KEY_ID: r2AccessKeyId,
-    S3_SECRET_ACCESS_KEY: createHash("sha256")
-      .update(r2ApiToken, "utf8")
-      .digest("hex"),
+    S3_CONTROL_ENDPOINT: storageControlEndpoint,
+    S3_PUBLIC_ENDPOINT: storagePublicEndpoint,
+    S3_REGION: storageRegion,
+    S3_BUCKET: storageBucket,
+    S3_ACCESS_KEY_ID: storageCredentials.accessKeyId,
+    S3_SECRET_ACCESS_KEY: storageCredentials.secretAccessKey,
 
     KEY_WRAPPING_PROVIDER: requiredExact(
       environment,
@@ -194,6 +176,43 @@ export function compileProductionEnvironment(
     FFMPEG_PATH: required(environment, "FFMPEG_PATH"),
     FFPROBE_PATH: required(environment, "FFPROBE_PATH"),
   });
+  try {
+    const partitions = partitionProductionEnvironment(compiled);
+    loadWebConfig(partitions.web);
+    loadWorkerConfig(partitions.worker);
+    loadGithubControlConfig(partitions.githubControl);
+    loadMigrationConfig(partitions.migrate);
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw new ProductionEnvironmentError(error.fields);
+    }
+    throw error;
+  }
+  return compiled;
+}
+
+function resolveProductionStorageCredentials(environment: Environment): {
+  accessKeyId: string;
+  secretAccessKey: string;
+} {
+  const hasCanonicalInput =
+    environment.S3_ACCESS_KEY_ID !== undefined ||
+    environment.S3_SECRET_ACCESS_KEY !== undefined;
+  if (hasCanonicalInput) {
+    return {
+      accessKeyId: required(environment, "S3_ACCESS_KEY_ID"),
+      secretAccessKey: required(environment, "S3_SECRET_ACCESS_KEY"),
+    };
+  }
+
+  // Backward compatibility for the original hosted deployment compiler. New
+  // self-hosted deployments should use the canonical S3 names above.
+  return {
+    accessKeyId: required(environment, "CLOUDFLARE_R2_AK"),
+    secretAccessKey: createHash("sha256")
+      .update(required(environment, "CLOUDFLARE_R2_API"), "utf8")
+      .digest("hex"),
+  };
 }
 
 export function deriveOAuthTrustedProxySecret(
