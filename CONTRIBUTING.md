@@ -59,7 +59,7 @@ The CI workflow uses a clean database and installs Chromium for Playwright.
 - Do not weaken retention or authorization tests to make a feature pass.
 
 By submitting a contribution, you confirm that you have the right to license it
-under the repository's license.
+under `AGPL-3.0-or-later`, the repository's license.
 
 ## Review
 

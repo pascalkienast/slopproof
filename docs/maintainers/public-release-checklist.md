@@ -2,7 +2,7 @@
 
 ## Source and legal
 
-- [ ] Choose and add an OSI-approved license.
+- [x] Add the `AGPL-3.0-or-later` license and repository metadata.
 - [ ] Confirm every tracked source and asset may be redistributed under it.
 - [x] Run `pnpm audit:secrets` and `pnpm audit:history-secrets` with the operator
       secret environment loaded so exact live values are checked.

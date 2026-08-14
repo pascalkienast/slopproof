@@ -13,6 +13,7 @@ written.
 
 [![CI](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml)
 [![Supply chain](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml)
+[![License: AGPL v3+](https://img.shields.io/badge/license-AGPL--3.0--or--later-663399.svg)](LICENSE)
 
 > SlopProof is pre-1.0 software. The complete hosted flow has been exercised
 > against a real pull request, including Practice, encrypted mobile recording,
@@ -128,3 +129,10 @@ reports belong in GitHub's private vulnerability-reporting flow, not in public
 issues. General support routes are listed in [SUPPORT.md](SUPPORT.md).
 
 The project is maintained by [Pascal Kienast](https://github.com/pascalkienast).
+
+## License
+
+Copyright © 2026 Pascal Kienast and contributors. SlopProof is licensed under
+the [GNU Affero General Public License, version 3 or later](LICENSE). If you run
+a modified SlopProof service over a network, the license requires you to offer
+its corresponding source code to the users of that service.
