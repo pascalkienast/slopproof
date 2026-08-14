@@ -67,5 +67,12 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.67.0",
     "vitest": "4.1.10"
+  },
+  "pnpm": {
+    "overrides": {
+      "@esbuild-kit/core-utils>esbuild": "0.25.12",
+      "tsup>esbuild": "0.28.2",
+      "vite>esbuild": "0.28.2"
+    }
   }
 }
