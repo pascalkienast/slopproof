@@ -56,6 +56,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm test:release-audits
       - run: pnpm test:live-smoke-contracts
       - run: pnpm test:integration
         env:

@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
 
+import { isSensitiveHistoryPath } from "./lib/history-secret-policy.mjs";
+
 const MAX_HISTORY_BYTES = 256 * 1024 * 1024;
 
 const strongSecretPatterns = [
@@ -60,12 +62,7 @@ for (const name of sensitiveEnvironmentNames) {
 }
 
 for (const path of paths) {
-  if (path.endsWith("/.gitkeep")) continue;
-  if (
-    /(^|\/)(?:\.secrets|secrets?|backups?|node_modules)(\/|$)/u.test(path) ||
-    (/\.env(?:\.|$)/u.test(path) && !path.endsWith(".env.example")) ||
-    /\.(?:pem|key|p12|pfx|backup|bak)$/u.test(path)
-  ) {
+  if (isSensitiveHistoryPath(path)) {
     findings.add(`sensitive-path:${path}`);
   }
 }
