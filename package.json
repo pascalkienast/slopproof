@@ -52,7 +52,7 @@
     "@slopproof/providers": "workspace:*",
     "@slopproof/questions": "workspace:*",
     "@testcontainers/postgresql": "12.1.0",
-    "@types/node": "24.13.3",
+    "@types/node": "26.2.0",
     "@types/pg": "8.21.0",
     "@types/qrcode": "1.5.6",
     "@types/react": "19.2.18",
