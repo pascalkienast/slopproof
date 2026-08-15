@@ -204,6 +204,81 @@ compose() {
     docker compose -f "$(release_source "$release_id")/compose.production.yaml" "$@"
 }
 
+active_repository_count() {
+  local release_id=$1 count
+  count=$(
+    printf '%s\n' \
+      "SELECT count(*)::integer
+         FROM repositories repository
+         JOIN installations installation
+           ON installation.id = repository.installation_id
+        WHERE repository.status = 'active'
+          AND installation.status = 'active';" |
+      compose "$release_id" exec -T postgres psql \
+        --username=slopproof --dbname=slopproof --no-psqlrc --quiet \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 --file=-
+  )
+  [[ "$count" =~ ^[0-9]+$ ]] || die "Active repository count is invalid"
+  printf '%s' "$count"
+}
+
+oauth_smoke_return_to() {
+  local release_id=$1 target
+  target=$(
+    printf '%s\n' \
+      "SELECT '/revisions/' || revision.id::text || '/contribute'
+         FROM pull_request_revisions revision
+         JOIN pull_requests pull_request
+           ON pull_request.id = revision.pull_request_id
+         JOIN repositories repository
+           ON repository.id = pull_request.repository_id
+         JOIN installations installation
+           ON installation.id = repository.installation_id
+        WHERE revision.is_current = true
+          AND pull_request.state = 'open'
+          AND repository.status = 'active'
+          AND installation.status = 'active'
+        ORDER BY revision.received_at DESC, revision.id
+        LIMIT 1;" |
+      compose "$release_id" exec -T postgres psql \
+        --username=slopproof --dbname=slopproof --no-psqlrc --quiet \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 --file=-
+  )
+  [[ -z "$target" || "$target" =~ ^/revisions/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/contribute$ ]] ||
+    die "OAuth smoke target query returned an invalid path"
+  printf '%s' "$target"
+}
+
+run_application_smoke() {
+  local release_id=$1 phase=$2 source target count
+  source=$(release_source "$release_id")
+  target=$(oauth_smoke_return_to "$release_id")
+  if [[ -n "$target" ]]; then
+    SLOPPROOF_OAUTH_SMOKE_RETURN_TO="$target" \
+      "$source/scripts/production-deploy/smoke-production.sh" "$phase"
+    return
+  fi
+  count=$(active_repository_count "$release_id")
+  if [[ "$phase" == pre-finalize && "$count" == 0 ]]; then
+    SLOPPROOF_EXPECT_EMPTY_REPOSITORY_BOOTSTRAP=1 \
+      "$source/scripts/production-deploy/smoke-production.sh" "$phase"
+  elif [[ "$phase" == final && "$count" -gt 1 ]]; then
+    SLOPPROOF_EXPECT_AMBIGUOUS_REPOSITORY_LOGIN=1 \
+      "$source/scripts/production-deploy/smoke-production.sh" "$phase"
+  else
+    "$source/scripts/production-deploy/smoke-production.sh" "$phase"
+  fi
+}
+
+run_rollback_child() {
+  local phase=$1 release_id=$2 rollback_script
+  rollback_script="$(release_source "$release_id")/scripts/production-deploy/deploy.sh" ||
+    return $?
+  [[ -f "$rollback_script" && ! -L "$rollback_script" ]] ||
+    return 1
+  "$rollback_script" "$phase" "$release_id"
+}
+
 wait_release_stack() {
   local release_id=$1 timeout_seconds=$2 source app_id postgres_id
   source=$(release_source "$release_id")
@@ -821,7 +896,7 @@ restore_failed_cutover() {
   local exit_status=${1:-$?}
   trap - EXIT HUP INT TERM
   if [[ -n "$CUTOVER_ROLLBACK_RELEASE_ID" ]]; then
-    (phase_rollback "$CUTOVER_ROLLBACK_RELEASE_ID") ||
+    run_rollback_child rollback "$CUTOVER_ROLLBACK_RELEASE_ID" ||
       printf '%s\n' "Automatic cutover rollback failed; manual recovery is required." >&2
   fi
   exit "$exit_status"
@@ -829,7 +904,7 @@ restore_failed_cutover() {
 
 phase_initial_caddy_cutover() {
   require_root
-  local release_id=${1:-} active_repositories
+  local release_id=${1:-}
   require_release_id "$release_id"
   wait_release_stack "$release_id" 60
   [[ $(sha256sum "$CADDYFILE" | awk '{print $1}') == "$EXPECTED_CADDY_SHA256" ]] ||
@@ -970,21 +1045,7 @@ phase_initial_caddy_cutover() {
     'tostring | contains($placeholder)' "$backup/active-admin.json" >/dev/null
   ! grep -Fq -f "$SECRET_ROOT/$release_id/oauth-proxy-authenticator" "$backup/active-admin.json" ||
     die "Caddy admin JSON expanded the protected credential"
-  active_repositories=$(
-    printf '%s\n' \
-      "SELECT count(*)::integer FROM repositories WHERE status = 'active';" |
-      compose "$release_id" exec -T postgres psql \
-        --username=slopproof --dbname=slopproof --no-psqlrc --quiet \
-        --tuples-only --no-align --set=ON_ERROR_STOP=1 --file=-
-  )
-  [[ "$active_repositories" =~ ^[0-9]+$ ]] ||
-    die "Active repository bootstrap count is invalid"
-  if [[ "$active_repositories" == 0 ]]; then
-    SLOPPROOF_EXPECT_EMPTY_REPOSITORY_BOOTSTRAP=1 \
-      "$(release_source "$release_id")/scripts/production-deploy/smoke-production.sh" pre-finalize
-  else
-    "$(release_source "$release_id")/scripts/production-deploy/smoke-production.sh" pre-finalize
-  fi
+  run_application_smoke "$release_id" pre-finalize
   trap - EXIT HUP INT TERM
   CUTOVER_ROLLBACK_RELEASE_ID=''
   printf '%s\n' "Caddy cutover and cohost smoke passed."
@@ -1052,7 +1113,7 @@ restore_failed_managed_finalize() {
   local exit_status=${1:-$?}
   trap - EXIT HUP INT TERM
   if [[ -n "$MANAGED_ROLLBACK_RELEASE_ID" ]]; then
-    (phase_managed_rollback "$MANAGED_ROLLBACK_RELEASE_ID") ||
+    run_rollback_child managed-rollback "$MANAGED_ROLLBACK_RELEASE_ID" ||
       printf '%s\n' "Automatic managed rollback failed; manual recovery is required." >&2
   fi
   exit "$exit_status"
@@ -1136,7 +1197,7 @@ phase_managed_finalize() {
   systemctl restart slopproof-compose.service
   timeout --signal=TERM --kill-after=5s 300 systemctl is-active --quiet slopproof-compose.service
   assert_release_container_images "$release_id" postgres migrate worker github-control web
-  "$CURRENT_LINK/scripts/production-deploy/smoke-production.sh" final
+  run_application_smoke "$release_id" final
   trap - EXIT HUP INT TERM
   MANAGED_ROLLBACK_RELEASE_ID=''
   printf '%s\n' "Finalized managed immutable release $release_id."
@@ -1193,9 +1254,10 @@ phase_managed_rollback() {
   systemctl restart slopproof-compose.service
   timeout --signal=TERM --kill-after=5s 300 systemctl is-active --quiet slopproof-compose.service
   assert_release_container_images "$previous_release_id" postgres migrate worker github-control web
-  # Use the previous release's existing full application smoke contract. New
-  # phase names cannot be imposed retroactively on an immutable rollback target.
-  "$previous/scripts/production-deploy/smoke-production.sh" final
+  # Use the candidate's release-verified smoke contract so a rollback remains
+  # testable after production grows from one active repository to many. The
+  # target application is still the restored immutable previous release.
+  run_application_smoke "$release_id" final
   printf '%s\n' "Restored managed release $previous_release_id without changing Caddy or PostgreSQL schema."
 }
 
@@ -1203,7 +1265,7 @@ restore_failed_finalize() {
   local exit_status=${1:-$?}
   trap - EXIT HUP INT TERM
   if [[ -n "$FINALIZE_ROLLBACK_RELEASE_ID" ]]; then
-    (phase_rollback "$FINALIZE_ROLLBACK_RELEASE_ID") ||
+    run_rollback_child rollback "$FINALIZE_ROLLBACK_RELEASE_ID" ||
       printf '%s\n' "Automatic finalize rollback failed; manual recovery is required." >&2
   fi
   exit "$exit_status"
@@ -1258,7 +1320,7 @@ phase_finalize() {
   systemctl start slopproof-compose.service
   timeout --signal=TERM --kill-after=5s 300 systemctl is-active --quiet slopproof-compose.service
   assert_release_container_images "$release_id" postgres migrate worker github-control web
-  "$CURRENT_LINK/scripts/production-deploy/smoke-production.sh" final
+  run_application_smoke "$release_id" final
   trap - EXIT HUP INT TERM
   FINALIZE_ROLLBACK_RELEASE_ID=''
   printf '%s\n' "Finalized immutable release $release_id."

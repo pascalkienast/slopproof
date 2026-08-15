@@ -37,8 +37,17 @@ require_status() {
 
 main() {
   local phase=${1:-}
+  local oauth_start_url="$BASE_URL/api/auth/github/start"
   [[ "$phase" == pre-finalize || "$phase" == final || "$phase" == rollback-bootstrap ]] ||
     die "Usage: smoke-production.sh pre-finalize|final|rollback-bootstrap"
+  [[ -z ${SLOPPROOF_OAUTH_SMOKE_RETURN_TO:-} ||
+    -z ${SLOPPROOF_EXPECT_AMBIGUOUS_REPOSITORY_LOGIN:-} ]] ||
+    die "OAuth smoke target and ambiguity expectation are mutually exclusive"
+  if [[ -n ${SLOPPROOF_OAUTH_SMOKE_RETURN_TO:-} ]]; then
+    [[ "$SLOPPROOF_OAUTH_SMOKE_RETURN_TO" =~ ^/revisions/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/contribute$ ]] ||
+      die "OAuth smoke target is invalid"
+    oauth_start_url+="?returnTo=$SLOPPROOF_OAUTH_SMOKE_RETURN_TO"
+  fi
   [[ -d /run && ! -L /run && $(realpath -e -- /run) == /run &&
     $(findmnt -n -o FSTYPE -T /run) == tmpfs ]] ||
     die "Production smoke requires the verified /run tmpfs"
@@ -81,7 +90,7 @@ main() {
       --header 'sec-fetch-mode: navigate' \
       --header 'sec-fetch-dest: document' \
       --header 'referer: https://slopproof.paskie.me/review' \
-      --write-out '%{http_code}' "$BASE_URL/api/auth/github/start" 2>/dev/null || true
+      --write-out '%{http_code}' "$oauth_start_url" 2>/dev/null || true
   )
   if [[ "$status" =~ ^30[2378]$ ]]; then
     grep -Eiq '^location: https://github\.com/login/oauth/authorize\?' \
@@ -91,6 +100,11 @@ main() {
     jq -e '.error == "temporarily_unavailable" and (keys | length) == 1' \
       "$smoke_scratch/oauth-start" >/dev/null ||
       die "Empty-repository OAuth bootstrap response exposed unexpected data"
+  elif [[ "$phase" == final &&
+    ${SLOPPROOF_EXPECT_AMBIGUOUS_REPOSITORY_LOGIN:-} == 1 && "$status" == 503 ]]; then
+    jq -e '.error == "temporarily_unavailable" and (keys | length) == 1' \
+      "$smoke_scratch/oauth-start" >/dev/null ||
+      die "Ambiguous-repository OAuth response exposed unexpected data"
   else
     die "OAuth start returned unexpected status $status"
   fi
