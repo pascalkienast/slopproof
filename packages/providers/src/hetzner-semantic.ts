@@ -17,7 +17,11 @@ import {
   type SemanticProviderRawResponseV1,
   type SemanticProviderRepairInstructionV1,
 } from "./learning-proof";
-import { ProviderError } from "./errors";
+import {
+  ProviderError,
+  type ProviderFailureTelemetry,
+  type ProviderHttpStatusClass,
+} from "./errors";
 import {
   LearningBundleCandidateV1Schema,
   PracticeFeedbackCandidateV1Schema,
@@ -90,7 +94,13 @@ type ResolvedRequestPolicy = {
 
 type RetryableFailure = {
   kind: "network" | "timeout" | "rate_limited" | "unavailable";
+  httpStatusClass: ProviderHttpStatusClass | null;
   retryAfterMs?: number;
+};
+
+type JsonRequestResult = {
+  payload: unknown;
+  transportAttemptCount: number;
 };
 
 const OpenAiContentPartSchema = z
@@ -241,7 +251,7 @@ class HetznerSemanticHttpClient<TInput> {
       );
     }
 
-    const payload = await requestJsonWithRetry({
+    const request = await requestJsonWithRetry({
       endpoint: this.endpoint,
       apiKey: this.apiKey,
       body: serializedBody,
@@ -249,12 +259,14 @@ class HetznerSemanticHttpClient<TInput> {
       fetchImpl: this.fetchImpl,
       policy: this.policy,
     });
-    const completion = OpenAiChatCompletionSchema.safeParse(payload);
+    const completion = OpenAiChatCompletionSchema.safeParse(request.payload);
     if (!completion.success) {
-      throw invalidOutputError();
+      throw invalidOutputError(request.transportAttemptCount);
     }
     const message = completion.data.choices[0]?.message;
-    if (message === undefined) throw invalidOutputError();
+    if (message === undefined) {
+      throw invalidOutputError(request.transportAttemptCount);
+    }
     const content = messageContent(message.content);
     const parsedOutput =
       content === undefined ? undefined : tryExtractJsonValue(content);
@@ -280,6 +292,7 @@ class HetznerSemanticHttpClient<TInput> {
             outputTokens: usage.data.completion_tokens,
           }
         : null,
+      transportAttemptCount: request.transportAttemptCount,
     });
   }
 }
@@ -437,11 +450,13 @@ async function requestJsonWithRetry(input: {
   deadlineAtMs: number;
   fetchImpl: typeof fetch;
   policy: ResolvedRequestPolicy;
-}): Promise<unknown> {
+}): Promise<JsonRequestResult> {
   let lastFailure: RetryableFailure | undefined;
   for (let attempt = 1; attempt <= input.policy.maxAttempts; attempt += 1) {
     const remaining = input.deadlineAtMs - input.policy.now();
-    if (remaining <= 0) throw deadlineError();
+    if (remaining <= 0) {
+      throw deadlineError(retryableFailureTelemetry(lastFailure, attempt - 1));
+    }
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let response: Response | undefined;
@@ -473,7 +488,7 @@ async function requestJsonWithRetry(input: {
           throw new SafeProtocolError("malformed_response");
         }
       })();
-      return await Promise.race([
+      const payload = await Promise.race([
         operation,
         new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(
@@ -485,12 +500,13 @@ async function requestJsonWithRetry(input: {
           );
         }),
       ]);
+      return { payload, transportAttemptCount: attempt };
     } catch (error) {
       if (error instanceof SafeProtocolError) {
         if (error.kind === "response_stream") {
-          lastFailure = { kind: "network" };
+          lastFailure = { kind: "network", httpStatusClass: null };
         } else {
-          throw invalidOutputError();
+          throw invalidOutputError(attempt);
         }
       } else if (isResponseStatusMarker(error)) {
         try {
@@ -501,6 +517,7 @@ async function requestJsonWithRetry(input: {
         if (error.status === 429) {
           lastFailure = {
             kind: "rate_limited",
+            httpStatusClass: "4xx",
             ...(response === undefined
               ? {}
               : {
@@ -511,37 +528,42 @@ async function requestJsonWithRetry(input: {
                 }),
           };
         } else if (error.status >= 500 && error.status <= 599) {
-          lastFailure = { kind: "unavailable" };
+          lastFailure = { kind: "unavailable", httpStatusClass: "5xx" };
         } else {
           throw safeProviderError(
             "PROVIDER_UNAVAILABLE",
             "terminal",
             "Semantic provider rejected the bounded request",
+            {
+              lastFailureKind: "request_rejected",
+              httpStatusClass: "4xx",
+              transportAttemptCount: attempt,
+            },
           );
         }
       } else {
         lastFailure =
           error === timeoutMarker || controller.signal.aborted
-            ? { kind: "timeout" }
-            : { kind: "network" };
+            ? { kind: "timeout", httpStatusClass: null }
+            : { kind: "network", httpStatusClass: null };
       }
     } finally {
       if (timeout !== undefined) clearTimeout(timeout);
     }
 
     if (attempt === input.policy.maxAttempts) {
-      throw retryableProviderError(lastFailure);
+      throw retryableProviderError(lastFailure, attempt);
     }
     const delay = Math.max(
       jitteredBackoffMilliseconds(attempt, input.policy.random),
       lastFailure?.retryAfterMs ?? 0,
     );
     if (input.deadlineAtMs - input.policy.now() <= delay) {
-      throw deadlineError();
+      throw deadlineError(retryableFailureTelemetry(lastFailure, attempt));
     }
     await input.policy.sleep(delay);
   }
-  throw retryableProviderError(lastFailure);
+  throw retryableProviderError(lastFailure, input.policy.maxAttempts);
 }
 
 async function readBoundedResponseText(
@@ -841,34 +863,66 @@ function safeProviderError(
   code: ConstructorParameters<typeof ProviderError>[0],
   disposition: ConstructorParameters<typeof ProviderError>[1],
   message: string,
+  telemetry?: ProviderFailureTelemetry,
 ): ProviderError {
-  return new ProviderError(code, disposition, message);
+  return new ProviderError(
+    code,
+    disposition,
+    message,
+    telemetry === undefined ? undefined : { telemetry },
+  );
 }
 
-function invalidOutputError(): ProviderError {
+function invalidOutputError(transportAttemptCount = 0): ProviderError {
   return safeProviderError(
     "INVALID_OUTPUT",
     "review",
     "Semantic provider returned invalid bounded output",
+    {
+      lastFailureKind: "invalid_output",
+      httpStatusClass: null,
+      transportAttemptCount,
+    },
   );
 }
 
-function deadlineError(): ProviderError {
+function deadlineError(telemetry?: ProviderFailureTelemetry): ProviderError {
   return safeProviderError(
     "DEADLINE_EXCEEDED",
     "retryable",
     "Semantic provider deadline elapsed",
+    telemetry ?? {
+      lastFailureKind: "deadline_exceeded",
+      httpStatusClass: null,
+      transportAttemptCount: 0,
+    },
   );
 }
 
 function retryableProviderError(
   failure: RetryableFailure | undefined,
+  transportAttemptCount: number,
 ): ProviderError {
   return failure?.kind === "timeout"
-    ? deadlineError()
+    ? deadlineError(retryableFailureTelemetry(failure, transportAttemptCount))
     : safeProviderError(
         "PROVIDER_UNAVAILABLE",
         "retryable",
         "Semantic provider is temporarily unavailable",
+        retryableFailureTelemetry(failure, transportAttemptCount),
       );
+}
+
+function retryableFailureTelemetry(
+  failure: RetryableFailure | undefined,
+  transportAttemptCount: number,
+): ProviderFailureTelemetry {
+  return {
+    lastFailureKind:
+      failure?.kind === "unavailable"
+        ? "upstream_unavailable"
+        : (failure?.kind ?? "deadline_exceeded"),
+    httpStatusClass: failure?.httpStatusClass ?? null,
+    transportAttemptCount,
+  };
 }

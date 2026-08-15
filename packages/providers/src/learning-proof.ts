@@ -11,6 +11,7 @@ import {
   type LearningBundleCandidateV1,
 } from "@slopproof/questions";
 import { z } from "zod";
+import { PROVIDER_ERROR_CODES, PROVIDER_FAILURE_KINDS } from "./errors";
 
 export const SemanticProviderPurposeV1Schema = z.enum([
   "learning_material",
@@ -64,6 +65,7 @@ export const SemanticProviderRawResponseV1Schema = z
   .object({
     output: z.unknown(),
     tokenUsage: SemanticTokenUsageV1Schema.nullable(),
+    transportAttemptCount: z.number().int().min(1).max(3).optional(),
   })
   .strict();
 
@@ -158,6 +160,46 @@ export const ProofQuestionProviderInputV1Schema = z
 
 export type ProofQuestionProviderInputV1 = z.infer<
   typeof ProofQuestionProviderInputV1Schema
+>;
+
+export const SemanticProviderFailureV1Schema = z
+  .object({
+    schemaVersion: z.literal("semantic-provider-failure-v1"),
+    failureCode: z.enum([
+      ...PROVIDER_ERROR_CODES,
+      "PROVIDER_DESCRIPTOR_INVALID",
+      "SEMANTIC_VALIDATION_FAILED",
+      "UNKNOWN",
+    ]),
+    lastFailureKind: z.enum([
+      ...PROVIDER_FAILURE_KINDS,
+      "provider_descriptor_invalid",
+      "semantic_validation",
+      "unknown",
+    ]),
+    httpStatusClass: z.enum(["4xx", "5xx"]).nullable(),
+    transportAttemptCount: z.number().int().min(0).max(6).nullable(),
+  })
+  .strict()
+  .superRefine((failure, context) => {
+    const expectedClass =
+      failure.lastFailureKind === "rate_limited" ||
+      failure.lastFailureKind === "request_rejected"
+        ? "4xx"
+        : failure.lastFailureKind === "upstream_unavailable"
+          ? "5xx"
+          : null;
+    if (failure.httpStatusClass !== expectedClass) {
+      context.addIssue({
+        code: "custom",
+        path: ["httpStatusClass"],
+        message: "HTTP status class does not match the safe failure kind",
+      });
+    }
+  });
+
+export type SemanticProviderFailureV1 = z.infer<
+  typeof SemanticProviderFailureV1Schema
 >;
 
 export const SemanticProviderInvocationMetadataV1Schema = z

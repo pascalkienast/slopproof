@@ -10,7 +10,9 @@ import {
 } from "@slopproof/analysis";
 import {
   ContributorPracticeAnswerV1Schema,
+  SemanticProviderFailureV1Schema,
   SemanticProviderInvocationMetadataV1Schema,
+  type SemanticProviderFailureV1,
   type SemanticProviderInvocationMetadataV1,
 } from "@slopproof/providers";
 import {
@@ -462,6 +464,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
       run,
       artifact,
       metadata: result.providerMetadata,
+      failure: result.providerFailure,
       table: "semantic_learning_bundles",
       schemaVersion: artifact.learningVersion,
       aad: semanticPrivateAad({
@@ -488,6 +491,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
       run,
       artifact,
       metadata: result.providerMetadata,
+      failure: result.providerFailure,
       table: "semantic_practice_feedback",
       schemaVersion: artifact.feedbackVersion,
       practiceSessionId: payload.practiceSessionId,
@@ -815,7 +819,12 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
         ],
       );
       if (run.completedArtifactId === null) {
-        await persistInvocation(client, run, result.providerMetadata);
+        await persistInvocation(
+          client,
+          run,
+          result.providerMetadata,
+          result.providerFailure,
+        );
         await completeRun(client, run, plan.id, result.degraded);
       } else if (run.completedArtifactId !== plan.id) {
         throw new Error("Completed semantic Proof run points to another plan.");
@@ -914,6 +923,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
     const recovered = await this.persistProofPlanAndCreateAttempt(run, {
       artifact: parsed,
       providerMetadata: await this.loadInvocationMetadata(run.runId),
+      providerFailure: null,
       degraded: parsed.generationOutcome === "fallback",
     });
     switch (recovered.outcome) {
@@ -1794,6 +1804,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
     run: SemanticRunContext;
     artifact: LearningBundleV1 | PracticeFeedbackV1;
     metadata: SemanticProviderInvocationMetadataV1;
+    failure: SemanticProviderFailureV1 | null;
     table: "semantic_learning_bundles" | "semantic_practice_feedback";
     schemaVersion: string;
     aad: string;
@@ -1892,7 +1903,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
           ],
         );
       }
-      await persistInvocation(client, input.run, input.metadata);
+      await persistInvocation(client, input.run, input.metadata, input.failure);
       await completeRun(
         client,
         input.run,
@@ -2039,9 +2050,14 @@ async function persistInvocation(
   client: PoolClient,
   run: SemanticRunContext,
   rawMetadata: unknown,
+  rawFailure: unknown,
 ): Promise<void> {
   const metadata =
     SemanticProviderInvocationMetadataV1Schema.parse(rawMetadata);
+  const failure =
+    rawFailure === null
+      ? null
+      : SemanticProviderFailureV1Schema.parse(rawFailure);
   const tokens = metadata.tokenUsage;
   await client.query(
     `INSERT INTO semantic_provider_invocations
@@ -2073,6 +2089,21 @@ async function persistInvocation(
       metadata.completedAt,
     ],
   );
+  if (failure !== null) {
+    await client.query(
+      `INSERT INTO audit_events
+         (actor_id, action, object_type, object_id, metadata)
+       SELECT 'semantic-worker', 'semantic.provider_failed',
+              'semantic_generation_run', $1, $2::jsonb
+       WHERE NOT EXISTS (
+         SELECT 1 FROM audit_events
+          WHERE action = 'semantic.provider_failed'
+            AND object_type = 'semantic_generation_run'
+            AND object_id = $1
+       )`,
+      [run.runId, JSON.stringify(failure)],
+    );
+  }
 }
 
 async function completeRun(

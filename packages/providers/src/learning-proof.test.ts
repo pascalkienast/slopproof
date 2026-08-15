@@ -3,6 +3,7 @@ import {
   LearningMaterialProviderInputV1Schema,
   PracticeCoachProviderInputV1Schema,
   ProofQuestionProviderInputV1Schema,
+  SemanticProviderFailureV1Schema,
   SemanticProviderInvocationMetadataV1Schema,
   SemanticProviderRepairInstructionV1Schema,
 } from "./learning-proof";
@@ -189,6 +190,21 @@ describe("Gate 4 semantic provider ports", () => {
         ...metadata,
         rawPrompt: "private patch",
         providerError: "secret response",
+      }).success,
+    ).toBe(false);
+
+    const failure = {
+      schemaVersion: "semantic-provider-failure-v1",
+      failureCode: "PROVIDER_UNAVAILABLE",
+      lastFailureKind: "upstream_unavailable",
+      httpStatusClass: "5xx",
+      transportAttemptCount: 3,
+    } as const;
+    expect(SemanticProviderFailureV1Schema.parse(failure)).toEqual(failure);
+    expect(
+      SemanticProviderFailureV1Schema.safeParse({
+        ...failure,
+        providerMessage: "private upstream response",
       }).success,
     ).toBe(false);
 

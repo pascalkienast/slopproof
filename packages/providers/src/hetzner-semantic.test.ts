@@ -142,7 +142,14 @@ describe("Hetzner semantic provider adapters", () => {
 
     await expect(
       provider.generate(learningInput(), context("learning_material")),
-    ).rejects.toMatchObject({ code: "DEADLINE_EXCEEDED" });
+    ).rejects.toMatchObject({
+      code: "DEADLINE_EXCEEDED",
+      telemetry: {
+        lastFailureKind: "rate_limited",
+        httpStatusClass: "4xx",
+        transportAttemptCount: 1,
+      },
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(sleep).not.toHaveBeenCalled();
   });
@@ -168,6 +175,11 @@ describe("Hetzner semantic provider adapters", () => {
       expect(failure).toMatchObject({
         code: "PROVIDER_UNAVAILABLE",
         disposition: "terminal",
+        telemetry: {
+          lastFailureKind: "request_rejected",
+          httpStatusClass: "4xx",
+          transportAttemptCount: 1,
+        },
       });
       expect(String(failure)).not.toContain(API_KEY);
       expect(String(failure)).not.toContain("private-body");
@@ -194,8 +206,38 @@ describe("Hetzner semantic provider adapters", () => {
 
     await expect(
       provider.generate(proofInput(), liveContext),
-    ).rejects.toMatchObject({ code: "DEADLINE_EXCEEDED" });
+    ).rejects.toMatchObject({
+      code: "DEADLINE_EXCEEDED",
+      telemetry: {
+        lastFailureKind: "timeout",
+        httpStatusClass: null,
+        transportAttemptCount: 1,
+      },
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports only the final safe 5xx class and bounded transport count", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 503 }));
+    const provider = new HetznerProofQuestionProvider(
+      configuration("proof-model"),
+      testDependencies(fetchImpl, { sleep: async () => undefined }),
+    );
+
+    await expect(
+      provider.generate(proofInput(), context("proof_questions")),
+    ).rejects.toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      disposition: "retryable",
+      telemetry: {
+        lastFailureKind: "upstream_unavailable",
+        httpStatusClass: "5xx",
+        transportAttemptCount: 3,
+      },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
   it("returns a content-free marker for malformed model text so the worker can repair once", async () => {
@@ -213,6 +255,7 @@ describe("Hetzner semantic provider adapters", () => {
       {
         output: { malformedSemanticOutput: true },
         tokenUsage: null,
+        transportAttemptCount: 1,
       },
     );
     await expect(
