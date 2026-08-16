@@ -176,17 +176,28 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
   );
   assert.match(
     deploy,
-    /SELECT count\(\*\)::integer FROM repositories WHERE status = 'active'/u,
+    /SELECT count\(\*\)::integer[\s\S]*repository\.status = 'active'[\s\S]*installation\.status = 'active'/u,
   );
   assert.match(
     deploy,
-    /SLOPPROOF_EXPECT_EMPTY_REPOSITORY_BOOTSTRAP=1[\s\S]*smoke-production\.sh" pre-finalize/u,
+    /SLOPPROOF_EXPECT_EMPTY_REPOSITORY_BOOTSTRAP=1[\s\S]*smoke-production\.sh" "\$phase"/u,
   );
+  assert.match(
+    deploy,
+    /SELECT '\/revisions\/' \|\| revision\.id::text \|\| '\/contribute'/u,
+  );
+  assert.match(deploy, /SLOPPROOF_OAUTH_SMOKE_RETURN_TO="\$target"/u);
+  assert.match(deploy, /SLOPPROOF_EXPECT_AMBIGUOUS_REPOSITORY_LOGIN=1/u);
   const smoke = read("scripts/production-deploy/smoke-production.sh");
   assert.match(
     smoke,
     /phase" == pre-finalize[\s\S]*SLOPPROOF_EXPECT_EMPTY_REPOSITORY_BOOTSTRAP[\s\S]*status" == 503/u,
   );
+  assert.match(
+    smoke,
+    /phase" == final[\s\S]*SLOPPROOF_EXPECT_AMBIGUOUS_REPOSITORY_LOGIN[\s\S]*status" == 503/u,
+  );
+  assert.match(smoke, /SLOPPROOF_OAUTH_SMOKE_RETURN_TO[\s\S]*\^\/revisions\//u);
   assert.match(
     smoke,
     /\.error == "temporarily_unavailable" and \(keys \| length\) == 1/u,
@@ -256,7 +267,7 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
   );
   assert.match(
     failedCutover,
-    /\(phase_rollback "\$CUTOVER_ROLLBACK_RELEASE_ID"\)/u,
+    /run_rollback_child rollback "\$CUTOVER_ROLLBACK_RELEASE_ID"/u,
   );
   const failedFinalize = deploy.slice(
     deploy.indexOf("restore_failed_finalize()"),
@@ -264,7 +275,7 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
   );
   assert.match(
     failedFinalize,
-    /\(phase_rollback "\$FINALIZE_ROLLBACK_RELEASE_ID"\)/u,
+    /run_rollback_child rollback "\$FINALIZE_ROLLBACK_RELEASE_ID"/u,
   );
 
   const rollback = deploy.slice(
@@ -470,7 +481,7 @@ test("managed upgrades are reversible only across an unchanged schema and Caddy 
   assert.match(finalize, /trap 'restore_failed_managed_finalize \$\?' EXIT/u);
   assert.match(finalize, /Caddy changed after managed preparation/u);
   assert.match(finalize, /systemctl restart slopproof-compose\.service/u);
-  assert.match(finalize, /smoke-production\.sh" final/u);
+  assert.match(finalize, /run_application_smoke "\$release_id" final/u);
   assert.doesNotMatch(
     `${prepare}\n${finalize}`,
     /systemctl (?:restart|reload) caddy/u,
@@ -481,11 +492,20 @@ test("managed upgrades are reversible only across an unchanged schema and Caddy 
     rollback,
     /assert_release_container_images "\$previous_release_id"/u,
   );
-  assert.match(
-    rollback,
-    /previous release's existing full application smoke contract[\s\S]*smoke-production\.sh" final/u,
-  );
+  assert.match(rollback, /candidate's release-verified smoke contract/u);
+  assert.match(rollback, /run_application_smoke "\$release_id" final/u);
   assert.doesNotMatch(rollback, /smoke-production\.sh" rollback-managed/u);
+  for (const cleanup of [
+    "restore_failed_cutover",
+    "restore_failed_managed_finalize",
+    "restore_failed_finalize",
+  ]) {
+    const start = deploy.indexOf(`${cleanup}()`);
+    const end = deploy.indexOf("\n}\n", start) + 3;
+    const body = deploy.slice(start, end);
+    assert.match(body, /run_rollback_child/u);
+    assert.doesNotMatch(body, /\(phase_(?:managed_)?rollback/u);
+  }
 
   const finalRename = finalize.indexOf(
     'mv -- "$(release_incoming "$release_id")" "$final"',

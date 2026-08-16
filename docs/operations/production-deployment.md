@@ -193,6 +193,14 @@ then atomically publishes the release, current/secret symlinks, release
 environment and unit. A final service restart and external smoke must pass.
 Caddy is not restarted or rewritten.
 
+The OAuth smoke is repository-bound when a current open revision exists. This
+keeps the check valid after Production grows beyond one active repository. If
+multiple repositories are active but none has a current open revision, the
+generic maintainer start must fail with the exact detail-free ambiguity
+response; every other OAuth failure still fails the deployment. Automatic
+rollback runs in a fresh deployment shell so a failed rollback smoke cannot be
+masked by Bash conditional `errexit` semantics.
+
 Any finalization failure invokes `managed-rollback`. That phase again proves
 the unchanged migration fingerprint and Caddy hash, restores the previous
 runtime boundary, restarts the previous exact image and smokes it. A changed

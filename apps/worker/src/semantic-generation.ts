@@ -8,6 +8,7 @@ import {
   ContributorPracticeAnswerV1Schema,
   LearningMaterialProviderInputV1Schema,
   PracticeCoachProviderInputV1Schema,
+  ProviderError,
   ProofQuestionProviderInputV1Schema,
   SemanticProviderCallContextV1Schema,
   SemanticProviderDescriptorV1Schema,
@@ -19,6 +20,7 @@ import {
   type ProofQuestionProvider,
   type SemanticProviderCallContextV1,
   type SemanticProviderDescriptorV1,
+  type SemanticProviderFailureV1,
   type SemanticProviderInputV1,
   type SemanticProviderInvocationMetadataV1,
   type SemanticProviderPurposeV1,
@@ -124,6 +126,7 @@ export type GenerateProofQuestionPlanRequestV1 = z.infer<
 export type SemanticGenerationResultV1<TArtifact> = {
   artifact: TArtifact;
   providerMetadata: SemanticProviderInvocationMetadataV1;
+  providerFailure: SemanticProviderFailureV1 | null;
   degraded: boolean;
 };
 
@@ -167,6 +170,7 @@ type RepairableProvider<TInput extends SemanticProviderInputV1> = {
 type InvocationOutcome<TOutput> = {
   output: TOutput;
   metadata: SemanticProviderInvocationMetadataV1;
+  failure: SemanticProviderFailureV1 | null;
 };
 
 export function createSemanticGenerationService(
@@ -220,6 +224,7 @@ export function createSemanticGenerationService(
       return {
         artifact,
         providerMetadata: invocation.metadata,
+        providerFailure: invocation.failure,
         degraded: invocation.metadata.degraded,
       };
     },
@@ -276,6 +281,7 @@ export function createSemanticGenerationService(
       return {
         artifact,
         providerMetadata: invocation.metadata,
+        providerFailure: invocation.failure,
         degraded: invocation.metadata.degraded,
       };
     },
@@ -333,6 +339,7 @@ export function createSemanticGenerationService(
       return {
         artifact,
         providerMetadata: invocation.metadata,
+        providerFailure: invocation.failure,
         degraded: invocation.metadata.degraded,
       };
     },
@@ -369,6 +376,8 @@ async function invokeWithOneRepair<
   let rejectedOutput: unknown = null;
   let validationCode: SemanticContentValidationCode = "schema_invalid";
   let repairEligible = false;
+  let knownTransportAttemptCount: number | null = null;
+  let failure: SemanticProviderFailureV1 | undefined;
 
   if (
     descriptor.success &&
@@ -382,6 +391,15 @@ async function invokeWithOneRepair<
       );
       const response =
         SemanticProviderRawResponseV1Schema.safeParse(rawResponse);
+      if (
+        response.success &&
+        response.data.transportAttemptCount !== undefined
+      ) {
+        knownTransportAttemptCount = addTransportAttempts(
+          knownTransportAttemptCount,
+          response.data.transportAttemptCount,
+        );
+      }
       rejectedOutput = response.success ? response.data.output : rawResponse;
       if (response.success)
         tokenUsage = addUsage(tokenUsage, response.data.tokenUsage);
@@ -394,6 +412,13 @@ async function invokeWithOneRepair<
       if (error instanceof SemanticContentValidationError) {
         validationCode = error.validationCode;
         repairEligible = true;
+      } else {
+        const captured = captureProviderFailure(
+          error,
+          knownTransportAttemptCount,
+        );
+        knownTransportAttemptCount = captured.transportAttemptCount;
+        failure = captured.failure;
       }
     }
 
@@ -416,6 +441,12 @@ async function invokeWithOneRepair<
           providerCallContext(input, callId, "repair"),
         );
         const repair = SemanticProviderRawResponseV1Schema.safeParse(rawRepair);
+        if (repair.success && repair.data.transportAttemptCount !== undefined) {
+          knownTransportAttemptCount = addTransportAttempts(
+            knownTransportAttemptCount,
+            repair.data.transportAttemptCount,
+          );
+        }
         if (repair.success)
           tokenUsage = addUsage(tokenUsage, repair.data.tokenUsage);
         if (!repair.success) {
@@ -423,7 +454,17 @@ async function invokeWithOneRepair<
         }
         accepted = input.validate(repair.data.output);
         outcome = "repaired";
-      } catch {
+      } catch (error) {
+        if (error instanceof SemanticContentValidationError) {
+          failure = semanticValidationFailure(knownTransportAttemptCount);
+        } else {
+          const captured = captureProviderFailure(
+            error,
+            knownTransportAttemptCount,
+          );
+          knownTransportAttemptCount = captured.transportAttemptCount;
+          failure = captured.failure;
+        }
         accepted = undefined;
       }
     }
@@ -431,6 +472,25 @@ async function invokeWithOneRepair<
 
   const output = accepted ?? input.fallback();
   if (accepted === undefined) outcome = "fallback";
+  if (outcome === "fallback" && failure === undefined) {
+    failure = !descriptor.success
+      ? {
+          schemaVersion: "semantic-provider-failure-v1",
+          failureCode: "PROVIDER_DESCRIPTOR_INVALID",
+          lastFailureKind: "provider_descriptor_invalid",
+          httpStatusClass: null,
+          transportAttemptCount: 0,
+        }
+      : invocationCount === 0
+        ? {
+            schemaVersion: "semantic-provider-failure-v1",
+            failureCode: "DEADLINE_EXCEEDED",
+            lastFailureKind: "deadline_exceeded",
+            httpStatusClass: null,
+            transportAttemptCount: 0,
+          }
+        : semanticValidationFailure(knownTransportAttemptCount);
+  }
   const completedAt = input.clock.now();
   const safeDescriptor = descriptor.success
     ? descriptor.data
@@ -457,7 +517,81 @@ async function invokeWithOneRepair<
     degraded: outcome === "fallback",
     completedAt,
   });
-  return { output, metadata };
+  return {
+    output,
+    metadata,
+    failure: outcome === "fallback" ? (failure ?? null) : null,
+  };
+}
+
+function addTransportAttempts(
+  current: number | null,
+  additional: number,
+): number {
+  return Math.min(6, (current ?? 0) + additional);
+}
+
+function captureProviderFailure(
+  error: unknown,
+  currentTransportAttemptCount: number | null,
+): {
+  failure: SemanticProviderFailureV1;
+  transportAttemptCount: number | null;
+} {
+  if (error instanceof ProviderError) {
+    const transportAttemptCount =
+      error.telemetry === undefined
+        ? currentTransportAttemptCount
+        : addTransportAttempts(
+            currentTransportAttemptCount,
+            error.telemetry.transportAttemptCount,
+          );
+    return {
+      failure: providerErrorFailure(error, transportAttemptCount),
+      transportAttemptCount,
+    };
+  }
+  return {
+    failure: {
+      schemaVersion: "semantic-provider-failure-v1",
+      failureCode: "UNKNOWN",
+      lastFailureKind: "unknown",
+      httpStatusClass: null,
+      transportAttemptCount: currentTransportAttemptCount,
+    },
+    transportAttemptCount: currentTransportAttemptCount,
+  };
+}
+
+function providerErrorFailure(
+  error: ProviderError,
+  transportAttemptCount: number | null,
+): SemanticProviderFailureV1 {
+  return {
+    schemaVersion: "semantic-provider-failure-v1",
+    failureCode: error.code,
+    lastFailureKind:
+      error.telemetry?.lastFailureKind ??
+      (error.code === "DEADLINE_EXCEEDED"
+        ? "deadline_exceeded"
+        : error.code === "INVALID_OUTPUT"
+          ? "invalid_output"
+          : "unknown"),
+    httpStatusClass: error.telemetry?.httpStatusClass ?? null,
+    transportAttemptCount,
+  };
+}
+
+function semanticValidationFailure(
+  transportAttemptCount: number | null,
+): SemanticProviderFailureV1 {
+  return {
+    schemaVersion: "semantic-provider-failure-v1",
+    failureCode: "SEMANTIC_VALIDATION_FAILED",
+    lastFailureKind: "semantic_validation",
+    httpStatusClass: null,
+    transportAttemptCount,
+  };
 }
 
 function providerCallContext(

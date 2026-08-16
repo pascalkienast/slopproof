@@ -22,8 +22,8 @@ evidence artifact is reachable from a Git ref.
 - [x] CONTRIBUTING, SECURITY, SUPPORT, GOVERNANCE and Code of Conduct are present.
 - [x] Issue forms, pull-request template, CODEOWNERS and Dependabot files are present.
 - [x] CI actions and service images are pinned by full digest.
-- [ ] Private vulnerability reporting is enabled.
-- [ ] Repository description, homepage and topics are set.
+- [x] Private vulnerability reporting is enabled.
+- [x] Repository description, homepage and topics are set.
 
 Suggested metadata:
 
@@ -34,9 +34,9 @@ Suggested metadata:
 
 ## Publication and dogfood
 
-- [ ] Create `pascalkienast/slopproof` without auto-generated files.
-- [ ] Push the reviewed release branch and confirm every workflow passes.
-- [ ] Install the GitHub App on this repository only.
+- [x] Create `pascalkienast/slopproof` without auto-generated files.
+- [x] Push the reviewed release branch and confirm every workflow passes.
+- [x] Install the GitHub App on this repository only.
 - [ ] Complete the bootstrap SlopProof pull request.
 - [ ] Activate the main-branch ruleset with the App-bound check and PR-only
       break-glass actor.

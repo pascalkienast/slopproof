@@ -36,7 +36,8 @@
     "audit:doc-links": "node scripts/audit-doc-links.mjs",
     "audit:secrets": "node scripts/audit-secrets.mjs",
     "audit:history-secrets": "node scripts/audit-history-secrets.mjs",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:live-smoke-contracts && pnpm test:r2-browser-smoke-contracts && pnpm test:production-compose && pnpm test:production-image && pnpm test:production-operations && pnpm test:production-deployment && pnpm test:production-backup && pnpm build && pnpm audit:boundaries && pnpm audit:doc-links && pnpm audit:secrets && pnpm audit:history-secrets",
+    "test:release-audits": "node --test scripts/lib/history-secret-policy.test.mjs",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:release-audits && pnpm test:live-smoke-contracts && pnpm test:r2-browser-smoke-contracts && pnpm test:production-compose && pnpm test:production-image && pnpm test:production-operations && pnpm test:production-deployment && pnpm test:production-backup && pnpm build && pnpm audit:boundaries && pnpm audit:doc-links && pnpm audit:secrets && pnpm audit:history-secrets",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
@@ -66,5 +67,12 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.67.0",
     "vitest": "4.1.10"
+  },
+  "pnpm": {
+    "overrides": {
+      "@esbuild-kit/core-utils>esbuild": "0.25.12",
+      "tsup>esbuild": "0.28.2",
+      "vite>esbuild": "0.28.2"
+    }
   }
 }

@@ -15,6 +15,7 @@ import {
 } from "@slopproof/analysis";
 import {
   PayloadCipher,
+  ProviderError,
   type LearningMaterialProvider,
   type PracticeCoachProvider,
   type ProofQuestionProvider,
@@ -134,13 +135,29 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
       encrypted_payload: string;
       provider: string;
       input_hash: string;
+      provider_failure: Record<string, unknown>;
     }>(
-      `SELECT bundle.encrypted_payload, invocation.provider, invocation.input_hash
+      `SELECT bundle.encrypted_payload, invocation.provider, invocation.input_hash,
+              audit.metadata AS provider_failure
          FROM semantic_learning_bundles bundle
-         JOIN semantic_provider_invocations invocation ON invocation.run_id = bundle.run_id`,
+         JOIN semantic_provider_invocations invocation ON invocation.run_id = bundle.run_id
+         JOIN audit_events audit
+           ON audit.object_type = 'semantic_generation_run'
+          AND audit.object_id = invocation.run_id::text
+          AND audit.action = 'semantic.provider_failed'`,
     );
     expect(stored.rows[0]?.encrypted_payload).not.toContain("changed hunk");
     expect(stored.rows[0]?.input_hash).toMatch(/^[0-9a-f]{64}$/u);
+    expect(stored.rows[0]?.provider_failure).toEqual({
+      schemaVersion: "semantic-provider-failure-v1",
+      failureCode: "PROVIDER_UNAVAILABLE",
+      lastFailureKind: "upstream_unavailable",
+      httpStatusClass: "5xx",
+      transportAttemptCount: 3,
+    });
+    expect(JSON.stringify(stored.rows[0]?.provider_failure)).not.toContain(
+      "offline provider unavailable",
+    );
 
     const view = await repository.readPracticeView({
       repositoryId: IDS.repository,
@@ -892,7 +909,18 @@ function unavailableProvider(): LearningMaterialProvider &
   return {
     descriptor: { provider: "offline-fake", model: "deterministic" },
     async generate() {
-      throw new Error("offline provider unavailable");
+      throw new ProviderError(
+        "PROVIDER_UNAVAILABLE",
+        "retryable",
+        "offline provider unavailable",
+        {
+          telemetry: {
+            lastFailureKind: "upstream_unavailable",
+            httpStatusClass: "5xx",
+            transportAttemptCount: 3,
+          },
+        },
+      );
     },
     async repair() {
       throw new Error("repair unavailable");
