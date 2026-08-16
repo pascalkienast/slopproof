@@ -1111,9 +1111,17 @@ describe("provider worker pipeline", () => {
           "INVALID_OUTPUT",
           "review",
           "synthetic invalid provider output",
+          {
+            telemetry: {
+              lastFailureKind: "invalid_output",
+              httpStatusClass: null,
+              transportAttemptCount: 1,
+            },
+          },
         );
       },
     };
+    const transition = vi.spyOn(base.repository, "transitionToReviewRequired");
     const handlers = createProviderPipelineHandlers({
       repository: base.repository,
       dispatcher: base.dispatcher,
@@ -1137,6 +1145,16 @@ describe("provider worker pipeline", () => {
     expect(outcome.outcome).toBe("manual_review");
     expect(base.repository.status).toBe("review_required");
     expect(base.repository.transitions).toEqual(["provider_manual_review"]);
+    expect(transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerErrorCode: "INVALID_OUTPUT",
+        providerFailureTelemetry: {
+          lastFailureKind: "invalid_output",
+          httpStatusClass: null,
+          transportAttemptCount: 1,
+        },
+      }),
+    );
   });
 
   it("routes terminal provider failures to technical retry", async () => {

@@ -553,17 +553,16 @@ function assembleTranscript(
     );
   }
   const languages = new Set(
-    results.map((result) => baseLanguage(result.language)),
+    results
+      .map((result) => baseLanguage(result.language))
+      .filter((language) => language !== "und"),
   );
-  if (languages.size !== 1) {
-    throw reviewOutputError(
-      "Question transcripts contain contradictory detected languages",
-    );
-  }
   const language =
     source.languagePolicy.mode === "fixed"
       ? source.languagePolicy.language
-      : results[0]?.language;
+      : languages.size === 1
+        ? [...languages][0]
+        : "und";
   if (language === undefined) {
     throw reviewOutputError("Transcription did not produce a language");
   }

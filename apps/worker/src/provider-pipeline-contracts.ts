@@ -14,7 +14,11 @@ import {
   ProviderRecommendationSchema,
   RepositoryPolicyV1Schema,
 } from "@slopproof/policy";
-import { FrameSelectionMetadataV1Schema } from "@slopproof/providers";
+import {
+  FrameSelectionMetadataV1Schema,
+  type ProviderErrorCode,
+  type ProviderFailureTelemetry,
+} from "@slopproof/providers";
 import { z } from "zod";
 import { RecordingAudioTranscriptionSourceV1Schema } from "./audio-transcription";
 
@@ -249,6 +253,8 @@ export interface ProviderPipelineRepository {
     idempotencyKey: string;
     evaluationId?: string;
     providerRecommendation?: "pass" | "review_required" | "retry";
+    providerErrorCode?: ProviderErrorCode;
+    providerFailureTelemetry?: ProviderFailureTelemetry;
     reason: "valid_policy" | "provider_manual_review";
   }): Promise<"updated" | "replayed" | "stale">;
   transitionToTechnicalRetry(input: {

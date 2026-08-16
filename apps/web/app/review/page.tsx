@@ -12,15 +12,21 @@ export default async function ReviewQueuePage() {
   const pageAuth = await readPageSessionRequest(app, "/review");
   if (!pageAuth) {
     return (
-      <ReviewShell>
+      <ReviewShell demoMode={app.config.DEMO_MODE}>
         <section className="notice-card review-empty">
           <p className="eyebrow">Protected review</p>
           <h2>Maintainer authorization required.</h2>
-          <p>
-            Evidence and review decisions are repository-bound. The local MVP
-            exposes a demo maintainer session only while offline demo mode is
-            enabled.
-          </p>
+          {app.config.DEMO_MODE ? (
+            <p>
+              Evidence and review decisions are repository-bound. This local
+              environment exposes a demo maintainer session for offline use.
+            </p>
+          ) : (
+            <p>
+              Evidence and review decisions are repository-bound. Authorize with
+              GitHub to open the protected maintainer queue.
+            </p>
+          )}
           {app.config.DEMO_MODE ? (
             <DemoMaintainerLogin />
           ) : (
@@ -38,7 +44,7 @@ export default async function ReviewQueuePage() {
       pageAuth.session,
     );
     return (
-      <ReviewShell>
+      <ReviewShell demoMode={app.config.DEMO_MODE}>
         <div className="check-header">
           <div>
             <p className="eyebrow">
@@ -94,7 +100,7 @@ export default async function ReviewQueuePage() {
   } catch (error) {
     if (error instanceof WebRequestRateLimitExceededError) {
       return (
-        <ReviewShell>
+        <ReviewShell demoMode={app.config.DEMO_MODE}>
           <section className="notice-card review-empty">
             <p className="eyebrow">Protected review</p>
             <h2>Review refresh is temporarily limited.</h2>
@@ -109,7 +115,7 @@ export default async function ReviewQueuePage() {
     }
     if (!(error instanceof MaintainerAuthorizationError)) throw error;
     return (
-      <ReviewShell>
+      <ReviewShell demoMode={app.config.DEMO_MODE}>
         <section className="notice-card error-card review-empty">
           <p className="eyebrow">Access denied</p>
           <h2>This session cannot review this repository.</h2>
@@ -139,12 +145,20 @@ function GithubMaintainerLogin() {
   );
 }
 
-function ReviewShell({ children }: { children: React.ReactNode }) {
+function ReviewShell({
+  children,
+  demoMode,
+}: {
+  children: React.ReactNode;
+  demoMode: boolean;
+}) {
   return (
     <main className="shell flow-shell review-shell">
-      <a className="back-link" href="/demo">
-        ← Local demo
-      </a>
+      {demoMode ? (
+        <a className="back-link" href="/demo">
+          ← Local demo
+        </a>
+      ) : null}
       {children}
     </main>
   );

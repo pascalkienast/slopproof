@@ -384,7 +384,7 @@ describe("worker-only recording audio transcription", () => {
     }
   });
 
-  it("rejects contradictory per-question detected languages and propagates technical provider retries", async () => {
+  it("marks mixed per-question detected languages as undetermined and propagates technical provider retries", async () => {
     let call = 0;
     const contradictory = await dependencies({
       mutateProviderResult(value) {
@@ -398,7 +398,7 @@ describe("worker-only recording audio transcription", () => {
         ciphertextAccess(),
         providerContext(),
       ),
-    ).rejects.toMatchObject({ code: "INVALID_OUTPUT", disposition: "review" });
+    ).resolves.toMatchObject({ language: "und" });
 
     const retry = new ProviderError(
       "PROVIDER_UNAVAILABLE",

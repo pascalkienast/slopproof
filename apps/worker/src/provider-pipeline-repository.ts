@@ -6,6 +6,10 @@ import {
 } from "@slopproof/db";
 import { FinalizeRecordingSchema } from "@slopproof/media";
 import type { RepositoryPolicyV1 } from "@slopproof/policy";
+import type {
+  ProviderErrorCode,
+  ProviderFailureTelemetry,
+} from "@slopproof/providers";
 import {
   EncryptedEvaluationBundleV1Schema,
   EncryptedTranscriptBundleV1Schema,
@@ -1070,6 +1074,8 @@ export class PostgresProviderPipelineRepository implements ProviderPipelineRepos
     idempotencyKey: string;
     evaluationId?: string;
     providerRecommendation?: "pass" | "review_required" | "retry";
+    providerErrorCode?: ProviderErrorCode;
+    providerFailureTelemetry?: ProviderFailureTelemetry;
     reason: "valid_policy" | "provider_manual_review";
   }): Promise<"updated" | "replayed" | "stale"> {
     const client = await this.database.pool.connect();
@@ -1161,12 +1167,23 @@ export class PostgresProviderPipelineRepository implements ProviderPipelineRepos
          VALUES ('provider-pipeline', 'attempt.review_required', 'attempt', $1,
                  jsonb_build_object('reason', $2::text,
                                     'evaluationId', $3::text,
-                                    'providerRecommendation', $4::text))`,
+                                    'providerRecommendation', $4::text) ||
+                 CASE WHEN $5::text IS NULL THEN '{}'::jsonb ELSE
+                   jsonb_build_object(
+                     'providerErrorCode', $5::text,
+                     'providerFailureKind', $6::text,
+                     'providerHttpStatusClass', $7::text,
+                     'providerTransportAttemptCount', $8::integer)
+                 END)`,
         [
           input.attemptId,
           input.reason,
           input.evaluationId ?? null,
           input.providerRecommendation ?? null,
+          input.providerErrorCode ?? null,
+          input.providerFailureTelemetry?.lastFailureKind ?? null,
+          input.providerFailureTelemetry?.httpStatusClass ?? null,
+          input.providerFailureTelemetry?.transportAttemptCount ?? null,
         ],
       );
       await this.checkIntents.write(client, {

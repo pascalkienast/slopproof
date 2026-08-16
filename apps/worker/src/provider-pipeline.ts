@@ -478,6 +478,10 @@ async function routeProviderFailure(
       expectedHeadSha: job.expectedHeadSha,
       idempotencyKey: nextIdempotencyKey(job.idempotencyKey, "manual-review"),
       reason: "provider_manual_review",
+      providerErrorCode: providerError.code,
+      ...(providerError.telemetry === undefined
+        ? {}
+        : { providerFailureTelemetry: providerError.telemetry }),
     });
     return result({
       stage,

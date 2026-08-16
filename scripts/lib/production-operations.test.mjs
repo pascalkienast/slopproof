@@ -49,10 +49,29 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.match(landing, /class="check-choice proof active"/u);
   assert.match(landing, /class="check-choice optional"/u);
   assert.match(landing, /Optional: practice the patch/u);
+  assert.match(
+    landing,
+    /href="https:\/\/github\.com\/pascalkienast\/slopproof"[^>]*>Open-source MVP · Live on GitHub · 2026<\/a>/u,
+  );
+  assert.doesNotMatch(landing, /Open-source product concept/u);
   assert.doesNotMatch(landing, /fonts\.(?:googleapis|gstatic)\.com/u);
   assert.match(landing, /rel="icon" href="data:image\/svg\+xml/u);
   assert.match(behavior, /panel\.hidden = !selected/u);
   assert.match(behavior, /\[data-open-mode\]/u);
+});
+
+test("production review chrome does not expose the local demo", () => {
+  const reviewPage = read("apps/web/app/review/page.tsx");
+
+  assert.match(
+    reviewPage,
+    /demoMode \? \([\s\S]*?← Local demo[\s\S]*?\) : null/u,
+  );
+  assert.match(
+    reviewPage,
+    /Authorize with\s+GitHub to open the protected maintainer queue/u,
+  );
+  assert.doesNotMatch(reviewPage, /The local MVP exposes a demo maintainer/u);
 });
 
 test("Caddy preserves mobile capture and strips private access-log fields", () => {
