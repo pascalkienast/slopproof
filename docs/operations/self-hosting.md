@@ -17,12 +17,15 @@ Grant these repository permissions:
 - Checks: read and write
 - Contents: read-only
 - Metadata: read-only
-- Pull requests: read-only
+- Pull requests: read and write
 
 Subscribe to `pull_request`, `installation` and `installation_repositories`.
 Install the App only on selected repositories during initial testing. SlopProof
 mints repository-scoped installation tokens with the same reduced permission
-set and never stores those tokens.
+set and never stores those tokens. Pull-request write access is used only to
+create or update one App-owned timeline comment containing the current public
+SlopProof link. Existing installations must approve this permission increase
+before comment synchronization can succeed.
 
 The webhook secret, OAuth client secret and App private key belong in the
 operator's secret store. The App key must be a bounded RSA private-key file; do

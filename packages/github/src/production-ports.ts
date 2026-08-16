@@ -219,6 +219,25 @@ export interface GithubCheckRunPort {
   findExisting(input: CheckIntentInput): Promise<CheckRunReference | null>;
 }
 
+export const PullRequestCommentInputSchema =
+  GithubRepositoryBindingSchema.extend({
+    pullNumber: z.number().int().positive().max(2_147_483_647),
+    revisionId: z.string().uuid(),
+    headSha: shaSchema,
+    baseSha: shaSchema,
+    expectedPullRequestState: z.literal("open"),
+    detailsUrl: z.url({ protocol: /^https$/u }).max(2_048),
+  }).strict();
+
+export type PullRequestCommentInput = z.infer<
+  typeof PullRequestCommentInputSchema
+>;
+
+/** Keeps one App-owned contributor entry comment current for an open PR. */
+export interface GithubPullRequestCommentPort {
+  upsert(input: PullRequestCommentInput): Promise<void>;
+}
+
 const userTokenSchema = z.string().min(16).max(1_024);
 
 export const GithubAuthenticatedUserInputSchema = z

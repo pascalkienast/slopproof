@@ -197,17 +197,20 @@ in the live pilot because the callback fix has not yet been deployed.
 ### 4. Practice discoverability
 
 - Category: `ux`
-- Observed: the public revision page exposes **Open contributor proof** and a
-  protected maintainer link, but not a visible **Practice your understanding**
-  action. Practice becomes visible only on the authenticated contributor page.
-- Expected: optional practice remains prominent without weakening the private
-  author boundary or the primary proof flow.
+- Observed: the public revision page previously split contributors into proof
+  and practice before both paths crossed the same GitHub authorization
+  boundary. The authenticated contributor page already presents the two paths
+  clearly.
+- Expected: one contributor entry crosses GitHub authorization, then the
+  contributor chooses optional practice or required proof on the existing
+  authenticated overview.
 - Reproduction: open a public revision from the GitHub Check and look for a
   practice action before contributor authentication.
 - Affected pages:
   `apps/web/app/revisions/[revisionId]/page.tsx`,
   `apps/web/app/revisions/[revisionId]/contribute/page.tsx`.
-- Status: `open`; no UX change was implemented in this handoff.
+- Status: `implemented locally` on the follow-up UX branch. The public page now
+  keeps one contributor action and one protected maintainer action.
 
 ### 5. GitHub PR link discoverability
 
@@ -218,10 +221,12 @@ in the live pilot because the callback fix has not yet been deployed.
   the entry points easier to find.
 - Reproduction: open the pilot PR conversation, compare it with the Check tab,
   and observe that only the Check provides the SlopProof link.
-- Affected area: GitHub control/check publication and future PR-comment
-  integration; no implementation file was changed for this request.
-- Status: `open`. Do not expand GitHub App permissions or post comments without
-  a separate design, permission, idempotency, privacy, and audit review.
+- Affected area: GitHub control/check publication and PR-comment integration.
+- Status: `implemented locally`. Check reconciliation maintains one marker-bound
+  comment that must be attributed to this GitHub App, revalidates the current
+  head before writing, updates rather than duplicates it for later revisions,
+  and exposes only the public revision link and bound head SHA. Rollout still
+  requires explicit approval of the GitHub App's pull-request write permission.
 
 ### 6. Raw OAuth failure presentation
 

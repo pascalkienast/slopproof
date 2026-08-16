@@ -39,6 +39,15 @@ type ProofQuestion = {
   id: string;
   order: number;
   prompt: string;
+  reference: {
+    id: string;
+    file: string;
+    oldStart: number;
+    newStart: number;
+    hunkHeader: string;
+    changedLines: number;
+    evidence: string;
+  };
   maximumAnswerSeconds: number;
 };
 
@@ -56,7 +65,6 @@ type ProofContext = {
 
 type Phase =
   | "opening"
-  | "preflight"
   | "ready"
   | "recording"
   | "uploading"
@@ -72,6 +80,7 @@ export function MobileProof() {
   const [questionIndex, setQuestionIndex] = useState(0);
   const [progress, setProgress] = useState("Waiting for recording");
   const [canRecover, setCanRecover] = useState(false);
+  const [exchangePending, setExchangePending] = useState(false);
   const previewRef = useRef<HTMLVideoElement>(null);
   const mediaRef = useRef<MediaStream | undefined>(undefined);
   const recorderRef = useRef<MediaRecorder | undefined>(undefined);
@@ -87,96 +96,99 @@ export function MobileProof() {
   const activeQuestionStartMsRef = useRef(0);
   const questionIntervalsRef = useRef<ProofQuestionIntervalDraft[]>([]);
 
-  useEffect(() => {
+  async function openHandoff(): Promise<void> {
     if (exchangeStartedRef.current) return;
-    exchangeStartedRef.current = true;
     const token = search.get("token");
     if (!token) {
       fail("This handoff link is missing or has already been removed.");
       return;
     }
-    void exchange(token);
+    setExchangePending(true);
+    setError(undefined);
 
-    async function exchange(rawToken: string): Promise<void> {
-      try {
-        const exchanged = await jsonRequest<{
-          attemptId: string;
-          headSha: string;
-          csrfToken: string;
-          wrappingMaterial: unknown;
-        }>("/api/handoff/exchange", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token: rawToken }),
-        });
-        const material = PublicWrappingMaterialSchema.parse(
-          exchanged.wrappingMaterial,
-        );
-        const plan = await jsonRequest<{
-          revisionId: string;
-          questions: ProofQuestion[];
-          maximumDurationMs: number;
-          maximumUploadBytes: number;
-          retentionHours: number;
-        }>(`/api/attempts/${exchanged.attemptId}/questions`);
-        if (plan.questions.length === 0)
-          throw new Error("The proof plan has no questions.");
-        window.history.replaceState(null, "", "/m/handoff");
-        setContext({
-          attemptId: exchanged.attemptId,
-          revisionId: plan.revisionId,
-          headSha: exchanged.headSha,
-          csrfToken: exchanged.csrfToken,
-          material,
-          questions: plan.questions,
-          maximumDurationMs: plan.maximumDurationMs,
-          maximumUploadBytes: plan.maximumUploadBytes,
-          retentionHours: plan.retentionHours,
-        });
-        setPhase("preflight");
-      } catch {
-        fail("This one-time handoff is invalid, expired, or already used.");
-      }
+    try {
+      mediaRef.current = await requestProofMedia();
+    } catch (caught) {
+      setExchangePending(false);
+      setError(mediaPreflightError(caught));
+      return;
     }
-  }, [search]);
+
+    exchangeStartedRef.current = true;
+
+    let exchanged: {
+      attemptId: string;
+      headSha: string;
+      csrfToken: string;
+      wrappingMaterial: unknown;
+    };
+    try {
+      exchanged = await jsonRequest("/api/handoff/exchange", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+    } catch {
+      exchangeStartedRef.current = false;
+      setExchangePending(false);
+      stopProofMedia(mediaRef.current);
+      mediaRef.current = undefined;
+      fail("This one-time handoff is invalid, expired, or already used.");
+      return;
+    }
+
+    try {
+      const material = PublicWrappingMaterialSchema.parse(
+        exchanged.wrappingMaterial,
+      );
+      const plan = await jsonRequest<{
+        revisionId: string;
+        questions: ProofQuestion[];
+        maximumDurationMs: number;
+        maximumUploadBytes: number;
+        retentionHours: number;
+      }>(`/api/attempts/${exchanged.attemptId}/questions`);
+      if (plan.questions.length === 0)
+        throw new Error("The proof plan has no questions.");
+      window.history.replaceState(null, "", "/m/handoff");
+      setContext({
+        attemptId: exchanged.attemptId,
+        revisionId: plan.revisionId,
+        headSha: exchanged.headSha,
+        csrfToken: exchanged.csrfToken,
+        material,
+        questions: plan.questions,
+        maximumDurationMs: plan.maximumDurationMs,
+        maximumUploadBytes: plan.maximumUploadBytes,
+        retentionHours: plan.retentionHours,
+      });
+      setExchangePending(false);
+      setPhase("ready");
+    } catch {
+      setExchangePending(false);
+      stopProofMedia(mediaRef.current);
+      mediaRef.current = undefined;
+      fail(
+        "The handoff was accepted, but the proof questions could not be loaded. Return to the contributor check and create a fresh handoff.",
+      );
+    }
+  }
 
   useEffect(() => {
     return () => mediaRef.current?.getTracks().forEach((track) => track.stop());
   }, []);
 
-  async function runPreflight(): Promise<void> {
-    try {
-      if (!window.isSecureContext) {
-        throw new Error("A secure HTTPS context is required on a phone.");
-      }
-      if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-        throw new Error("Camera recording is not supported by this browser.");
-      }
-      if (!MediaRecorder.isTypeSupported(RECORDING_CODEC)) {
-        throw new Error(
-          "This browser does not support the tested VP8/Opus profile.",
-        );
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: { echoCancellation: true, noiseSuppression: true },
-      });
-      mediaRef.current = stream;
-      if (previewRef.current) {
-        previewRef.current.srcObject = stream;
-        await previewRef.current.play();
-      }
-      setPhase("ready");
-    } catch (caught) {
-      fail(
-        caught instanceof Error ? caught.message : "Camera preflight failed.",
+  useEffect(() => {
+    const preview = previewRef.current;
+    const stream = mediaRef.current;
+    if (phase !== "ready" || !preview || !stream) return;
+    preview.srcObject = stream;
+    void preview.play().catch(() => {
+      setError(
+        "The camera is available, but its preview could not start. Check this browser's media settings before recording.",
       );
-    }
-  }
+    });
+  }, [phase]);
 
   async function beginRecording(): Promise<void> {
     if (!context || !mediaRef.current) return;
@@ -577,8 +589,32 @@ export function MobileProof() {
   return (
     <main className="mobile-shell">
       <p className="eyebrow">SlopProof · one take</p>
-      {phase === "opening" ? <h1>Opening secure handoff…</h1> : null}
-      {phase === "preflight" || phase === "ready" ? (
+      {phase === "opening" ? (
+        <section className="recording-card reviewing-card">
+          <p className="eyebrow">One-time handoff</p>
+          <h1>Open secure proof.</h1>
+          <p>
+            First, this device checks camera and microphone access. The one-time
+            link is consumed only after that check succeeds.
+          </p>
+          {error ? (
+            <p className="permission-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <button
+            className="button primary full-button"
+            disabled={exchangePending}
+            onClick={() => void openHandoff()}
+            type="button"
+          >
+            {exchangePending
+              ? "Checking camera and opening proof…"
+              : "Check camera and open proof"}
+          </button>
+        </section>
+      ) : null}
+      {phase === "ready" ? (
         <>
           <h1>Camera and privacy check.</h1>
           <video
@@ -587,6 +623,11 @@ export function MobileProof() {
             playsInline
             ref={previewRef}
           />
+          {error ? (
+            <p className="permission-error" role="alert">
+              {error}
+            </p>
+          ) : null}
           <div className="mobile-facts">
             <p>
               <strong>{context?.questions.length}</strong> questions in one
@@ -600,23 +641,13 @@ export function MobileProof() {
               retention
             </p>
           </div>
-          {phase === "preflight" ? (
-            <button
-              className="button primary full-button"
-              onClick={() => void runPreflight()}
-              type="button"
-            >
-              Allow camera and microphone
-            </button>
-          ) : (
-            <button
-              className="button primary full-button"
-              onClick={() => void beginRecording()}
-              type="button"
-            >
-              Start one-take proof
-            </button>
-          )}
+          <button
+            className="button primary full-button"
+            onClick={() => void beginRecording()}
+            type="button"
+          >
+            Start one-take proof
+          </button>
         </>
       ) : null}
       {phase === "recording" && question ? (
@@ -624,6 +655,14 @@ export function MobileProof() {
           <div className="recording-indicator">
             <span /> Recording · question {question.order}/
             {context?.questions.length}
+          </div>
+          <div className="proof-reference">
+            <p className="eyebrow">Patch reference</p>
+            <code>
+              {question.reference.file}:{question.reference.newStart}
+            </code>
+            <p>{question.reference.hunkHeader}</p>
+            <pre>{question.reference.evidence}</pre>
           </div>
           <h1>{question.prompt}</h1>
           <p>Speak naturally and refer to the concrete patch behavior.</p>
@@ -669,8 +708,14 @@ export function MobileProof() {
       ) : null}
       {phase === "error" ? (
         <section className="recording-card error-card">
-          <p className="eyebrow">Technical retry</p>
-          <h1>Recording did not complete.</h1>
+          <p className="eyebrow">
+            {context ? "Technical retry" : "Secure handoff"}
+          </p>
+          <h1>
+            {context
+              ? "Recording did not complete."
+              : "Handoff could not be opened."}
+          </h1>
           <p>{error}</p>
           {canRecover ? (
             <button
@@ -756,4 +801,54 @@ async function jsonRequest<T = unknown>(
     );
   }
   return payload;
+}
+
+async function requestProofMedia(): Promise<MediaStream> {
+  if (!window.isSecureContext) {
+    throw new Error("secure_context_required");
+  }
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    throw new Error("recording_unsupported");
+  }
+  if (!MediaRecorder.isTypeSupported(RECORDING_CODEC)) {
+    throw new Error("codec_unsupported");
+  }
+  return navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: "user",
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+    },
+    audio: { echoCancellation: true, noiseSuppression: true },
+  });
+}
+
+function mediaPreflightError(caught: unknown): string {
+  if (caught instanceof DOMException) {
+    if (caught.name === "NotAllowedError") {
+      return "Camera or microphone access was denied. Allow both in this browser's site settings, then try this same link again. The one-time handoff has not been used.";
+    }
+    if (caught.name === "NotFoundError") {
+      return "No usable camera or microphone was found. Connect both devices, then try this same link again. The one-time handoff has not been used.";
+    }
+    if (caught.name === "NotReadableError") {
+      return "The camera or microphone is busy in another app. Close that app, then try this same link again. The one-time handoff has not been used.";
+    }
+  }
+  if (caught instanceof Error) {
+    if (caught.message === "secure_context_required") {
+      return "A secure HTTPS context is required. Open the original SlopProof link in a current browser.";
+    }
+    if (caught.message === "recording_unsupported") {
+      return "Camera recording is not supported by this browser. Try the current Safari or Chrome release.";
+    }
+    if (caught.message === "codec_unsupported") {
+      return "This browser cannot record the required VP8/Opus format. Try the current Chrome release on this device.";
+    }
+  }
+  return "Camera and microphone access could not be confirmed. Check this browser's site settings and try the same link again. The one-time handoff has not been used.";
+}
+
+function stopProofMedia(stream: MediaStream | undefined): void {
+  stream?.getTracks().forEach((track) => track.stop());
 }

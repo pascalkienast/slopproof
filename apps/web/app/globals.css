@@ -380,6 +380,49 @@ h2 {
   line-height: 1.55;
 }
 
+.permission-error {
+  padding: 12px 14px;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  background: #ffe1d8;
+  color: var(--ink) !important;
+}
+
+.proof-reference {
+  display: grid;
+  gap: 8px;
+  margin: 22px 0;
+  padding: 16px;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  background: #edf8c7;
+}
+
+.proof-reference p,
+.proof-reference code,
+.proof-reference pre {
+  margin: 0;
+}
+
+.proof-reference code,
+.proof-reference pre {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font:
+    600 0.82rem/1.5 "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+}
+
+.proof-reference pre {
+  max-height: 180px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--sheet);
+}
+
 .recording-indicator {
   display: flex;
   gap: 8px;
@@ -1273,8 +1316,7 @@ h2 {
   }
 
   .practice-app-bar nav {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    display: flex;
   }
 
   .practice-app-bar nav a,
@@ -1336,6 +1378,36 @@ h2 {
   margin: 28px 0;
   font-size: 1.2rem;
   line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.public-check-card .sha-row > * {
+  min-width: 0;
+}
+
+.public-check-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+  margin-top: 30px;
+}
+
+.public-check-actions .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.public-check-actions .maintainer-button {
+  background: #e9edff;
+}
+
+.public-check-card > .public-check-guidance {
+  margin: 18px 0 0;
+  color: var(--carbon);
+  font-size: 0.95rem;
 }
 
 @media (max-width: 600px) {
@@ -1385,6 +1457,10 @@ h2 {
 
   .button {
     text-align: center;
+  }
+
+  .public-check-actions {
+    grid-template-columns: 1fr;
   }
 }
 

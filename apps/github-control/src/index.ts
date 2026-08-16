@@ -8,6 +8,7 @@ import {
 } from "@slopproof/db";
 import {
   OctokitCheckRunAdapter,
+  OctokitPullRequestCommentAdapter,
   OctokitPullRequestPort,
   RepositoryInstallationTokenCache,
 } from "@slopproof/github";
@@ -69,6 +70,11 @@ async function start(): Promise<void> {
     const pullRequests = new OctokitPullRequestPort(tokens);
     dependencies.pullRequests = pullRequests;
     dependencies.checkRuns = new OctokitCheckRunAdapter(tokens, pullRequests);
+    dependencies.pullRequestComments = new OctokitPullRequestCommentAdapter(
+      tokens,
+      pullRequests,
+      { appId: appMaterial.appId },
+    );
   }
 
   await registerJobWorker(
