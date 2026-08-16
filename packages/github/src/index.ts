@@ -6,6 +6,7 @@ export * from "./octokit-client";
 export * from "./production-errors";
 export * from "./production-ports";
 export * from "./pull-request";
+export * from "./pull-request-comment";
 export * from "./queue";
 export * from "./request-policy";
 export * from "./schemas";

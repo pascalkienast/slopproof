@@ -973,12 +973,17 @@ export function deterministicProofFallbackV2(
     "test_and_rollback",
     "tradeoff",
   ] as const;
-  const prompts = [
-    "Explain the before-and-after behavior at this changed hunk and why the new behavior is intended.",
-    "Predict the normal outcome and one boundary outcome caused by this changed hunk.",
-    "Walk through a realistic failure path at this changed hunk, including recovery behavior.",
-    "Give a focused test and rollback plan for the behavior at this changed hunk.",
-    "Describe the main implementation tradeoff at this changed hunk and one plausible alternative.",
+  const promptFor = [
+    (location: string) =>
+      `At ${location}, explain the before-and-after behavior and why the new behavior is intended.`,
+    (location: string) =>
+      `At ${location}, predict the normal outcome and one boundary outcome caused by the change.`,
+    (location: string) =>
+      `At ${location}, walk through a realistic failure path, including recovery behavior.`,
+    (location: string) =>
+      `At ${location}, give a focused test and rollback plan for the changed behavior.`,
+    (location: string) =>
+      `At ${location}, describe the main implementation tradeoff and one plausible alternative.`,
   ];
   const candidates = Array.from({ length: questionCount }, (_, index) => {
     const anchorId =
@@ -986,15 +991,19 @@ export function deterministicProofFallbackV2(
         index % context.data.allowedAnchorIds.length
       ];
     const intent = intents[index];
-    const prompt = prompts[index];
+    const createPrompt = promptFor[index];
     if (
       anchorId === undefined ||
       intent === undefined ||
-      prompt === undefined
+      createPrompt === undefined
     ) {
       throw new SemanticContentValidationError("count_invalid");
     }
     const anchorIds = [anchorId];
+    const reference = patchReference(context.data, anchorId);
+    const prompt = createPrompt(
+      `${boundedDisplayPath(reference.file)} near new line ${String(reference.newStart)}`,
+    );
     return {
       schemaVersion: "2" as const,
       questionVersion: "proof-question-candidate-v2" as const,
@@ -1041,6 +1050,11 @@ export function deterministicProofFallbackV2(
     context.data,
     questionCount,
   );
+}
+
+function boundedDisplayPath(path: string): string {
+  if (path.length <= 240) return path;
+  return `${path.slice(0, 118)}…${path.slice(-118)}`;
 }
 
 function assertKnownConcreteAnchors(

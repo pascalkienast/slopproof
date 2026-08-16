@@ -73,25 +73,25 @@ export default async function PublicRevisionPage({
           <code>{revision.head_sha}</code>
         </div>
         <p>{revision.public_summary}</p>
-        {revision.is_current && revision.has_contributor_flow ? (
-          <div className="actions compact-actions">
+        <div className="public-check-actions">
+          {revision.is_current && revision.has_contributor_flow ? (
             <a
               className="button primary"
               href={`/revisions/${revisionId.data}/contribute`}
             >
-              Open contributor proof
+              Continue as contributor
             </a>
-            <a
-              className="button"
-              href={`/revisions/${revisionId.data}/contribute/practice`}
-            >
-              Practice first (optional)
-            </a>
-          </div>
+          ) : null}
+          <a className="button maintainer-button" href="/review">
+            Protected maintainer view
+          </a>
+        </div>
+        {revision.is_current && revision.has_contributor_flow ? (
+          <p className="public-check-guidance">
+            After GitHub authorization, contributors choose between optional
+            practice and the required live proof.
+          </p>
         ) : null}
-        <a className="button" href="/review">
-          Open protected maintainer review
-        </a>
       </div>
       <section className="notice-card">
         This public check view contains status, SHA and a protected review link.

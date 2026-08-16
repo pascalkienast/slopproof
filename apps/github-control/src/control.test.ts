@@ -3,6 +3,7 @@ import type * as DbModule from "@slopproof/db";
 import {
   GithubControlError,
   type GithubCheckRunPort,
+  type GithubPullRequestCommentPort,
   type GithubPullRequestHeadPort,
   type GithubPullRequestPort,
   type PullRequestJobPayload,
@@ -390,6 +391,38 @@ describe("GitHub control canonical revision reconciliation", () => {
     );
   });
 
+  it("updates the App-owned contributor comment before completing a current Check sync", async () => {
+    dbMocks.claimGithubCheckSync.mockResolvedValue(claimedCheck());
+    const comments = commentPort();
+    const dependencies = controlDependencies(
+      targetDatabase(),
+      pullRequestPort(snapshot(oldBaseSha)),
+      checkRunPort(),
+      comments,
+    );
+
+    await expect(
+      handleGithubCheckReconcileJob(checkJob(), dependencies),
+    ).resolves.toBeUndefined();
+
+    expect(comments.upsert).toHaveBeenCalledWith({
+      installationId: "101",
+      repositoryId: "102",
+      owner: "acme",
+      repositoryName: "widgets",
+      pullNumber: 17,
+      revisionId,
+      headSha,
+      baseSha: oldBaseSha,
+      expectedPullRequestState: "open",
+      detailsUrl: `https://slopproof.test/revisions/${revisionId}`,
+    });
+    expect(dbMocks.completeGithubCheckSync).toHaveBeenCalledOnce();
+    expect(vi.mocked(comments.upsert).mock.invocationCallOrder[0]).toBeLessThan(
+      dbMocks.completeGithubCheckSync.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
   it("refreshes a moved head from the active DB binding without a synthetic delivery", async () => {
     const pullRequests = pullRequestPort(snapshot(freshBaseSha));
     vi.mocked(pullRequests.getCurrentHead).mockResolvedValueOnce({
@@ -591,10 +624,12 @@ describe("GitHub control canonical revision reconciliation", () => {
       state: "closed",
     });
     const checkRuns = checkRunPort();
+    const comments = commentPort();
     const dependencies = controlDependencies(
       targetDatabase(),
       pullRequests,
       checkRuns,
+      comments,
     );
 
     await expect(
@@ -609,6 +644,7 @@ describe("GitHub control canonical revision reconciliation", () => {
     );
     expect(dependencies.queue.upsert).not.toHaveBeenCalled();
     expect(dbMocks.completeGithubCheckSync).toHaveBeenCalledOnce();
+    expect(comments.upsert).not.toHaveBeenCalled();
     expect(dbMocks.failGithubCheckSync).not.toHaveBeenCalled();
   });
 
@@ -677,6 +713,7 @@ function controlDependencies(
   database: DatabaseConnection,
   pullRequests: GithubPullRequestPort & GithubPullRequestHeadPort,
   checkRuns: GithubCheckRunPort = checkRunPort(),
+  pullRequestComments: GithubPullRequestCommentPort = commentPort(),
 ): GithubControlDependencies {
   return {
     database,
@@ -695,6 +732,7 @@ function controlDependencies(
     adapter: "octokit",
     pullRequests,
     checkRuns,
+    pullRequestComments,
     clock: { now: () => now },
   };
 }
@@ -820,6 +858,10 @@ function checkRunPort(): GithubCheckRunPort {
     invalidateStale: vi.fn(async () => ({ checkRunId: "9001" })),
     findExisting: vi.fn(async () => null),
   };
+}
+
+function commentPort(): GithubPullRequestCommentPort {
+  return { upsert: vi.fn(async () => undefined) };
 }
 
 function snapshot(

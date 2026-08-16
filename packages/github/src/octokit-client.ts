@@ -67,6 +67,22 @@ export type CollaboratorPermissionRequest = {
   username: string;
 };
 
+export type ListIssueCommentsRequest = PullRequestRequest & {
+  page: number;
+  perPage: number;
+};
+
+export type CreateIssueCommentRequest = PullRequestRequest & {
+  body: string;
+};
+
+export type UpdateIssueCommentRequest = Omit<
+  CreateIssueCommentRequest,
+  "pullNumber"
+> & {
+  commentId: number;
+};
+
 /** Narrow transport seam used by the production ports and offline tests. */
 export interface GithubRestClient {
   createInstallationAccessToken(
@@ -103,6 +119,18 @@ export interface GithubRestClient {
   ): Promise<GithubApiResponse>;
   listCheckRunsForRef(
     input: ListCheckRunsForRefRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse>;
+  listIssueComments(
+    input: ListIssueCommentsRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse>;
+  createIssueComment(
+    input: CreateIssueCommentRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse>;
+  updateIssueComment(
+    input: UpdateIssueCommentRequest,
     signal: AbortSignal,
   ): Promise<GithubApiResponse>;
   getAuthenticatedUser(signal: AbortSignal): Promise<GithubApiResponse>;
@@ -146,7 +174,7 @@ export class OctokitGithubRestClient implements GithubRestClient {
         checks: "write",
         contents: "read",
         metadata: "read",
-        pull_requests: "read",
+        pull_requests: "write",
       },
       request: { signal },
     });
@@ -268,6 +296,46 @@ export class OctokitGithubRestClient implements GithubRestClient {
       filter: "all",
       page: input.page,
       per_page: input.perPage,
+      request: { signal },
+    });
+  }
+
+  async listIssueComments(
+    input: ListIssueCommentsRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse> {
+    return this.octokit.rest.issues.listComments({
+      owner: input.owner,
+      repo: input.repositoryName,
+      issue_number: input.pullNumber,
+      page: input.page,
+      per_page: input.perPage,
+      request: { signal },
+    });
+  }
+
+  async createIssueComment(
+    input: CreateIssueCommentRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse> {
+    return this.octokit.rest.issues.createComment({
+      owner: input.owner,
+      repo: input.repositoryName,
+      issue_number: input.pullNumber,
+      body: input.body,
+      request: { signal },
+    });
+  }
+
+  async updateIssueComment(
+    input: UpdateIssueCommentRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse> {
+    return this.octokit.rest.issues.updateComment({
+      owner: input.owner,
+      repo: input.repositoryName,
+      comment_id: input.commentId,
+      body: input.body,
       request: { signal },
     });
   }

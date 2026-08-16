@@ -13,6 +13,19 @@ import {
   requireSession,
 } from "../../../../../lib/http-auth";
 import { getWebRuntime } from "../../../../../lib/runtime";
+import { z } from "zod";
+
+const MobileProofReferenceSchema = z
+  .object({
+    id: z.string().regex(/^a\d+$/u),
+    file: z.string().min(1).max(2_048),
+    oldStart: z.number().int().nonnegative(),
+    newStart: z.number().int().nonnegative(),
+    hunkHeader: z.string().min(1).max(1_000),
+    changedLines: z.number().int().positive(),
+    evidence: z.string().min(1).max(4_096),
+  })
+  .strict();
 
 export async function GET(
   request: Request,
@@ -35,6 +48,7 @@ export async function GET(
       question_id: string;
       question_ordinal: number;
       question_prompt: string;
+      question_reference: unknown;
       required_question_count: number;
     }>(
       `SELECT attempt.author_id, attempt.repository_id, attempt.revision_id,
@@ -44,6 +58,7 @@ export async function GET(
               question.id AS question_id,
               question.ordinal AS question_ordinal,
               question.prompt AS question_prompt,
+              question.diff_anchor AS question_reference,
               count(*) OVER ()::int AS required_question_count
        FROM attempts attempt
        JOIN pull_request_revisions revision ON revision.id = attempt.revision_id
@@ -106,6 +121,9 @@ export async function GET(
         id: question.question_id,
         order: index + 1,
         prompt: question.question_prompt,
+        reference: MobileProofReferenceSchema.parse(
+          question.question_reference,
+        ),
         maximumAnswerSeconds: MAX_PROOF_QUESTION_ANSWER_MS / 1_000,
       })),
     });

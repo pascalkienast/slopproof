@@ -15,6 +15,7 @@ import {
 import {
   GithubControlError,
   OctokitCheckRunAdapter,
+  OctokitPullRequestCommentAdapter,
   OctokitPullRequestPort,
   PostgresGithubCheckIntentWriter,
   PullRequestJobPayloadSchema,
@@ -22,6 +23,7 @@ import {
   type GithubCheckPort,
   type GithubLifecycleAuthorizationFence,
   type GithubPullRequestHeadPort,
+  type GithubPullRequestCommentPort,
   type GithubPullRequestPort,
   type PullRequestJobPayload,
   type RevisionPreparationPublisher,
@@ -40,6 +42,7 @@ export type GithubControlDependencies = {
   adapter: GithubControlAdapter;
   pullRequests?: GithubPullRequestPort & GithubPullRequestHeadPort;
   checkRuns?: GithubCheckRunPort;
+  pullRequestComments?: GithubPullRequestCommentPort;
   clock?: { now(): Date };
 };
 
@@ -1014,6 +1017,13 @@ export async function handleGithubCheckReconcileJob(
       dependencies.adapter === "fake"
         ? deterministicFakeCheckRunId(claimed.checkRunId)
         : await synchronizeRemoteCheck(claimed, reconciledTarget, dependencies);
+    if (dependencies.adapter === "octokit" && !closedWebhookIntent) {
+      await synchronizePullRequestComment(
+        claimed,
+        reconciledTarget,
+        dependencies,
+      );
+    }
 
     const completed = await completeGithubCheckSync(
       dependencies.database.pool,
@@ -1114,6 +1124,36 @@ async function synchronizeRemoteCheck(
         })
       : await dependencies.checkRuns.create(input);
     return result.checkRunId;
+  } catch (error) {
+    if (error instanceof GithubControlError && error.code === "STALE_HEAD") {
+      await schedulePullRequestRefresh(target, dependencies);
+      throw new GithubControlError("STALE_HEAD", { retryAfterMs: 15_000 });
+    }
+    throw error;
+  }
+}
+
+async function synchronizePullRequestComment(
+  claimed: ClaimedCheck,
+  target: CheckTarget,
+  dependencies: GithubControlDependencies,
+): Promise<void> {
+  if (!dependencies.pullRequestComments) {
+    throw new GithubControlError("INVALID_INPUT");
+  }
+  try {
+    await dependencies.pullRequestComments.upsert({
+      installationId: target.installationId,
+      repositoryId: target.repositoryId,
+      owner: target.owner,
+      repositoryName: target.repositoryName,
+      pullNumber: target.pullNumber,
+      revisionId: target.revisionId,
+      headSha: target.headSha,
+      baseSha: target.baseSha,
+      expectedPullRequestState: "open",
+      detailsUrl: claimed.detailsUrl,
+    });
   } catch (error) {
     if (error instanceof GithubControlError && error.code === "STALE_HEAD") {
       await schedulePullRequestRefresh(target, dependencies);
@@ -1484,13 +1524,20 @@ function getDurableRetryTime(
 
 export function createOctokitControlPorts(input: {
   tokenProvider: ConstructorParameters<typeof OctokitPullRequestPort>[0];
+  appId: string;
 }): {
   pullRequests: OctokitPullRequestPort;
   checkRuns: OctokitCheckRunAdapter;
+  pullRequestComments: OctokitPullRequestCommentAdapter;
 } {
   const pullRequests = new OctokitPullRequestPort(input.tokenProvider);
   return {
     pullRequests,
     checkRuns: new OctokitCheckRunAdapter(input.tokenProvider, pullRequests),
+    pullRequestComments: new OctokitPullRequestCommentAdapter(
+      input.tokenProvider,
+      pullRequests,
+      { appId: input.appId },
+    ),
   };
 }

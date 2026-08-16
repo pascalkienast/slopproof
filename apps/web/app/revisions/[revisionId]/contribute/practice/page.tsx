@@ -56,13 +56,10 @@ export default async function PracticePage({
       <section className="practice-app-shell">
         <header className="practice-app-bar">
           <a href={`/revisions/${revisionId.data}/contribute`}>
-            ← Contributor proof
+            ← Back to overview
           </a>
-          <nav aria-label="Contributor paths">
+          <nav aria-label="Current contributor path">
             <span className="is-current">Practice · optional</span>
-            <a href={`/revisions/${revisionId.data}/contribute`}>
-              Prove · required
-            </a>
           </nav>
         </header>
         <div className="practice-intro">

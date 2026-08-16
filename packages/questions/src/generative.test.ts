@@ -228,6 +228,20 @@ describe("Gate 4 semantic content contracts", () => {
     ).toBe(false);
   });
 
+  it("makes deterministic Proof fallback prompts identify their file and line", () => {
+    const candidates = deterministicProofFallbackV2(contextFixture(), 2);
+
+    expect(candidates[0]?.prompt).toContain("apps/api/route.ts");
+    expect(candidates[0]?.prompt).toContain("new line 1");
+    expect(candidates[1]?.prompt).toContain("src/auth/permission.ts");
+    expect(candidates[1]?.prompt).toContain("new line 5");
+    expect(
+      candidates.every(
+        (question) => !question.prompt.includes("this changed hunk"),
+      ),
+    ).toBe(true);
+  });
+
   it("rejects a 301-character rubric description before a Proof plan can be frozen or hashed", () => {
     const candidate = deterministicProofFallbackV2(contextFixture(), 1)[0];
     expect(candidate).toBeDefined();
