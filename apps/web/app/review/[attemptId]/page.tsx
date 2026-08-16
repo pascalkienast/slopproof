@@ -5,7 +5,10 @@ import {
   loadReviewDetail,
   ReviewNotFoundError,
 } from "../../../lib/maintainer-review";
-import { loadPrivateReviewContext } from "../../../lib/private-review-context";
+import {
+  hasPrivateReviewContextMetadata,
+  loadPrivateReviewContext,
+} from "../../../lib/private-review-context";
 import { ReviewAttemptIdSchema } from "../../../lib/review-http";
 import { getWebRuntime } from "../../../lib/runtime";
 import { WebRequestRateLimitExceededError } from "../../../lib/request-rate-limit";
@@ -73,7 +76,7 @@ export default async function ReviewDetailPage({
   let privateContext: Awaited<ReturnType<typeof loadPrivateReviewContext>> =
     null;
   let privateContextRetryAfter: number | null = null;
-  if (evidenceReviewable) {
+  if (evidenceReviewable && hasPrivateReviewContextMetadata(detail)) {
     try {
       privateContext = await loadPrivateReviewContext(
         app,

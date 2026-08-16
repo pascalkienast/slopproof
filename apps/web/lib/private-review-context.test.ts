@@ -1,7 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { parsePrivateReviewContextResponse } from "./private-review-context";
+import {
+  hasPrivateReviewContextMetadata,
+  parsePrivateReviewContextResponse,
+} from "./private-review-context";
 
 describe("private review response parsing", () => {
+  it("skips the worker context request when transcript or evaluation metadata is absent", () => {
+    expect(
+      hasPrivateReviewContextMetadata({
+        transcriptProvider: null,
+        evaluationProvider: null,
+        evaluationModel: null,
+      }),
+    ).toBe(false);
+    expect(
+      hasPrivateReviewContextMetadata({
+        transcriptProvider: "whisper",
+        evaluationProvider: null,
+        evaluationModel: null,
+      }),
+    ).toBe(false);
+    expect(
+      hasPrivateReviewContextMetadata({
+        transcriptProvider: "whisper",
+        evaluationProvider: "hetzner-inference",
+        evaluationModel: "judge-model",
+      }),
+    ).toBe(true);
+  });
+
   it("preserves the exact authoritative V2 result instead of the compatibility sentinel", () => {
     const parsed = parsePrivateReviewContextResponse(
       JSON.stringify(v2Fixture()),
