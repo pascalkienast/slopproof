@@ -14,6 +14,19 @@ import {
 } from "./request-rate-limit";
 
 const MAX_CONTEXT_BYTES = 8 * 1024 * 1024;
+const PRIVATE_REVIEW_CONTEXT_TIMEOUT_MS = 5_000;
+
+export function hasPrivateReviewContextMetadata(detail: {
+  transcriptProvider: string | null;
+  evaluationProvider: string | null;
+  evaluationModel: string | null;
+}): boolean {
+  return (
+    detail.transcriptProvider !== null &&
+    detail.evaluationProvider !== null &&
+    detail.evaluationModel !== null
+  );
+}
 
 export async function loadPrivateReviewContext(
   app: WebRuntime,
@@ -81,6 +94,7 @@ export async function loadPrivateReviewContext(
       headers: { authorization: `Bearer ${token}` },
       cache: "no-store",
       redirect: "manual",
+      signal: AbortSignal.timeout(PRIVATE_REVIEW_CONTEXT_TIMEOUT_MS),
     });
     const contentType = response.headers.get("content-type")?.toLowerCase();
     const lengthHeader = response.headers.get("content-length");
