@@ -142,28 +142,12 @@ describe("Gate 4 worker-only semantic generation", () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
-        Response.json({
-          choices: [
-            {
-              message: {
-                role: "assistant",
-                content: "bounded but malformed private model content",
-              },
-            },
-          ],
-        }),
+        hetznerStreamResponse("bounded but malformed private model content"),
       )
       .mockResolvedValueOnce(
-        Response.json({
-          choices: [
-            {
-              message: {
-                role: "assistant",
-                content: JSON.stringify({ result: valid }),
-              },
-            },
-          ],
-          usage: { prompt_tokens: 5, completion_tokens: 3 },
+        hetznerStreamResponse(JSON.stringify({ result: valid }), {
+          prompt_tokens: 5,
+          completion_tokens: 3,
         }),
       );
     const dependencies: HetznerSemanticProviderDependencies = {
@@ -546,6 +530,31 @@ function response(
     output,
     tokenUsage: { inputTokens, outputTokens },
   };
+}
+
+function hetznerStreamResponse(
+  content: string,
+  usage?: { prompt_tokens: number; completion_tokens: number },
+): Response {
+  const events = [
+    {
+      choices: [
+        {
+          index: 0,
+          delta: { role: "assistant", content },
+          finish_reason: null,
+        },
+      ],
+    },
+    {
+      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+    },
+    ...(usage === undefined ? [] : [{ choices: [], usage }]),
+  ];
+  return new Response(
+    `${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")}data: [DONE]\n\n`,
+    { headers: { "content-type": "text/event-stream; charset=utf-8" } },
+  );
 }
 
 function baseRequest(context: GenerationContextV1) {
