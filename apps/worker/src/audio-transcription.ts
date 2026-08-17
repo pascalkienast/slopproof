@@ -40,6 +40,7 @@ const WAV_HEADER_BYTES = 44;
 const MAX_PCM_BYTES = 16 * 1_024 * 1_024;
 const MAX_QUESTION_AUDIO_BYTES = 16 * 1_024 * 1_024;
 const MAX_DECODE_DURATION_DRIFT_MS = 1_500;
+const MAX_QUESTION_CLIP_END_CLAMP_MS = 250;
 const DEFAULT_FFMPEG_TIMEOUT_MS = 120_000;
 
 export const RecordingAudioTranscriptionSourceV1Schema = z
@@ -686,11 +687,16 @@ export function questionWavFromPcm(
   const startByte = Math.floor(
     interval.data.startMs * PCM_BYTES_PER_MILLISECOND,
   );
-  const endByte = Math.floor(interval.data.endMs * PCM_BYTES_PER_MILLISECOND);
+  const requestedEndByte = Math.floor(
+    interval.data.endMs * PCM_BYTES_PER_MILLISECOND,
+  );
+  const alignedPcmBytes =
+    pcm.byteLength - (pcm.byteLength % PCM_BYTES_PER_SAMPLE);
+  const endByte = clampQuestionClipEndByte(requestedEndByte, alignedPcmBytes);
   const dataBytes = endByte - startByte;
   if (
     startByte < 0 ||
-    endByte > pcm.byteLength ||
+    endByte > alignedPcmBytes ||
     dataBytes <= 0 ||
     dataBytes + WAV_HEADER_BYTES > MAX_QUESTION_AUDIO_BYTES ||
     dataBytes % PCM_BYTES_PER_SAMPLE !== 0
@@ -720,6 +726,17 @@ export function questionWavFromPcm(
   view.setUint32(40, dataBytes, true);
   wav.set(pcm.subarray(startByte, endByte), WAV_HEADER_BYTES);
   return wav;
+}
+
+function clampQuestionClipEndByte(
+  requestedEndByte: number,
+  pcmByteLength: number,
+): number {
+  if (requestedEndByte <= pcmByteLength) return requestedEndByte;
+  const overflowBytes = requestedEndByte - pcmByteLength;
+  const overflowMs = overflowBytes / PCM_BYTES_PER_MILLISECOND;
+  if (overflowMs > MAX_QUESTION_CLIP_END_CLAMP_MS) return requestedEndByte;
+  return pcmByteLength;
 }
 
 function writeAscii(bytes: Uint8Array, offset: number, value: string): void {
