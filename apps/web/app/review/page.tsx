@@ -3,6 +3,10 @@ import { loadReviewQueue } from "../../lib/maintainer-review";
 import { readPageSessionRequest } from "../../lib/http-auth";
 import { getWebRuntime } from "../../lib/runtime";
 import { WebRequestRateLimitExceededError } from "../../lib/request-rate-limit";
+import {
+  listActiveMaintainerRepositories,
+  type ActiveMaintainerRepositoryV1,
+} from "../../lib/github-oauth-production";
 import { DemoMaintainerLogin } from "./demo-maintainer-login";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +34,9 @@ export default async function ReviewQueuePage() {
           {app.config.DEMO_MODE ? (
             <DemoMaintainerLogin />
           ) : (
-            <GithubMaintainerLogin />
+            <GithubMaintainerLogin
+              repositories={await loadReviewLoginRepositories(app)}
+            />
           )}
         </section>
       </ReviewShell>
@@ -126,7 +132,9 @@ export default async function ReviewQueuePage() {
           {app.config.DEMO_MODE ? (
             <DemoMaintainerLogin />
           ) : (
-            <GithubMaintainerLogin />
+            <GithubMaintainerLogin
+              repositories={await loadReviewLoginRepositories(app)}
+            />
           )}
         </section>
       </ReviewShell>
@@ -134,15 +142,59 @@ export default async function ReviewQueuePage() {
   }
 }
 
-function GithubMaintainerLogin() {
+async function loadReviewLoginRepositories(
+  app: Awaited<ReturnType<typeof getWebRuntime>>,
+): Promise<readonly ActiveMaintainerRepositoryV1[]> {
+  try {
+    return await listActiveMaintainerRepositories(app.database.pool);
+  } catch {
+    return [];
+  }
+}
+
+function GithubMaintainerLogin({
+  repositories,
+}: {
+  repositories: readonly ActiveMaintainerRepositoryV1[];
+}) {
+  if (repositories.length === 0) {
+    return (
+      <p className="review-login">
+        Maintainer authorization is temporarily unavailable.
+      </p>
+    );
+  }
+  if (repositories.length === 1) {
+    return (
+      <a
+        className="button primary review-login"
+        href={reviewAuthorizationHref(repositories[0]!.id)}
+      >
+        Authorize with GitHub
+      </a>
+    );
+  }
   return (
-    <a
-      className="button primary"
-      href="/api/auth/github/start?returnTo=%2Freview"
-    >
-      Authorize with GitHub
-    </a>
+    <nav className="review-login review-repo-choice" aria-label="Choose repository">
+      <p>Choose the repository to review.</p>
+      <ul>
+        {repositories.map((repository) => (
+          <li key={repository.id}>
+            <a
+              className="button primary"
+              href={reviewAuthorizationHref(repository.id)}
+            >
+              Authorize {repository.owner}/{repository.name}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
+}
+
+function reviewAuthorizationHref(repositoryId: string): string {
+  return `/api/auth/github/start?returnTo=${encodeURIComponent("/review")}&repositoryId=${encodeURIComponent(repositoryId)}`;
 }
 
 function ReviewShell({

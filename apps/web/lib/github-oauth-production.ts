@@ -73,6 +73,26 @@ const ActiveRepositoryRowSchema = z
   })
   .strict();
 
+const RepositoryOwnerNameSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[A-Za-z0-9_.-]+$/u);
+
+const ActiveMaintainerRepositorySchema = z
+  .object({
+    id: z.uuid(),
+    owner: RepositoryOwnerNameSchema,
+    name: RepositoryOwnerNameSchema,
+  })
+  .strict();
+
+export type ActiveMaintainerRepositoryV1 = z.infer<
+  typeof ActiveMaintainerRepositorySchema
+>;
+
+const MAX_ACTIVE_MAINTAINER_REPOSITORIES = 32;
+
 const StateRowSchema = z
   .object({
     state_hash: StateHashSchema,
@@ -615,6 +635,23 @@ export async function resolveProductionStartBinding(
   }
 
   if (redirectPath !== "/review") throw new GithubOAuthWiringError();
+  const selectedRepositoryId = requestedReviewRepositoryId(request);
+  if (selectedRepositoryId) {
+    return loadSingleActiveBinding(
+      app.database.pool,
+      `SELECT repository.id AS repository_id,
+              repository.github_repository_id
+         FROM repositories repository
+         JOIN installations installation
+           ON installation.id = repository.installation_id
+        WHERE repository.id = $1
+          AND repository.status = 'active'
+          AND installation.status = 'active'
+        LIMIT 1`,
+      [selectedRepositoryId],
+      "maintainer_reauth",
+    );
+  }
   const sessionToken = requestCookieValue(request, SESSION_COOKIE);
   if (sessionToken) {
     validateCredential(sessionToken);
@@ -693,6 +730,44 @@ function bindingFromRow(
   });
   if (!binding.success) throw new GithubOAuthWiringError();
   return binding.data;
+}
+
+function requestedReviewRepositoryId(request: Request): string | undefined {
+  const url = new URL(request.url);
+  const values = url.searchParams.getAll("repositoryId");
+  if (values.length === 0) return undefined;
+  if (values.length > 1) throw new GithubOAuthWiringError();
+  const repositoryId = z.uuid().safeParse(values[0]);
+  if (!repositoryId.success) throw new GithubOAuthWiringError();
+  return repositoryId.data;
+}
+
+export async function listActiveMaintainerRepositories(
+  pool: SqlPool,
+): Promise<readonly ActiveMaintainerRepositoryV1[]> {
+  const result = await pool.query<{
+    id: string;
+    owner: string;
+    name: string;
+  }>(
+    `SELECT repository.id, repository.owner, repository.name
+       FROM repositories repository
+       JOIN installations installation
+         ON installation.id = repository.installation_id
+      WHERE repository.status = 'active'
+        AND installation.status = 'active'
+      ORDER BY repository.owner, repository.name, repository.id
+      LIMIT $1`,
+    [MAX_ACTIVE_MAINTAINER_REPOSITORIES + 1],
+  );
+  if (result.rows.length > MAX_ACTIVE_MAINTAINER_REPOSITORIES) {
+    throw new GithubOAuthWiringError();
+  }
+  return result.rows.map((row) => {
+    const parsed = ActiveMaintainerRepositorySchema.safeParse(row);
+    if (!parsed.success) throw new GithubOAuthWiringError();
+    return parsed.data;
+  });
 }
 
 async function peekActiveStateRedirect(

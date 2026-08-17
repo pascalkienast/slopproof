@@ -71,6 +71,12 @@ test("production review chrome does not expose the local demo", () => {
     reviewPage,
     /Authorize with\s+GitHub to open the protected maintainer queue/u,
   );
+  assert.match(reviewPage, /Choose the repository to review/u);
+  assert.match(
+    reviewPage,
+    /returnTo=\$\{encodeURIComponent\("\/review"\)\}&repositoryId=\$\{encodeURIComponent\(repositoryId\)\}/u,
+  );
+  assert.doesNotMatch(reviewPage, /githubRepositoryId/u);
   assert.doesNotMatch(reviewPage, /The local MVP exposes a demo maintainer/u);
 });
 
