@@ -694,6 +694,10 @@ test("release transfer is Mac- and Ubuntu-compatible, independently trusted and 
   assert.match(transfer, /stat -f '%u:%Lp'/u);
   assert.match(transfer, /bounded 180 ssh[\s\S]*\/usr\/bin\/bash -s/u);
   assert.match(transfer, /\/usr\/bin\/test ! -L "\$target"/u);
+  assert.match(
+    transfer,
+    /REMOTE="\$\{DEPLOY_SSH_USER:-root\}@\$\{DEPLOY_SSH_HOST:-157\.180\.84\.237\}"/u,
+  );
   assert.match(wrapper, /Remote immutable manifest hash mismatch/u);
   assert.match(wrapper, /Remote source content mismatch/u);
   assert.match(wrapper, /Remote artifact content mismatch/u);
@@ -802,11 +806,13 @@ test("GitHub-hosted operator wraps transfer and stops before CMS decrypt", () =>
 
   assert.match(driver, /^umask 077$/mu);
   assert.match(driver, /\[\[ \$- != \*x\* \]\]/u);
-  assert.match(driver, /REMOTE='root@157\.180\.84\.237'/u);
-  assert.equal(
-    /REMOTE='root@157\.180\.84\.237'/u.exec(transfer)?.[0],
-    /REMOTE='root@157\.180\.84\.237'/u.exec(driver)?.[0],
+  assert.match(driver, /DEPLOY_SSH_HOST/u);
+  assert.match(driver, /DEPLOY_SSH_USER:-root/u);
+  assert.match(
+    transfer,
+    /REMOTE="\$\{DEPLOY_SSH_USER:-root\}@\$\{DEPLOY_SSH_HOST:-157\.180\.84\.237\}"/u,
   );
+  assert.doesNotMatch(driver, /mobileup/iu);
   assert.match(driver, /prepare-release\.mjs" create/u);
   assert.match(driver, /pnpm production:env -- "\$output"/u);
   assert.match(driver, /transfer-release\.sh/u);

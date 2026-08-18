@@ -170,9 +170,12 @@ test("production operator workflow is GitHub-hosted, environment-gated and never
   assert.match(workflow, /--provenance=false/u);
   assert.match(workflow, /upload-artifact: false/u);
   assert.doesNotMatch(workflow, /pg_dump|run-backup-rehearsal|migrate-start/u);
-  assert.match(workflow, /MOBILEUP_SSH_KEY/u);
+  assert.match(workflow, /DEPLOY_SSH_KEY/u);
+  assert.match(workflow, /DEPLOY_SSH_HOST/u);
+  assert.match(workflow, /DEPLOY_SSH_USER/u);
   assert.match(workflow, /GH_APP_PRIVATE_KEY/u);
   assert.match(workflow, /KEY_WRAPPING_PRIVATE_KEY/u);
+  assert.doesNotMatch(workflow, /mobileup/iu);
 });
 
 test("the production application base image is pinned by multi-arch digest", () => {

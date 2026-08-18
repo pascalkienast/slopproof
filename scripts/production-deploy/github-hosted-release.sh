@@ -5,8 +5,7 @@
 # and never writes compiler outputs into the git checkout.
 #
 # Environment secret names (values never belong in this repository):
-#   MOBILEUP_SSH_KEY
-#   MOBILEUP_SSH_KNOWN_HOSTS
+#   DEPLOY_SSH_KEY DEPLOY_SSH_HOST DEPLOY_SSH_USER DEPLOY_SSH_KNOWN_HOSTS
 #   GH_APP_ID GH_WEBHOOK_SECRET GH_CLIENT_ID GH_CLIENT_SECRET GH_APP_PRIVATE_KEY
 #   KEY_WRAPPING_PRIVATE_KEY KEY_WRAPPING_PUBLIC_KEY
 #   APP_BASE_URL DATABASE_URL SESSION_SECRET LOG_LEVEL
@@ -34,8 +33,8 @@ umask 077
   exit 1
 }
 
-readonly REMOTE='root@157.180.84.237'
 readonly CURRENT_DEPLOY='/opt/slopproof/current/scripts/production-deploy/deploy.sh'
+REMOTE=''
 
 die() {
   printf '%s\n' "$1" >&2
@@ -99,26 +98,38 @@ ssh_options_from_identity() {
   )
 }
 
+resolve_deploy_remote() {
+  local user=${DEPLOY_SSH_USER:-root}
+  require_env DEPLOY_SSH_HOST
+  [[ "$user" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]] || die "Invalid DEPLOY_SSH_USER"
+  [[ "$DEPLOY_SSH_HOST" =~ ^[A-Za-z0-9._:\[\]-]+$ ]] || die "Invalid DEPLOY_SSH_HOST"
+  REMOTE="$user@$DEPLOY_SSH_HOST"
+  export DEPLOY_SSH_USER=$user
+  export DEPLOY_SSH_HOST
+}
+
 install_ssh_material() {
   local identity=$1
-  require_env MOBILEUP_SSH_KEY
-  require_env MOBILEUP_SSH_KNOWN_HOSTS
+  require_env DEPLOY_SSH_KEY
+  require_env DEPLOY_SSH_KNOWN_HOSTS
   require_absent "$identity" "SSH identity"
+  resolve_deploy_remote
   install -d -m 0700 -- "$(dirname "$identity")"
-  printf '%s' "$MOBILEUP_SSH_KEY" | write_owner_file "$identity" 600
-  MOBILEUP_SSH_KEY=''
-  unset MOBILEUP_SSH_KEY
+  printf '%s' "$DEPLOY_SSH_KEY" | write_owner_file "$identity" 600
+  DEPLOY_SSH_KEY=''
+  unset DEPLOY_SSH_KEY
   install -d -m 0700 -- "${HOME:?}/.ssh"
   chmod 700 -- "$HOME/.ssh"
   rm -f -- "$HOME/.ssh/known_hosts"
-  printf '%s' "$MOBILEUP_SSH_KNOWN_HOSTS" | write_owner_file "$HOME/.ssh/known_hosts" 600
-  MOBILEUP_SSH_KNOWN_HOSTS=''
-  unset MOBILEUP_SSH_KNOWN_HOSTS
+  printf '%s' "$DEPLOY_SSH_KNOWN_HOSTS" | write_owner_file "$HOME/.ssh/known_hosts" 600
+  DEPLOY_SSH_KNOWN_HOSTS=''
+  unset DEPLOY_SSH_KNOWN_HOSTS
 }
 
-ssh_mobileup() {
+ssh_production() {
   local seconds=$1
   shift
+  [[ -n "$REMOTE" ]] || die "Production SSH remote is unset"
   bounded "$seconds" ssh "${ssh_options[@]}" "$REMOTE" "$@"
 }
 
@@ -126,7 +137,7 @@ remote_deploy() {
   local seconds=$1 script=$2
   shift 2
   [[ "$script" == /opt/slopproof/* ]] || die "Refusing to execute a non-release deploy script"
-  ssh_mobileup "$seconds" "$script" "$@"
+  ssh_production "$seconds" "$script" "$@"
 }
 
 unset_compiler_secrets() {
@@ -337,11 +348,11 @@ run_deploy() {
   install_ssh_material "$identity"
   ssh_options_from_identity "$identity"
 
-  ssh_mobileup 60 test -x "$CURRENT_DEPLOY"
+  ssh_production 60 test -x "$CURRENT_DEPLOY"
   remote_deploy 180 "$CURRENT_DEPLOY" preflight
   transfer_release "$repository" "$bundle" "$compiled_secrets" "$identity"
   incoming_script=$(incoming_deploy "$release_id")
-  ssh_mobileup 60 test -x "$incoming_script"
+  ssh_production 60 test -x "$incoming_script"
   remote_deploy 1800 "$incoming_script" image-stage "$release_id"
   remote_deploy 300 "$incoming_script" postgres-only "$release_id"
   remote_deploy 180 "$incoming_script" managed-prepare "$release_id"
@@ -358,12 +369,12 @@ run_managed_rollback() {
   trap 'rm -f -- "${IDENTITY_CLEANUP:-}"' EXIT
   install_ssh_material "$identity"
   ssh_options_from_identity "$identity"
-  if ssh_mobileup 60 test -x "$(incoming_deploy "$release_id")"; then
+  if ssh_production 60 test -x "$(incoming_deploy "$release_id")"; then
     script=$(incoming_deploy "$release_id")
-  elif ssh_mobileup 60 test -x "$(final_deploy "$release_id")"; then
+  elif ssh_production 60 test -x "$(final_deploy "$release_id")"; then
     script=$(final_deploy "$release_id")
   else
-    die "Release deploy.sh is absent on mobileup"
+    die "Release deploy.sh is absent on the production host"
   fi
   remote_deploy 900 "$script" managed-rollback "$release_id"
 }

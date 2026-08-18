@@ -3,8 +3,7 @@
 #
 # Create a GitHub Environment named production and add these secret names
 # (not values) before the first real run:
-#   MOBILEUP_SSH_KEY
-#   MOBILEUP_SSH_KNOWN_HOSTS
+#   DEPLOY_SSH_KEY, DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KNOWN_HOSTS
 #   GH_APP_ID, GH_WEBHOOK_SECRET, GH_CLIENT_ID, GH_CLIENT_SECRET,
 #   GH_APP_PRIVATE_KEY
 #   KEY_WRAPPING_PRIVATE_KEY, KEY_WRAPPING_PUBLIC_KEY
@@ -196,8 +195,10 @@ jobs:
 
       - name: Stage the managed release through managed-prepare
         env:
-          MOBILEUP_SSH_KEY: ${{ secrets.MOBILEUP_SSH_KEY }}
-          MOBILEUP_SSH_KNOWN_HOSTS: ${{ secrets.MOBILEUP_SSH_KNOWN_HOSTS }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST || vars.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER || vars.DEPLOY_SSH_USER }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS || vars.DEPLOY_SSH_KNOWN_HOSTS }}
           GH_APP_ID: ${{ secrets.GH_APP_ID }}
           GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
           GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
@@ -238,7 +239,7 @@ jobs:
             --release-id "$RELEASE_ID" \
             --bundle "$RUNNER_TEMP/slopproof-release/$RELEASE_ID" \
             --compiled-secrets "$RUNNER_TEMP/slopproof-compiled-secrets" \
-            --identity "$RUNNER_TEMP/slopproof-ssh/id_mobileup" \
+            --identity "$RUNNER_TEMP/slopproof-ssh/id_deploy" \
             --image-archive "$RUNNER_TEMP/slopproof-artifacts/slopproof-app-linux-amd64.tar" \
             --image-tag "$IMAGE_TAG" \
             --image-id "$IMAGE_ID" \
@@ -259,8 +260,10 @@ jobs:
       - name: Roll back the named managed release
         env:
           REQUEST_REF: ${{ inputs.ref }}
-          MOBILEUP_SSH_KEY: ${{ secrets.MOBILEUP_SSH_KEY }}
-          MOBILEUP_SSH_KNOWN_HOSTS: ${{ secrets.MOBILEUP_SSH_KNOWN_HOSTS }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST || vars.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER || vars.DEPLOY_SSH_USER }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS || vars.DEPLOY_SSH_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           umask 077
@@ -271,4 +274,4 @@ jobs:
           }
           scripts/production-deploy/github-hosted-release.sh managed-rollback \
             --release-id "$REQUEST_REF" \
-            --identity "$RUNNER_TEMP/slopproof-ssh/id_mobileup"
+            --identity "$RUNNER_TEMP/slopproof-ssh/id_deploy"
