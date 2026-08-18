@@ -1,6 +1,7 @@
 import type { JobPayload } from "@slopproof/db";
 import {
   createSemanticGenerationService,
+  SemanticGenerationFailedError,
   type GenerateLearningBundleRequestV1,
   type GeneratePracticeFeedbackRequestV1,
   type GenerateProofQuestionPlanRequestV1,
@@ -8,6 +9,7 @@ import {
 import type {
   SemanticGenerationJobHandlerDependencies,
   SemanticGenerationJobHandlers,
+  SemanticRunContext,
 } from "./semantic-generation-contracts";
 
 export function createSemanticGenerationJobHandlers(
@@ -21,6 +23,9 @@ export function createSemanticGenerationJobHandlers(
       );
       if (run === "stale") return { outcome: "stale" };
       if (run.completedArtifactId !== null) return { outcome: "replayed" };
+      if (run.completedAt !== null) {
+        return { outcome: "failed", degraded: true };
+      }
       const forbiddenProofContent =
         await dependencies.repository.loadFrozenProofContent(run);
       if (forbiddenProofContent === "pending") {
@@ -37,12 +42,17 @@ export function createSemanticGenerationJobHandlers(
         practiceQuestionCount: run.questionCount,
         forbiddenProofContent,
       };
-      const result = await dependencies.service.generateLearningBundle(request);
-      return {
-        outcome: await dependencies.repository.persistLearning(run, result),
-        artifactId: result.artifact.id,
-        degraded: result.degraded,
-      };
+      try {
+        const result =
+          await dependencies.service.generateLearningBundle(request);
+        return {
+          outcome: await dependencies.repository.persistLearning(run, result),
+          artifactId: result.artifact.id,
+          degraded: false,
+        };
+      } catch (error) {
+        return persistHonestGenerationFailure(dependencies, run, error);
+      }
     },
 
     async "semantic.generate-practice-feedback"(payload) {
@@ -52,6 +62,9 @@ export function createSemanticGenerationJobHandlers(
       );
       if (run === "stale") return { outcome: "stale" };
       if (run.completedArtifactId !== null) return { outcome: "replayed" };
+      if (run.completedAt !== null) {
+        return { outcome: "failed", degraded: true };
+      }
       const privateInput =
         await dependencies.repository.loadPracticeQuestionAndAnswer(
           run,
@@ -74,17 +87,21 @@ export function createSemanticGenerationJobHandlers(
         contributorAnswer: privateInput.answer,
         forbiddenProofContent,
       };
-      const result =
-        await dependencies.service.generatePracticeFeedback(request);
-      return {
-        outcome: await dependencies.repository.persistPracticeFeedback(
-          run,
-          payload,
-          result,
-        ),
-        artifactId: result.artifact.id,
-        degraded: result.degraded,
-      };
+      try {
+        const result =
+          await dependencies.service.generatePracticeFeedback(request);
+        return {
+          outcome: await dependencies.repository.persistPracticeFeedback(
+            run,
+            payload,
+            result,
+          ),
+          artifactId: result.artifact.id,
+          degraded: false,
+        };
+      } catch (error) {
+        return persistHonestGenerationFailure(dependencies, run, error);
+      }
     },
 
     async "semantic.generate-proof-questions"(payload) {
@@ -96,6 +113,9 @@ export function createSemanticGenerationJobHandlers(
       if (run.completedArtifactId !== null) {
         return dependencies.repository.replayCompletedProof(run);
       }
+      if (run.completedAt !== null) {
+        return { outcome: "generation_failed" };
+      }
       const request: GenerateProofQuestionPlanRequestV1 = {
         schemaVersion: "1",
         requestVersion: "generate-proof-question-plan-v1",
@@ -106,18 +126,46 @@ export function createSemanticGenerationJobHandlers(
         deleteAfter: run.deleteAfter,
         questionBudget: run.questionCount,
       };
-      const result =
-        await dependencies.service.generateProofQuestionPlan(request);
-      return dependencies.repository.persistProofPlanAndCreateAttempt(
-        run,
-        result,
-      );
+      try {
+        const result =
+          await dependencies.service.generateProofQuestionPlan(request);
+        return dependencies.repository.persistProofPlanAndCreateAttempt(
+          run,
+          result,
+        );
+      } catch (error) {
+        if (error instanceof SemanticGenerationFailedError) {
+          await dependencies.repository.persistFailedGeneration(
+            run,
+            error.metadata,
+            error.failure,
+          );
+          return { outcome: "generation_failed" };
+        }
+        throw error;
+      }
     },
 
     async "semantic.expire-private"(payload) {
       return { outcome: await dependencies.repository.expirePrivate(payload) };
     },
   };
+}
+
+async function persistHonestGenerationFailure(
+  dependencies: SemanticGenerationJobHandlerDependencies,
+  run: SemanticRunContext,
+  error: unknown,
+): Promise<{ outcome: "failed"; degraded: true }> {
+  if (!(error instanceof SemanticGenerationFailedError)) {
+    throw error;
+  }
+  await dependencies.repository.persistFailedGeneration(
+    run,
+    error.metadata,
+    error.failure,
+  );
+  return { outcome: "failed", degraded: true };
 }
 
 // Keep the worker service constructor reachable from the stable Gate-4 module.

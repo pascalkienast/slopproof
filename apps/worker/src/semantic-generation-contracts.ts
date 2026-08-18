@@ -3,6 +3,7 @@ import type { GenerationContextV1 } from "@slopproof/analysis";
 import type {
   ContributorPracticeAnswerV1Schema,
   PayloadCipher,
+  SemanticProviderFailureV1,
   SemanticProviderInvocationMetadataV1,
 } from "@slopproof/providers";
 import type {
@@ -61,6 +62,8 @@ export type SemanticRunContext = {
   deadlineAt: Date;
   deleteAfter: Date;
   completedArtifactId: string | null;
+  completedAt: Date | null;
+  degraded: boolean | null;
 };
 
 export type StartPracticeSessionInput = {
@@ -171,6 +174,11 @@ export interface SemanticGenerationRepository {
   loadFrozenProofContent(
     run: SemanticRunContext,
   ): Promise<ForbiddenProofContentV1 | "pending">;
+  persistFailedGeneration(
+    run: SemanticRunContext,
+    metadata: SemanticProviderInvocationMetadataV1,
+    failure: SemanticProviderFailureV1,
+  ): Promise<"created" | "replayed">;
   persistLearning(
     run: SemanticRunContext,
     result: SemanticGenerationResultV1<LearningBundleV1>,

@@ -34,9 +34,6 @@ import {
   PracticeQuestionV2Schema,
   ProofQuestionPlanV2Schema,
   SemanticContentValidationError,
-  deterministicLearningFallbackV1,
-  deterministicPracticeFeedbackFallbackV1,
-  deterministicProofFallbackV2,
   validateLearningBundleCandidateV1,
   validatePracticeFeedbackCandidateV1,
   validatePracticeQuestionV2AgainstContext,
@@ -130,6 +127,18 @@ export type SemanticGenerationResultV1<TArtifact> = {
   degraded: boolean;
 };
 
+export class SemanticGenerationFailedError extends Error {
+  readonly code = "SEMANTIC_GENERATION_FAILED" as const;
+
+  constructor(
+    readonly metadata: SemanticProviderInvocationMetadataV1,
+    readonly failure: SemanticProviderFailureV1,
+  ) {
+    super("Semantic generation failed after bounded retries.");
+    this.name = "SemanticGenerationFailedError";
+  }
+}
+
 export interface SemanticGenerationClock {
   now(): Date;
   monotonicNowMs(): number;
@@ -208,12 +217,6 @@ export function createSemanticGenerationService(
             request.practiceQuestionCount,
             request.forbiddenProofContent,
           ),
-        fallback: () =>
-          deterministicLearningFallbackV1(
-            request.generationContext,
-            request.practiceQuestionCount,
-            request.forbiddenProofContent,
-          ),
         clock: dependencies.clock,
       });
       const artifact = bindLearningBundle(
@@ -261,12 +264,6 @@ export function createSemanticGenerationService(
         validate: (output) =>
           validatePracticeFeedbackCandidateV1(
             output,
-            request.generationContext,
-            request.practiceQuestion,
-            request.forbiddenProofContent,
-          ),
-        fallback: () =>
-          deterministicPracticeFeedbackFallbackV1(
             request.generationContext,
             request.practiceQuestion,
             request.forbiddenProofContent,
@@ -324,11 +321,6 @@ export function createSemanticGenerationService(
             request.generationContext,
             request.questionBudget,
           ),
-        fallback: () =>
-          deterministicProofFallbackV2(
-            request.generationContext,
-            request.questionBudget,
-          ),
         clock: dependencies.clock,
       });
       const artifact = bindProofQuestionPlan(
@@ -359,7 +351,6 @@ async function invokeWithOneRepair<
   promptVersion: string;
   outputSchemaVersion: string;
   validate(output: unknown): TOutput;
-  fallback(): TOutput;
   clock: SemanticGenerationClock;
 }): Promise<InvocationOutcome<TOutput>> {
   const descriptor = SemanticProviderDescriptorV1Schema.safeParse(
@@ -470,7 +461,6 @@ async function invokeWithOneRepair<
     }
   }
 
-  const output = accepted ?? input.fallback();
   if (accepted === undefined) outcome = "fallback";
   if (outcome === "fallback" && failure === undefined) {
     failure = !descriptor.success
@@ -495,6 +485,8 @@ async function invokeWithOneRepair<
   const safeDescriptor = descriptor.success
     ? descriptor.data
     : { provider: "unavailable", model: "unavailable" };
+  const resolvedFailure =
+    failure ?? semanticValidationFailure(knownTransportAttemptCount);
   const metadata = SemanticProviderInvocationMetadataV1Schema.parse({
     schemaVersion: "1",
     metadataVersion: "semantic-provider-metadata-v1",
@@ -506,7 +498,12 @@ async function invokeWithOneRepair<
     outputSchemaVersion: input.outputSchemaVersion,
     plannerVersion: "proof-planner-v2",
     inputHash: hashUnknown(input.input),
-    outputHash: hashUnknown(output),
+    outputHash: hashUnknown(
+      accepted ?? {
+        failed: true,
+        failure: resolvedFailure,
+      },
+    ),
     tokenUsage,
     latencyMs: Math.min(
       15 * 60_000,
@@ -517,10 +514,13 @@ async function invokeWithOneRepair<
     degraded: outcome === "fallback",
     completedAt,
   });
+  if (accepted === undefined) {
+    throw new SemanticGenerationFailedError(metadata, resolvedFailure);
+  }
   return {
-    output,
+    output: accepted,
     metadata,
-    failure: outcome === "fallback" ? (failure ?? null) : null,
+    failure: null,
   };
 }
 
