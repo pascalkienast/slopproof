@@ -13,6 +13,16 @@ deliberately named `initial-caddy-cutover`. Subsequent releases use the
 separate managed path below and do not mutate Caddy unless an explicit
 credential or configuration rotation is reviewed.
 
+`.github/workflows/deploy.yml` drives that same managed path from GitHub-hosted
+`ubuntu-latest` using the `production` Environment on Release `published`
+(tag `YYYYMMDDTHHMMSSZ`) or `workflow_dispatch`. It never runs on pull
+requests. It wraps `prepare-release.mjs`, `pnpm production:env`,
+`transfer-release.sh`, and `deploy.sh` through
+`scripts/production-deploy/github-hosted-release.sh`, then stops after
+`managed-prepare`. `migrate-start` still needs the offline CMS recipient and an
+interactive passphrase, which must not enter Actions. Finish backup rehearsal,
+`migrate-start`, and `managed-finalize` on an operator machine as below.
+
 ## Invariants
 
 - `compose.production.yaml` is the only production topology. The local

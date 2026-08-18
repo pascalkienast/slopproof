@@ -793,3 +793,45 @@ test("Caddy credential unit disables persistent core dumps", () => {
   );
   assert.match(dropin, /^LimitCORE=0$/mu);
 });
+
+test("GitHub-hosted operator wraps transfer and stops before CMS decrypt", () => {
+  const driver = read("scripts/production-deploy/github-hosted-release.sh");
+  const transfer = read("scripts/production-deploy/transfer-release.sh");
+  const decrypt = read("scripts/production-backup/decrypt-cms-stream.sh");
+  const runbook = read("docs/operations/production-deployment.md");
+
+  assert.match(driver, /^umask 077$/mu);
+  assert.match(driver, /\[\[ \$- != \*x\* \]\]/u);
+  assert.match(driver, /REMOTE='root@157\.180\.84\.237'/u);
+  assert.equal(
+    /REMOTE='root@157\.180\.84\.237'/u.exec(transfer)?.[0],
+    /REMOTE='root@157\.180\.84\.237'/u.exec(driver)?.[0],
+  );
+  assert.match(driver, /prepare-release\.mjs" create/u);
+  assert.match(driver, /pnpm production:env -- "\$output"/u);
+  assert.match(driver, /transfer-release\.sh/u);
+  assert.match(driver, /StrictHostKeyChecking=yes/u);
+  assert.match(driver, /Operator outputs must stay outside the git checkout/u);
+  assert.match(driver, /remote_deploy 180 "\$CURRENT_DEPLOY" preflight/u);
+  assert.match(
+    driver,
+    /remote_deploy 1800 "\$incoming_script" image-stage "\$release_id"/u,
+  );
+  assert.match(
+    driver,
+    /remote_deploy 300 "\$incoming_script" postgres-only "\$release_id"/u,
+  );
+  assert.match(
+    driver,
+    /remote_deploy 180 "\$incoming_script" managed-prepare "\$release_id"/u,
+  );
+  assert.match(driver, /managed-rollback "\$release_id"/u);
+  assert.doesNotMatch(driver, /remote_deploy \d+ .*migrate-start/u);
+  assert.doesNotMatch(driver, /backup-compose/u);
+  assert.doesNotMatch(driver, /pg_dump --/u);
+  assert.match(driver, /Refusing migrate-start/u);
+  assert.match(driver, /Do not pg_dump onto the runner/u);
+  assert.match(decrypt, /< \/dev\/tty/u);
+  assert.match(runbook, /github-hosted-release\.sh/u);
+  assert.match(runbook, /stops after[\s\S]*managed-prepare/u);
+});

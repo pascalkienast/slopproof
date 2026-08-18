@@ -128,6 +128,53 @@ test("supply-chain workflow pins actions and fails high-risk image findings", ()
   assert.match(workflow, /severity: HIGH,CRITICAL/u);
 });
 
+test("production operator workflow is GitHub-hosted, environment-gated and never a pull_request", () => {
+  const workflow = read(".github/workflows/deploy.yml");
+  const ci = read(".github/workflows/ci.yml");
+  const onBlock = workflow.slice(
+    workflow.search(/^on:/mu),
+    workflow.search(/^permissions:/mu),
+  );
+  const actionReferences = [...workflow.matchAll(/uses:\s+([^\s#]+)/gu)].map(
+    (match) => match[1],
+  );
+
+  assert.match(onBlock, /release:[\s\S]*types: \[published\]/u);
+  assert.match(onBlock, /workflow_dispatch:/u);
+  assert.doesNotMatch(onBlock, /pull_request(?:_target)?/u);
+  assert.equal(
+    [...workflow.matchAll(/^    runs-on: ubuntu-latest$/gmu)].length,
+    2,
+  );
+  assert.equal(
+    [...workflow.matchAll(/^    environment: production$/gmu)].length,
+    2,
+  );
+  assert.match(workflow, /cancel-in-progress: false/u);
+  assert.match(workflow, /permissions:\n  contents: read/u);
+  const supply = read(".github/workflows/supply-chain.yml");
+  assert.ok(actionReferences.length >= 5);
+  for (const reference of actionReferences) {
+    assert.match(reference, /^[^@\s]+@[0-9a-f]{40}$/u);
+    assert.ok(ci.includes(reference) || supply.includes(reference), reference);
+  }
+  assert.match(
+    workflow,
+    /scripts\/production-deploy\/github-hosted-release\.sh deploy/u,
+  );
+  assert.match(
+    workflow,
+    /scripts\/production-deploy\/github-hosted-release\.sh managed-rollback/u,
+  );
+  assert.match(workflow, /--platform linux\/amd64/u);
+  assert.match(workflow, /--provenance=false/u);
+  assert.match(workflow, /upload-artifact: false/u);
+  assert.doesNotMatch(workflow, /pg_dump|run-backup-rehearsal|migrate-start/u);
+  assert.match(workflow, /MOBILEUP_SSH_KEY/u);
+  assert.match(workflow, /GH_APP_PRIVATE_KEY/u);
+  assert.match(workflow, /KEY_WRAPPING_PRIVATE_KEY/u);
+});
+
 test("the production application base image is pinned by multi-arch digest", () => {
   const dockerfile = read("Dockerfile");
   const stages = [
