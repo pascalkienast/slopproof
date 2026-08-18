@@ -194,8 +194,12 @@ describe("production GitHub OAuth wiring", () => {
 
   it("lists only active owner/name pairs for the review login", async () => {
     const database = fakePool(async (sql, parameters) => {
-      expect(sql).toContain("SELECT repository.id, repository.owner, repository.name");
-      expect(sql).toContain("ORDER BY repository.owner, repository.name, repository.id");
+      expect(sql).toContain(
+        "SELECT repository.id, repository.owner, repository.name",
+      );
+      expect(sql).toContain(
+        "ORDER BY repository.owner, repository.name, repository.id",
+      );
       expect(parameters).toEqual([33]);
       return result([
         {

@@ -227,7 +227,10 @@ function GithubMaintainerLogin({
     );
   }
   return (
-    <nav className="review-login review-repo-choice" aria-label="Choose repository">
+    <nav
+      className="review-login review-repo-choice"
+      aria-label="Choose repository"
+    >
       <p>Choose the repository to review.</p>
       <ul>
         {repositories.map((repository) => (
