@@ -127,11 +127,25 @@ export async function runMultimodalJudgeEvaluation(
         now(),
       );
     } else {
+      let rawProviderResult: unknown;
+      try {
+        rawProviderResult = await runUntilMultimodalDeadline(
+          context.data,
+          now(),
+          () => dependencies.provider.evaluate(providerInput, context.data),
+        );
+      } catch (error) {
+        if (isMultimodalDeadlineError(error)) throw multimodalDeadlineError();
+        if (error instanceof ProviderError) throw error;
+        throw new ProviderError(
+          "PROVIDER_UNAVAILABLE",
+          "retryable",
+          "Private multimodal evaluation failed",
+        );
+      }
       try {
         providerResult = validateMultimodalJudgeProviderResultV1(
-          await runUntilMultimodalDeadline(context.data, now(), () =>
-            dependencies.provider.evaluate(providerInput, context.data),
-          ),
+          rawProviderResult,
           providerInput,
           dependencies.provider.descriptor,
         );
@@ -145,9 +159,9 @@ export async function runMultimodalJudgeEvaluation(
         if (isMultimodalDeadlineError(error)) throw multimodalDeadlineError();
         if (error instanceof ProviderError) throw error;
         throw new ProviderError(
-          "PROVIDER_UNAVAILABLE",
-          "retryable",
-          "Private multimodal evaluation failed",
+          "INVALID_OUTPUT",
+          "review",
+          "Private multimodal evaluation failed its output contract",
         );
       }
     }
