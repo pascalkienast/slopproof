@@ -44,4 +44,30 @@ describe("multimodal judge provider factory", () => {
       }),
     ).toThrow("Multimodal judge provider configuration is incomplete");
   });
+
+  it("wraps OpenRouter primary with a Hetzner transport fallback", () => {
+    const provider = createMultimodalJudgeProvider({
+      MULTIMODAL_JUDGE_PROVIDER: "openrouter",
+      JUDGE_BASE_URL: "https://openrouter.example.test/api/v1",
+      JUDGE_API_KEY: "openrouter-multimodal-api-key",
+      JUDGE_MODEL: "xiaomi/mimo-v2.5",
+      JUDGE_FALLBACK_MODEL: "xiaomi/mimo-v2.5",
+      JUDGE_TRANSPORT_FALLBACK_BASE_URL:
+        "https://inference.example.test/api/v1",
+      JUDGE_TRANSPORT_FALLBACK_API_KEY: "hetzner-multimodal-api-key",
+      JUDGE_TRANSPORT_FALLBACK_MODEL: "hetzner-judge",
+      JUDGE_TRANSPORT_FALLBACK_VISION_MODEL: "hetzner-vision",
+    });
+
+    expect(provider.descriptor).toEqual({
+      provider: "openrouter",
+      model: "xiaomi/mimo-v2.5",
+      visionModel: "xiaomi/mimo-v2.5",
+    });
+    expect(provider.transportFallbackDescriptor).toEqual({
+      provider: "hetzner-inference",
+      model: "hetzner-judge",
+      visionModel: "hetzner-vision",
+    });
+  });
 });

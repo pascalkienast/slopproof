@@ -139,6 +139,22 @@ environment. Gate 7 must mount only the process-specific result and the exact
 key files. It must not place values in Compose YAML, image layers or build
 arguments.
 
+## Generation and judge providers
+
+Production generation and the multimodal judge may be compiled as either:
+
+- `hetzner` only, using `GENERATION_*` / `JUDGE_*` against one inference URL;
+- `openrouter` primary plus a separate Hetzner transport fallback.
+
+`JUDGE_FALLBACK_MODEL` remains the same-URL vision model for the primary
+judge client. It is not the Hetzner hop. The hop uses
+`GENERATION_FALLBACK_*` and `JUDGE_TRANSPORT_FALLBACK_*` so the compiler
+cannot point one Hetzner client at OpenRouter and lose a real fallback.
+Hetzner is used only after timeout, 5xx, network, unavailable, or
+rate-limit failures. Invalid model output stays on the provider that
+produced it. Persisted provider/model metadata names the provider that
+answered. Transcription stays OpenRouter Whisper.
+
 ## Provider capability checks
 
 The following scripts make real, potentially billable requests and therefore

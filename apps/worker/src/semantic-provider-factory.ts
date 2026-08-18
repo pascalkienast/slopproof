@@ -6,6 +6,7 @@ import {
   LocalFakeLearningMaterialProvider,
   LocalFakePracticeCoachProvider,
   LocalFakeProofQuestionProvider,
+  TransportFallbackSemanticProvider,
   type HetznerSemanticProviderDependencies,
   type LearningMaterialProvider,
   type PracticeCoachProvider,
@@ -36,6 +37,11 @@ export function createSemanticProviderSet(
     | "LEARNING_MODEL"
     | "PRACTICE_MODEL"
     | "PROOF_QUESTION_MODEL"
+    | "GENERATION_FALLBACK_BASE_URL"
+    | "GENERATION_FALLBACK_API_KEY"
+    | "LEARNING_FALLBACK_MODEL"
+    | "PRACTICE_FALLBACK_MODEL"
+    | "PROOF_QUESTION_FALLBACK_MODEL"
   >,
   dependencies: SemanticProviderFactoryDependencies = {},
 ): SemanticProviderSet {
@@ -47,21 +53,76 @@ export function createSemanticProviderSet(
       proofQuestionProvider: new LocalFakeProofQuestionProvider(clock),
     };
   }
-  const baseUrl = required(config.GENERATION_BASE_URL);
-  const apiKey = required(config.GENERATION_API_KEY);
-  const shared = { baseUrl, apiKey };
+  const primary = createCompatibleSemanticSet(
+    config.GENERATION_PROVIDER === "openrouter"
+      ? "openrouter"
+      : "hetzner-inference",
+    {
+      baseUrl: required(config.GENERATION_BASE_URL),
+      apiKey: required(config.GENERATION_API_KEY),
+      learningModel: required(config.LEARNING_MODEL),
+      practiceModel: required(config.PRACTICE_MODEL),
+      proofModel: required(config.PROOF_QUESTION_MODEL),
+    },
+    dependencies.hetzner,
+  );
+  if (config.GENERATION_PROVIDER !== "openrouter") return primary;
+  if (config.GENERATION_FALLBACK_BASE_URL === undefined) return primary;
+  const fallback = createCompatibleSemanticSet(
+    "hetzner-inference",
+    {
+      baseUrl: required(config.GENERATION_FALLBACK_BASE_URL),
+      apiKey: required(config.GENERATION_FALLBACK_API_KEY),
+      learningModel: required(config.LEARNING_FALLBACK_MODEL),
+      practiceModel: required(config.PRACTICE_FALLBACK_MODEL),
+      proofModel: required(config.PROOF_QUESTION_FALLBACK_MODEL),
+    },
+    dependencies.hetzner,
+  );
+  return {
+    learningMaterialProvider: new TransportFallbackSemanticProvider(
+      primary.learningMaterialProvider,
+      fallback.learningMaterialProvider,
+    ),
+    practiceCoachProvider: new TransportFallbackSemanticProvider(
+      primary.practiceCoachProvider,
+      fallback.practiceCoachProvider,
+    ),
+    proofQuestionProvider: new TransportFallbackSemanticProvider(
+      primary.proofQuestionProvider,
+      fallback.proofQuestionProvider,
+    ),
+  };
+}
+
+function createCompatibleSemanticSet(
+  provider: "hetzner-inference" | "openrouter",
+  models: {
+    baseUrl: string;
+    apiKey: string;
+    learningModel: string;
+    practiceModel: string;
+    proofModel: string;
+  },
+  dependencies?: HetznerSemanticProviderDependencies,
+): SemanticProviderSet {
+  const shared = {
+    provider,
+    baseUrl: models.baseUrl,
+    apiKey: models.apiKey,
+  };
   return {
     learningMaterialProvider: new HetznerLearningMaterialProvider(
-      { ...shared, model: required(config.LEARNING_MODEL) },
-      dependencies.hetzner,
+      { ...shared, model: models.learningModel },
+      dependencies,
     ),
     practiceCoachProvider: new HetznerPracticeCoachProvider(
-      { ...shared, model: required(config.PRACTICE_MODEL) },
-      dependencies.hetzner,
+      { ...shared, model: models.practiceModel },
+      dependencies,
     ),
     proofQuestionProvider: new HetznerProofQuestionProvider(
-      { ...shared, model: required(config.PROOF_QUESTION_MODEL) },
-      dependencies.hetzner,
+      { ...shared, model: models.proofModel },
+      dependencies,
     ),
   };
 }

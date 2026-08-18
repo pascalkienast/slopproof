@@ -57,4 +57,31 @@ describe("semantic provider factory", () => {
       }),
     ).toThrow("Semantic provider configuration is incomplete");
   });
+
+  it("wraps OpenRouter primary with a Hetzner transport fallback", () => {
+    const providers = createSemanticProviderSet({
+      GENERATION_PROVIDER: "openrouter",
+      GENERATION_BASE_URL: "https://openrouter.example.test/api/v1",
+      GENERATION_API_KEY: "openrouter-provider-secret",
+      LEARNING_MODEL: "xiaomi/mimo-v2.5",
+      PRACTICE_MODEL: "xiaomi/mimo-v2.5",
+      PROOF_QUESTION_MODEL: "xiaomi/mimo-v2.5",
+      GENERATION_FALLBACK_BASE_URL: "https://inference.example.test/api/v1",
+      GENERATION_FALLBACK_API_KEY: "hetzner-provider-secret",
+      LEARNING_FALLBACK_MODEL: "hetzner-learning",
+      PRACTICE_FALLBACK_MODEL: "hetzner-practice",
+      PROOF_QUESTION_FALLBACK_MODEL: "hetzner-proof",
+    });
+
+    expect(providers.learningMaterialProvider.descriptor).toEqual({
+      provider: "openrouter",
+      model: "xiaomi/mimo-v2.5",
+    });
+    expect(providers.practiceCoachProvider.descriptor.model).toBe(
+      "xiaomi/mimo-v2.5",
+    );
+    expect(providers.proofQuestionProvider.descriptor.provider).toBe(
+      "openrouter",
+    );
+  });
 });

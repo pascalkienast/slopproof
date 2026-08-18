@@ -363,6 +363,7 @@ export type InlineMultimodalJudgeDescriptorV1 = z.infer<
 
 export interface InlineMultimodalJudgeProvider {
   readonly descriptor: InlineMultimodalJudgeDescriptorV1;
+  readonly transportFallbackDescriptor?: InlineMultimodalJudgeDescriptorV1;
   evaluate(
     input: MultimodalJudgeProviderInputV1,
     context: ProviderContextV1,
@@ -371,6 +372,9 @@ export interface InlineMultimodalJudgeProvider {
 
 export const HetznerMultimodalJudgeConfigV1Schema = z
   .object({
+    provider: z
+      .enum(["hetzner-inference", "openrouter"])
+      .default("hetzner-inference"),
     baseUrl: z.url().refine(isSafeProviderBaseUrl),
     apiKey: z
       .string()
@@ -382,7 +386,7 @@ export const HetznerMultimodalJudgeConfigV1Schema = z
   })
   .strict();
 
-export type HetznerMultimodalJudgeConfigV1 = z.infer<
+export type HetznerMultimodalJudgeConfigV1 = z.input<
   typeof HetznerMultimodalJudgeConfigV1Schema
 >;
 
@@ -467,7 +471,7 @@ export class HetznerMultimodalJudgeProvider implements InlineMultimodalJudgeProv
     this.endpoint = chatCompletionsEndpoint(config.data.baseUrl);
     this.apiKey = config.data.apiKey;
     this.descriptor = InlineMultimodalJudgeDescriptorV1Schema.parse({
-      provider: "hetzner-inference",
+      provider: config.data.provider,
       model: config.data.model,
       visionModel: config.data.visionModel,
     });
@@ -804,28 +808,43 @@ export function validateMultimodalJudgeProviderResultV1(
 ): MultimodalJudgeProviderResultV1 {
   const result = MultimodalJudgeProviderResultV1Schema.safeParse(rawResult);
   const input = MultimodalJudgeProviderInputV1Schema.safeParse(rawInput);
-  const descriptor =
-    InlineMultimodalJudgeDescriptorV1Schema.safeParse(rawDescriptor);
-  if (!result.success || !input.success || !descriptor.success) {
+  const descriptors = normalizeJudgeDescriptors(rawDescriptor);
+  if (!result.success || !input.success || descriptors === undefined) {
     throw invalidOutputError();
   }
   const candidate = validateMultimodalJudgeCandidateV1(
     result.data.candidate,
     input.data,
   );
-  const expectedModels = new Set([
-    descriptor.data.model,
-    descriptor.data.visionModel,
-  ]);
   if (
-    result.data.metadata.provider !== descriptor.data.provider ||
-    !expectedModels.has(result.data.metadata.model) ||
     result.data.metadata.inputHash !== hashProviderInput(input.data) ||
     result.data.metadata.outputHash !== hashUnknown(candidate)
   ) {
     throw invalidOutputError();
   }
+  const accepted = descriptors.some((descriptor) => {
+    const expectedModels = new Set([descriptor.model, descriptor.visionModel]);
+    return (
+      result.data.metadata.provider === descriptor.provider &&
+      expectedModels.has(result.data.metadata.model)
+    );
+  });
+  if (!accepted) throw invalidOutputError();
   return { candidate, metadata: result.data.metadata };
+}
+
+function normalizeJudgeDescriptors(
+  rawDescriptor: unknown,
+): InlineMultimodalJudgeDescriptorV1[] | undefined {
+  const values = Array.isArray(rawDescriptor) ? rawDescriptor : [rawDescriptor];
+  if (values.length === 0 || values.length > 2) return undefined;
+  const descriptors: InlineMultimodalJudgeDescriptorV1[] = [];
+  for (const value of values) {
+    const parsed = InlineMultimodalJudgeDescriptorV1Schema.safeParse(value);
+    if (!parsed.success) return undefined;
+    descriptors.push(parsed.data);
+  }
+  return descriptors;
 }
 
 function buildRequestBody(
