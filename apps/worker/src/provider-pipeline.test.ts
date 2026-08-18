@@ -1355,7 +1355,7 @@ describe("provider worker pipeline", () => {
     expect(base.dispatcher.jobs).toEqual([]);
   });
 
-  it("converts unknown provider IDs into a complete not_evaluable sidecar and manual-review projection", async () => {
+  it("fails closed to maintainer review when the judge returns unknown IDs", async () => {
     const base = fixture();
     await base.handlers.extractTranscript(extractJob);
     base.dispatcher.jobs.length = 0;
@@ -1399,26 +1399,11 @@ describe("provider worker pipeline", () => {
       gate6EvaluationJob(base.repository.transcript!.transcriptId),
     );
 
-    expect(outcome.outcome).toBe("completed");
+    expect(outcome.outcome).toBe("manual_review");
     expect(provider.evaluate).toHaveBeenCalledOnce();
-    expect(sidecars.persisted?.multimodalEvaluation).toMatchObject({
-      workflowOutcome: "review_required",
-      manualReviewRequired: true,
-      candidate: {
-        recommendation: "review_required",
-        warnings: ["provider_evaluation_unavailable"],
-        questionEvaluations: [
-          {
-            criterionResults: expect.arrayContaining([
-              expect.objectContaining({ result: "not_evaluable" }),
-            ]),
-          },
-        ],
-      },
-    });
-    expect(sidecars.persisted?.compatibilityEvaluation.recommendation).toBe(
-      "review_required",
-    );
+    expect(sidecars.persisted).toBeUndefined();
+    expect(base.repository.status).toBe("review_required");
+    expect(base.repository.transitions).toEqual(["provider_manual_review"]);
   });
 
   it("strictly rejects unknown job data before external effects", async () => {

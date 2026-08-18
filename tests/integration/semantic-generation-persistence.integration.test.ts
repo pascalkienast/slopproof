@@ -21,7 +21,10 @@ import {
   type ProofQuestionProvider,
 } from "@slopproof/providers";
 import { DEFAULT_REPOSITORY_POLICY_V1 } from "@slopproof/policy";
-import { deterministicLearningFallbackV1 } from "@slopproof/questions";
+import {
+  deterministicLearningFallbackV1,
+  deterministicProofFallbackV2,
+} from "@slopproof/questions";
 import {
   afterAll,
   beforeAll,
@@ -113,40 +116,94 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
     }
   });
 
-  it("stores degraded Learning privately without serving it as Practice", async () => {
+  it("fails closed on technical Proof provider failure without consuming an Attempt", async () => {
     await expect(
       handlers["semantic.generate-learning"](learningJob(generationContextId)),
     ).resolves.toEqual({ outcome: "proof_pending" });
+    await expect(
+      handlers["semantic.generate-proof-questions"](
+        proofJob(generationContextId),
+      ),
+    ).resolves.toEqual({ outcome: "generation_failed" });
+
+    await expect(
+      database.pool.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM attempts",
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: 0 }] });
+    await expect(
+      database.pool.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM semantic_proof_plans_v2",
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: 0 }] });
+    expect(proofReady.write).not.toHaveBeenCalled();
+
+    const failure = await database.pool.query<{
+      artifact_id: string | null;
+      degraded: boolean;
+      outcome: string;
+      provider_failure: Record<string, unknown>;
+    }>(
+      `SELECT run.artifact_id, run.degraded, invocation.outcome,
+              audit.metadata AS provider_failure
+         FROM semantic_generation_runs run
+         JOIN semantic_provider_invocations invocation ON invocation.run_id = run.id
+         JOIN audit_events audit
+           ON audit.object_type = 'semantic_generation_run'
+          AND audit.object_id = run.id::text
+          AND audit.action = 'semantic.provider_failed'
+        WHERE run.purpose = 'proof_questions'`,
+    );
+    expect(failure.rows[0]).toMatchObject({
+      artifact_id: null,
+      degraded: true,
+      outcome: "fallback",
+      provider_failure: {
+        schemaVersion: "semantic-provider-failure-v1",
+        failureCode: "PROVIDER_UNAVAILABLE",
+        lastFailureKind: "upstream_unavailable",
+        httpStatusClass: "5xx",
+        transportAttemptCount: 3,
+      },
+    });
+    expect(JSON.stringify(failure.rows[0]?.provider_failure)).not.toContain(
+      "offline provider unavailable",
+    );
+  });
+
+  it("stores failed Learning privately without serving template questions as Practice", async () => {
+    const proofHandlers = generatedProofHandlers(repository, generationContext);
+    const proof = await proofHandlers["semantic.generate-proof-questions"](
+      proofJob(generationContextId),
+    );
+    expect(proof).toMatchObject({ outcome: "created" });
+    await expect(
+      handlers["semantic.generate-learning"](learningJob(generationContextId)),
+    ).resolves.toEqual({ outcome: "failed", degraded: true });
+
     await expect(
       database.pool.query<{ count: number }>(
         "SELECT count(*)::int AS count FROM semantic_learning_bundles",
       ),
     ).resolves.toMatchObject({ rows: [{ count: 0 }] });
 
-    const proof = await handlers["semantic.generate-proof-questions"](
-      proofJob(generationContextId),
-    );
-    expect(proof).toMatchObject({ outcome: "created" });
-    await handlers["semantic.generate-learning"](
-      learningJob(generationContextId),
-    );
-
     const stored = await database.pool.query<{
-      encrypted_payload: string;
+      artifact_id: string | null;
       provider: string;
       input_hash: string;
       provider_failure: Record<string, unknown>;
     }>(
-      `SELECT bundle.encrypted_payload, invocation.provider, invocation.input_hash,
+      `SELECT run.artifact_id, invocation.provider, invocation.input_hash,
               audit.metadata AS provider_failure
-         FROM semantic_learning_bundles bundle
-         JOIN semantic_provider_invocations invocation ON invocation.run_id = bundle.run_id
+         FROM semantic_generation_runs run
+         JOIN semantic_provider_invocations invocation ON invocation.run_id = run.id
          JOIN audit_events audit
            ON audit.object_type = 'semantic_generation_run'
-          AND audit.object_id = invocation.run_id::text
-          AND audit.action = 'semantic.provider_failed'`,
+          AND audit.object_id = run.id::text
+          AND audit.action = 'semantic.provider_failed'
+        WHERE run.purpose = 'learning_material'`,
     );
-    expect(stored.rows[0]?.encrypted_payload).not.toContain("changed hunk");
+    expect(stored.rows[0]?.artifact_id).toBeNull();
     expect(stored.rows[0]?.input_hash).toMatch(/^[0-9a-f]{64}$/u);
     expect(stored.rows[0]?.provider_failure).toEqual({
       schemaVersion: "semantic-provider-failure-v1",
@@ -199,7 +256,7 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
     });
     expect(proofReady.write).toHaveBeenCalledTimes(1);
 
-    const replay = await handlers["semantic.generate-proof-questions"](
+    const replay = await proofHandlers["semantic.generate-proof-questions"](
       proofJob(generationContextId),
     );
     expect(replay).toMatchObject({ outcome: "replayed" });
@@ -210,10 +267,10 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
     ).resolves.toMatchObject({ rows: [{ count: 1 }] });
   });
 
-  it("persists deterministic fallback metadata after a retry older than fifteen minutes", async () => {
-    await handlers["semantic.generate-proof-questions"](
-      proofJob(generationContextId),
-    );
+  it("persists failed Learning metadata after a retry older than fifteen minutes", async () => {
+    await generatedProofHandlers(repository, generationContext)[
+      "semantic.generate-proof-questions"
+    ](proofJob(generationContextId));
     const delayedNow = new Date(Date.now() + 16 * 60_000);
     const delayedHandlers = createSemanticGenerationJobHandlers({
       repository,
@@ -229,7 +286,7 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
       delayedHandlers["semantic.generate-learning"](
         learningJob(generationContextId),
       ),
-    ).resolves.toMatchObject({ outcome: "created", degraded: true });
+    ).resolves.toMatchObject({ outcome: "failed", degraded: true });
     const invocation = await database.pool.query<{
       invocation_count: number;
       delay_seconds: number;
@@ -245,10 +302,10 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
     expect(invocation.rows[0]?.delay_seconds).toBeGreaterThanOrEqual(15 * 60);
   });
 
-  it("repairs a frozen-Proof collision once and persists only a collision-free Learning fallback", async () => {
-    await handlers["semantic.generate-proof-questions"](
-      proofJob(generationContextId),
-    );
+  it("repairs a frozen-Proof collision once, then fails closed instead of serving template Learning", async () => {
+    await generatedProofHandlers(repository, generationContext)[
+      "semantic.generate-proof-questions"
+    ](proofJob(generationContextId));
     const served = await database.pool.query<{ prompt: string }>(
       `SELECT question.prompt
          FROM attempts attempt
@@ -297,7 +354,7 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
       collisionHandlers["semantic.generate-learning"](
         learningJob(generationContextId),
       ),
-    ).resolves.toMatchObject({ outcome: "created", degraded: true });
+    ).resolves.toMatchObject({ outcome: "failed", degraded: true });
     expect(generate).toHaveBeenCalledTimes(1);
     expect(repair).toHaveBeenCalledTimes(1);
     const view = await repository.readPracticeView({
@@ -419,9 +476,9 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
   });
 
   it("binds Practice to the exact author, encrypts answers, and shreds on invalidation", async () => {
-    await handlers["semantic.generate-proof-questions"](
-      proofJob(generationContextId),
-    );
+    await generatedProofHandlers(repository, generationContext)[
+      "semantic.generate-proof-questions"
+    ](proofJob(generationContextId));
     await generatedLearningHandlers(repository, generationContext)[
       "semantic.generate-learning"
     ](learningJob(generationContextId));
@@ -779,9 +836,9 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
   });
 
   it("reopens the same tuple with a fresh Attempt from the exact stored V2 plan", async () => {
-    const first = await handlers["semantic.generate-proof-questions"](
-      proofJob(generationContextId),
-    );
+    const first = await generatedProofHandlers(repository, generationContext)[
+      "semantic.generate-proof-questions"
+    ](proofJob(generationContextId));
     expect(first).toMatchObject({ outcome: "created" });
     await database.pool.query(
       `UPDATE pull_requests SET state = 'closed' WHERE id = $1`,
@@ -869,6 +926,27 @@ function learningJob(generationContextId: string) {
     generationContextId,
     expectedHeadSha: HEAD,
   };
+}
+
+function generatedProofHandlers(
+  repository: PostgresSemanticGenerationRepository,
+  context: GenerationContextV1,
+) {
+  const output = deterministicProofFallbackV2(context, 2);
+  const generate = async () => ({ output, tokenUsage: null });
+  return createSemanticGenerationJobHandlers({
+    repository,
+    service: createSemanticGenerationService({
+      learningMaterialProvider: unavailableProvider(),
+      practiceCoachProvider: unavailableProvider(),
+      proofQuestionProvider: {
+        descriptor: { provider: "generated-proof", model: "generated-proof" },
+        generate,
+        repair: generate,
+      },
+      clock: { now: () => new Date(), monotonicNowMs: () => 1 },
+    }),
+  });
 }
 
 function generatedLearningHandlers(

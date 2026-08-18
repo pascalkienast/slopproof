@@ -104,22 +104,21 @@ describe("multimodal judge service", () => {
     });
   });
 
-  it("converts frame-loader failures into a manual-review-safe fallback", async () => {
+  it("fails closed when the frame loader throws and never leaks storage details", async () => {
     const provider = successfulProvider();
-    const result = await runMultimodalJudgeEvaluation(
-      inputFixture(),
-      contextFixture(),
-      {
+    await expect(
+      runMultimodalJudgeEvaluation(inputFixture(), contextFixture(), {
         provider,
         loadFrames: vi.fn(async () => {
           throw new Error("private frame storage detail");
         }),
         now: () => NOW,
-      },
-    );
+      }),
+    ).rejects.toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      disposition: "retryable",
+    });
     expect(provider.evaluate).not.toHaveBeenCalled();
-    expect(result.frameWarnings).toEqual(["frames_unavailable"]);
-    expect(JSON.stringify(result)).not.toContain("private frame storage");
   });
 
   it("aborts before provider access and wipes loaded frames when frame work crosses the deadline", async () => {
@@ -183,7 +182,7 @@ describe("multimodal judge service", () => {
     }
   });
 
-  it("converts provider errors into a content-free manual-review fallback", async () => {
+  it("fails closed on provider errors and never leaks raw provider bodies", async () => {
     const frameBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
     const provider: InlineMultimodalJudgeProvider = {
       descriptor: descriptorFixture(),
@@ -191,23 +190,20 @@ describe("multimodal judge service", () => {
         throw new Error("private raw provider payload and API key");
       }),
     };
-    const result = await runMultimodalJudgeEvaluation(
-      inputFixture(),
-      contextFixture(),
-      {
+    await expect(
+      runMultimodalJudgeEvaluation(inputFixture(), contextFixture(), {
         provider,
         loadFrames: vi.fn(async () => ({
           frames: [frameFixture(frameBytes)],
           warnings: [],
         })),
         now: () => NOW,
-      },
-    );
-    expect(result.candidate).toMatchObject({
-      recommendation: "review_required",
-      warnings: ["provider_evaluation_unavailable"],
+      }),
+    ).rejects.toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      disposition: "retryable",
+      message: "Private multimodal evaluation failed",
     });
-    expect(JSON.stringify(result)).not.toContain("private raw provider");
     expect(frameBytes).toEqual(new Uint8Array(4));
   });
 
@@ -237,7 +233,7 @@ describe("multimodal judge service", () => {
     expect(frameBytes).toEqual(new Uint8Array(4));
   });
 
-  it("degrades provider metadata completed outside the request window", async () => {
+  it("fails closed when provider metadata is completed outside the request window", async () => {
     const provider = successfulProvider(async (input) => {
       const result = resultFixture(input, validCandidate());
       result.metadata.completedAt = new Date(
@@ -246,26 +242,18 @@ describe("multimodal judge service", () => {
       return result;
     });
 
-    const result = await runMultimodalJudgeEvaluation(
-      inputFixture(),
-      contextFixture(),
-      {
+    await expect(
+      runMultimodalJudgeEvaluation(inputFixture(), contextFixture(), {
         provider,
         loadFrames: vi.fn(async () => ({
           frames: [frameFixture()],
           warnings: [],
         })),
         now: () => NOW,
-      },
-    );
-
-    expect(result.candidate).toMatchObject({
-      recommendation: "review_required",
-      warnings: ["provider_evaluation_unavailable"],
-    });
-    expect(result.invocationMetadata).toMatchObject({
-      outcome: "fallback",
-      completedAt: NOW,
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_OUTPUT",
+      disposition: "review",
     });
   });
 
@@ -295,30 +283,24 @@ describe("multimodal judge service", () => {
         "71000000-0000-4000-8000-000000000099";
       return resultFixture(input, candidate);
     });
-    const result = await runMultimodalJudgeEvaluation(
-      inputFixture(),
-      contextFixture(),
-      {
+    await expect(
+      runMultimodalJudgeEvaluation(inputFixture(), contextFixture(), {
         provider,
         loadFrames: vi.fn(async () => ({
           frames: [frameFixture()],
           warnings: [],
         })),
         now: () => NOW,
-      },
-    );
-    expect(result.candidate.recommendation).toBe("review_required");
-    expect(result.candidate.warnings).toEqual([
-      "provider_evaluation_unavailable",
-    ]);
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_OUTPUT",
+    });
   });
 
   it("wipes plaintext frames from a malformed injected loader result", async () => {
     const jpegBytes = frameFixture().jpegBytes;
-    const result = await runMultimodalJudgeEvaluation(
-      inputFixture(),
-      contextFixture(),
-      {
+    await expect(
+      runMultimodalJudgeEvaluation(inputFixture(), contextFixture(), {
         provider: successfulProvider(),
         loadFrames: vi.fn(
           async () =>
@@ -328,9 +310,11 @@ describe("multimodal judge service", () => {
             }) as never,
         ),
         now: () => NOW,
-      },
-    );
-    expect(result.candidate.recommendation).toBe("review_required");
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_OUTPUT",
+      disposition: "retryable",
+    });
     expect([...jpegBytes].every((byte) => byte === 0)).toBe(true);
   });
 
