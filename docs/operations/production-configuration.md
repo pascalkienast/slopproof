@@ -164,15 +164,19 @@ refuse to run unless the operator explicitly sets `LIVE_SMOKE=1`:
 LIVE_SMOKE=1 node scripts/live-smoke-hetzner-text-json.mjs
 LIVE_SMOKE=1 node scripts/live-smoke-hetzner-vision.mjs
 LIVE_SMOKE=1 node scripts/live-smoke-openrouter-stt.mjs
+LIVE_SMOKE=1 node scripts/live-smoke-openrouter-mimo.mjs
 ```
 
 They use only the canonical provider variables already loaded in the shell.
 Each check has bounded fixtures, request and overall deadlines, bounded response
 bodies, at most three transport attempts, and retry only for rate limits,
 server failures, network failures or timeouts. Hetzner checks disable tools and
-request `store=false`; OpenRouter receives a one-second in-memory WAV and also
-gets `store=false`. Output is limited to a provider name and a safe pass/failure
-class; model responses and provider error bodies are never logged.
+request `store=false`; the OpenRouter MiMo check uses the streamed generation
+wire (`stream=true`, `Accept: text/event-stream`, `response_format.json_schema`)
+and `store=false`, and does not hop to Hetzner; OpenRouter STT receives a
+one-second in-memory WAV and also gets `store=false`. Output is limited to a
+provider name and a safe pass/failure class; model responses and provider error
+bodies are never logged.
 
 Contract tests are non-networked:
 
