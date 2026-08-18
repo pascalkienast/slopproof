@@ -4,8 +4,10 @@ import type { PoolClient } from "pg";
 import { PostgresSemanticGenerationRepository } from "./semantic-generation-repository";
 import type {
   SemanticProofReadyWriter,
+  SemanticRunContext,
   SemanticTransactionalScheduler,
 } from "./semantic-generation-contracts";
+import type { SemanticProviderInvocationMetadataV1 } from "@slopproof/providers";
 
 describe("Gate 4 persistence boundary", () => {
   it("heals semantic scheduling through recover-or-expedite and freezes budget exactly", async () => {
@@ -330,6 +332,97 @@ describe("Gate 4 persistence boundary", () => {
       expect.anything(),
     );
   });
+
+  it("persists a failed generation bound to the invocation call id", async () => {
+    const query = vi.fn(async (statement: string) => {
+      if (statement.includes("SELECT artifact_id, completed_at")) {
+        return {
+          rowCount: 1,
+          rows: [{ artifact_id: null, completed_at: null }],
+        };
+      }
+      if (statement.includes("UPDATE semantic_generation_runs")) {
+        expect(statement).toContain("artifact_id = $2");
+        return { rowCount: 1, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    });
+    const repository = repositoryFixture(query, schedulerFixture());
+    const metadata = failedMetadataFixture();
+
+    await expect(
+      repository.persistFailedGeneration(runFixture(), metadata, {
+        schemaVersion: "semantic-provider-failure-v1",
+        failureCode: "PROVIDER_UNAVAILABLE",
+        lastFailureKind: "upstream_unavailable",
+        httpStatusClass: "5xx",
+        transportAttemptCount: 3,
+      }),
+    ).resolves.toBe("created");
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO semantic_provider_invocations"),
+      expect.arrayContaining(["fallback", true]),
+    );
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE semantic_generation_runs"),
+      [IDS.run, metadata.callId, true],
+    );
+  });
+
+  it("replays a fail-closed run already bound to the same call id", async () => {
+    const metadata = failedMetadataFixture();
+    const query = vi.fn(async (statement: string) => {
+      if (statement.includes("SELECT artifact_id, completed_at")) {
+        return {
+          rowCount: 1,
+          rows: [{ artifact_id: metadata.callId, completed_at: new Date() }],
+        };
+      }
+      return { rowCount: 1, rows: [] };
+    });
+    const repository = repositoryFixture(query, schedulerFixture());
+
+    await expect(
+      repository.persistFailedGeneration(runFixture(), metadata, {
+        schemaVersion: "semantic-provider-failure-v1",
+        failureCode: "PROVIDER_UNAVAILABLE",
+        lastFailureKind: "upstream_unavailable",
+        httpStatusClass: "5xx",
+        transportAttemptCount: 3,
+      }),
+    ).resolves.toBe("replayed");
+    expect(query).not.toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE semantic_generation_runs"),
+      expect.anything(),
+    );
+  });
+
+  it("does not fail-close a run that already stored an artifact", async () => {
+    const query = vi.fn(async (statement: string) => {
+      if (statement.includes("SELECT artifact_id, completed_at")) {
+        return {
+          rowCount: 1,
+          rows: [{ artifact_id: IDS.bundle, completed_at: new Date() }],
+        };
+      }
+      return { rowCount: 1, rows: [] };
+    });
+    const repository = repositoryFixture(query, schedulerFixture());
+
+    await expect(
+      repository.persistFailedGeneration(
+        runFixture(),
+        failedMetadataFixture(),
+        {
+          schemaVersion: "semantic-provider-failure-v1",
+          failureCode: "PROVIDER_UNAVAILABLE",
+          lastFailureKind: "upstream_unavailable",
+          httpStatusClass: "5xx",
+          transportAttemptCount: 3,
+        },
+      ),
+    ).rejects.toThrow("already has an artifact");
+  });
 });
 
 const IDS = {
@@ -340,8 +433,52 @@ const IDS = {
   session: "82000000-0000-4000-8000-000000000005",
   question: "82000000-0000-4000-8000-000000000006",
   bundle: "82000000-0000-4000-8000-000000000007",
+  run: "82000000-0000-4000-8000-000000000009",
 } as const;
 const HEAD = "a".repeat(40);
+
+function runFixture(): SemanticRunContext {
+  return {
+    runId: IDS.run,
+    idempotencyKey: "semantic.learning.v2:test",
+    repositoryId: IDS.repository,
+    revisionId: IDS.revision,
+    generationContextId: IDS.context,
+    authorId: "author-1",
+    repositoryPolicyId: IDS.policy,
+    generationContext: {} as SemanticRunContext["generationContext"],
+    artifactSeed: "c".repeat(64),
+    questionCount: 3,
+    createdAt: new Date("2026-08-12T12:00:00.000Z"),
+    deadlineAt: new Date("2026-08-12T12:08:00.000Z"),
+    deleteAfter: new Date("2026-08-13T12:00:00.000Z"),
+    completedArtifactId: null,
+    completedAt: null,
+    degraded: null,
+  };
+}
+
+function failedMetadataFixture(): SemanticProviderInvocationMetadataV1 {
+  return {
+    schemaVersion: "1",
+    metadataVersion: "semantic-provider-metadata-v1",
+    callId: "82000000-0000-4000-8000-00000000000a",
+    purpose: "learning_material",
+    provider: "offline-fake",
+    model: "deterministic",
+    promptVersion: "learning-system-v1",
+    outputSchemaVersion: "learning-bundle-v1",
+    plannerVersion: "proof-planner-v2",
+    inputHash: "d".repeat(64),
+    outputHash: "e".repeat(64),
+    tokenUsage: null,
+    latencyMs: 1,
+    invocationCount: 1,
+    outcome: "fallback",
+    degraded: true,
+    completedAt: new Date("2026-08-12T12:00:01.000Z"),
+  };
+}
 
 function schedulerFixture(): SemanticTransactionalScheduler & {
   schedule: ReturnType<typeof vi.fn>;

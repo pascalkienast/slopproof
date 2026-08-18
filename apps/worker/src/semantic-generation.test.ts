@@ -26,6 +26,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import {
   GenerateProofQuestionPlanRequestV1Schema,
+  SemanticGenerationFailedError,
   createSemanticGenerationService,
   type SemanticGenerationClock,
 } from "./semantic-generation";
@@ -115,7 +116,7 @@ describe("Gate 4 worker-only semantic generation", () => {
     expect(provider.repairCalls).toBe(1);
   });
 
-  it("falls back deterministically after one bad repair and never blocks Proof", async () => {
+  it("fails closed after one bad repair and never invents Proof questions", async () => {
     const context = contextFixture();
     const provider = new StubSemanticProvider({
       initial: () => response({ malformed: true }),
@@ -123,16 +124,21 @@ describe("Gate 4 worker-only semantic generation", () => {
     });
     const service = serviceWith(provider);
 
-    const result = await service.generateProofQuestionPlan(
-      proofRequest(context, 3),
-    );
+    let failure: SemanticGenerationFailedError | undefined;
+    try {
+      await service.generateProofQuestionPlan(proofRequest(context, 3));
+    } catch (error) {
+      if (error instanceof SemanticGenerationFailedError) failure = error;
+      else throw error;
+    }
 
-    expect(result.artifact.questions).toHaveLength(3);
-    expect(result.providerMetadata.outcome).toBe("fallback");
-    expect(result.providerMetadata.invocationCount).toBe(2);
-    expect(result.providerMetadata).not.toHaveProperty("providerError");
-    expect(result.providerMetadata).not.toHaveProperty("rawOutput");
-    expect(result.degraded).toBe(true);
+    expect(failure).toBeInstanceOf(SemanticGenerationFailedError);
+    expect(failure?.metadata.outcome).toBe("fallback");
+    expect(failure?.metadata.invocationCount).toBe(2);
+    expect(failure?.metadata).not.toHaveProperty("providerError");
+    expect(failure?.metadata).not.toHaveProperty("rawOutput");
+    expect(failure?.metadata.degraded).toBe(true);
+    expect(failure?.failure.failureCode).toBe("SEMANTIC_VALIDATION_FAILED");
     expect(provider.repairCalls).toBe(1);
   });
 
@@ -185,7 +191,7 @@ describe("Gate 4 worker-only semantic generation", () => {
     expect(JSON.stringify(result)).not.toContain("private model content");
   });
 
-  it("uses fallback without a repair call when the provider is unavailable", async () => {
+  it("fails closed without a repair call when the provider is unavailable", async () => {
     const context = contextFixture();
     const provider = new StubSemanticProvider({
       initial: () => {
@@ -204,21 +210,26 @@ describe("Gate 4 worker-only semantic generation", () => {
       },
       repair: () => response({ shouldNotRun: true }),
     });
-    const result = await serviceWith(provider).generateLearningBundle(
-      learningRequest(context, 3),
-    );
+    let failure: SemanticGenerationFailedError | undefined;
+    try {
+      await serviceWith(provider).generateLearningBundle(
+        learningRequest(context, 3),
+      );
+    } catch (error) {
+      if (error instanceof SemanticGenerationFailedError) failure = error;
+      else throw error;
+    }
 
-    expect(result.artifact.practiceQuestions).toHaveLength(3);
-    expect(result.providerMetadata.outcome).toBe("fallback");
-    expect(result.providerMetadata.invocationCount).toBe(1);
-    expect(result.providerFailure).toEqual({
+    expect(failure?.metadata.outcome).toBe("fallback");
+    expect(failure?.metadata.invocationCount).toBe(1);
+    expect(failure?.failure).toEqual({
       schemaVersion: "semantic-provider-failure-v1",
       failureCode: "PROVIDER_UNAVAILABLE",
       lastFailureKind: "upstream_unavailable",
       httpStatusClass: "5xx",
       transportAttemptCount: 3,
     });
-    expect(JSON.stringify(result)).not.toContain("private provider failure");
+    expect(JSON.stringify(failure)).not.toContain("private provider failure");
     expect(provider.repairCalls).toBe(0);
   });
 
@@ -259,7 +270,7 @@ describe("Gate 4 worker-only semantic generation", () => {
     );
   });
 
-  it("falls back collision-free after the single Learning repair also leaks frozen Proof", async () => {
+  it("fails closed after the single Learning repair also leaks frozen Proof", async () => {
     const context = contextFixture();
     const valid = deterministicLearningFallbackV1(context, 3);
     const colliding = {
@@ -274,18 +285,21 @@ describe("Gate 4 worker-only semantic generation", () => {
       repair: () => response(colliding),
     });
 
-    const result = await serviceWith(provider).generateLearningBundle(
-      learningRequest(context, 3),
-    );
+    let failure: SemanticGenerationFailedError | undefined;
+    try {
+      await serviceWith(provider).generateLearningBundle(
+        learningRequest(context, 3),
+      );
+    } catch (error) {
+      if (error instanceof SemanticGenerationFailedError) failure = error;
+      else throw error;
+    }
 
-    expect(result.providerMetadata.outcome).toBe("fallback");
-    expect(result.providerMetadata.invocationCount).toBe(2);
+    expect(failure?.metadata.outcome).toBe("fallback");
+    expect(failure?.metadata.invocationCount).toBe(2);
     expect(provider.repairCalls).toBe(1);
-    expect(JSON.stringify(result.artifact)).not.toContain(
-      FORBIDDEN_PROOF_CONTENT[0],
-    );
-    expect(result.artifact.patchIntent.anchorIds).toEqual(["a0"]);
-    expect(result.artifact.patchIntent.text).toContain("observable behavior");
+    expect(JSON.stringify(failure)).not.toContain(FORBIDDEN_PROOF_CONTENT[0]);
+    expect(failure?.failure.failureCode).toBe("SEMANTIC_VALIDATION_FAILED");
   });
 
   it("keeps Practice data structurally outside Proof input and supports direct Proof", async () => {
@@ -378,7 +392,7 @@ describe("Gate 4 worker-only semantic generation", () => {
     expect(result.artifact.practiceQuestionId).toBe(question.id);
   });
 
-  it("repairs a Feedback collision once, then returns a collision-free private fallback", async () => {
+  it("repairs a Feedback collision once, then fails closed instead of inventing a hint", async () => {
     const context = contextFixture();
     const learning = await serviceWith(
       new StubSemanticProvider({
@@ -412,41 +426,51 @@ describe("Gate 4 worker-only semantic generation", () => {
       },
     });
 
-    const result = await serviceWith(provider).generatePracticeFeedback({
-      ...baseRequest(context),
-      requestVersion: "generate-practice-feedback-v1",
-      practiceQuestion: question,
-      contributorAnswer: {
-        trust: "untrusted",
-        source: "contributor_answer",
-        content: "The route changes its response behavior.",
-      },
-      forbiddenProofContent: [...FORBIDDEN_PROOF_CONTENT],
-    });
+    let failure: SemanticGenerationFailedError | undefined;
+    try {
+      await serviceWith(provider).generatePracticeFeedback({
+        ...baseRequest(context),
+        requestVersion: "generate-practice-feedback-v1",
+        practiceQuestion: question,
+        contributorAnswer: {
+          trust: "untrusted",
+          source: "contributor_answer",
+          content: "The route changes its response behavior.",
+        },
+        forbiddenProofContent: [...FORBIDDEN_PROOF_CONTENT],
+      });
+    } catch (error) {
+      if (error instanceof SemanticGenerationFailedError) failure = error;
+      else throw error;
+    }
 
-    expect(result.providerMetadata.outcome).toBe("fallback");
-    expect(result.providerMetadata.invocationCount).toBe(2);
+    expect(failure?.metadata.outcome).toBe("fallback");
+    expect(failure?.metadata.invocationCount).toBe(2);
     expect(provider.repairCalls).toBe(1);
-    expect(JSON.stringify(result.artifact)).not.toContain(
-      FORBIDDEN_PROOF_CONTENT[0],
-    );
-    expect(result.artifact.hint.anchorIds).toEqual([anchorId]);
+    expect(JSON.stringify(failure)).not.toContain(FORBIDDEN_PROOF_CONTENT[0]);
+    expect(failure?.failure.failureCode).toBe("SEMANTIC_VALIDATION_FAILED");
   });
 
-  it("skips external calls after the server deadline and degrades safely", async () => {
+  it("skips external calls after the server deadline and fails closed", async () => {
     const context = contextFixture();
     const provider = new StubSemanticProvider({
       initial: () => response({ shouldNotRun: true }),
       repair: () => response({ shouldNotRun: true }),
     });
     const clock = clockFixture(new Date("2026-08-12T12:06:00.000Z"));
-    const result = await serviceWith(provider, clock).generateProofQuestionPlan(
-      proofRequest(context, 1),
-    );
+    let failure: SemanticGenerationFailedError | undefined;
+    try {
+      await serviceWith(provider, clock).generateProofQuestionPlan(
+        proofRequest(context, 1),
+      );
+    } catch (error) {
+      if (error instanceof SemanticGenerationFailedError) failure = error;
+      else throw error;
+    }
 
-    expect(result.artifact.questions).toHaveLength(1);
-    expect(result.providerMetadata.invocationCount).toBe(0);
-    expect(result.providerMetadata.outcome).toBe("fallback");
+    expect(failure?.metadata.invocationCount).toBe(0);
+    expect(failure?.metadata.outcome).toBe("fallback");
+    expect(failure?.failure.failureCode).toBe("DEADLINE_EXCEEDED");
     expect(provider.generateCalls).toBe(0);
   });
 

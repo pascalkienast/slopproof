@@ -81,15 +81,24 @@ export async function runMultimodalJudgeEvaluation(
     );
   } catch (error) {
     if (isMultimodalDeadlineError(error)) throw multimodalDeadlineError();
-    assertBeforeMultimodalDeadline(context.data, now());
-    rawLoadedFrames = { frames: [], warnings: ["frames_unavailable"] };
+    if (error instanceof ProviderError) throw error;
+    throw new ProviderError(
+      "PROVIDER_UNAVAILABLE",
+      "retryable",
+      "Private multimodal frames could not be loaded",
+    );
   }
   const parsedFrames =
     InlineFrameNormalizationResultV1Schema.safeParse(rawLoadedFrames);
-  if (!parsedFrames.success) wipeMalformedLoadedFrames(rawLoadedFrames);
-  const loadedFrames = parsedFrames.success
-    ? parsedFrames.data
-    : { frames: [], warnings: ["frames_unavailable"] as const };
+  if (!parsedFrames.success) {
+    wipeMalformedLoadedFrames(rawLoadedFrames);
+    throw new ProviderError(
+      "INVALID_OUTPUT",
+      "retryable",
+      "Private multimodal frames failed their versioned contract",
+    );
+  }
+  const loadedFrames = parsedFrames.data;
   try {
     assertBeforeMultimodalDeadline(context.data, now());
   } catch (error) {
@@ -118,11 +127,25 @@ export async function runMultimodalJudgeEvaluation(
         now(),
       );
     } else {
+      let rawProviderResult: unknown;
+      try {
+        rawProviderResult = await runUntilMultimodalDeadline(
+          context.data,
+          now(),
+          () => dependencies.provider.evaluate(providerInput, context.data),
+        );
+      } catch (error) {
+        if (isMultimodalDeadlineError(error)) throw multimodalDeadlineError();
+        if (error instanceof ProviderError) throw error;
+        throw new ProviderError(
+          "PROVIDER_UNAVAILABLE",
+          "retryable",
+          "Private multimodal evaluation failed",
+        );
+      }
       try {
         providerResult = validateMultimodalJudgeProviderResultV1(
-          await runUntilMultimodalDeadline(context.data, now(), () =>
-            dependencies.provider.evaluate(providerInput, context.data),
-          ),
+          rawProviderResult,
           providerInput,
           dependencies.provider.descriptor,
         );
@@ -134,11 +157,11 @@ export async function runMultimodalJudgeEvaluation(
         );
       } catch (error) {
         if (isMultimodalDeadlineError(error)) throw multimodalDeadlineError();
-        providerResult = manualReviewFallbackMultimodalJudgeResultV1(
-          providerInput,
-          dependencies.provider.descriptor,
-          [...frameWarnings, "provider_evaluation_unavailable"],
-          now(),
+        if (error instanceof ProviderError) throw error;
+        throw new ProviderError(
+          "INVALID_OUTPUT",
+          "review",
+          "Private multimodal evaluation failed its output contract",
         );
       }
     }

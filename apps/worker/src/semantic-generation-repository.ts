@@ -79,6 +79,8 @@ type RunRow = {
   deadline_at: Date;
   delete_after: Date;
   artifact_id: string | null;
+  completed_at: Date | null;
+  degraded: boolean | null;
 };
 
 export class PostgresSemanticGenerationRepository implements SemanticGenerationRepository {
@@ -406,7 +408,8 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
                 generation_context_id, practice_session_id,
                 practice_question_id, practice_answer_id,
                 artifact_seed, question_count,
-                created_at, deadline_at, delete_after, artifact_id
+                created_at, deadline_at, delete_after, artifact_id,
+                completed_at, degraded
            FROM semantic_generation_runs
           WHERE idempotency_key = $1
           FOR SHARE`,
@@ -445,7 +448,58 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
         deadlineAt: run.deadline_at,
         deleteAfter: run.delete_after,
         completedArtifactId: run.artifact_id,
+        completedAt: run.completed_at,
+        degraded: run.degraded,
       };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async persistFailedGeneration(
+    run: SemanticRunContext,
+    metadata: SemanticProviderInvocationMetadataV1,
+    failure: SemanticProviderFailureV1,
+  ): Promise<"created" | "replayed"> {
+    if (!metadata.degraded || metadata.outcome !== "fallback") {
+      throw new Error(
+        "Failed semantic generation must record a degraded outcome.",
+      );
+    }
+    const client = await this.database.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [`semantic-run:${run.runId}`],
+      );
+      const completed = await client.query<{
+        artifact_id: string | null;
+        completed_at: Date | null;
+      }>(
+        `SELECT artifact_id, completed_at
+           FROM semantic_generation_runs
+          WHERE id = $1
+          FOR UPDATE`,
+        [run.runId],
+      );
+      const row = completed.rows[0];
+      if (row?.completed_at !== null && row?.completed_at !== undefined) {
+        if (row.artifact_id !== metadata.callId) {
+          throw new Error(
+            "Completed semantic run already has an artifact and cannot fail closed.",
+          );
+        }
+        await client.query("COMMIT");
+        return "replayed";
+      }
+      await persistInvocation(client, run, metadata, failure);
+      await completeRun(client, run, metadata.callId, true);
+      await client.query("COMMIT");
+      return "created";
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
       throw error;
@@ -459,6 +513,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
     result: SemanticGenerationResultV1<LearningBundleV1>,
   ): Promise<"created" | "replayed"> {
     const artifact = LearningBundleV1Schema.parse(result.artifact);
+    assertSuccessfulSemanticArtifact(result, artifact);
     assertArtifactBinding(run, artifact);
     return this.persistPrivateArtifact({
       run,
@@ -483,6 +538,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
     result: SemanticGenerationResultV1<PracticeFeedbackV1>,
   ): Promise<"created" | "replayed"> {
     const artifact = PracticeFeedbackV1Schema.parse(result.artifact);
+    assertSuccessfulSemanticArtifact(result, artifact);
     assertArtifactBinding(run, artifact);
     if (artifact.practiceQuestionId !== payload.practiceQuestionId) {
       throw new Error("Practice feedback question binding is invalid.");
@@ -612,6 +668,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
     result: SemanticGenerationResultV1<ProofQuestionPlanV2>,
   ) {
     const plan = ProofQuestionPlanV2Schema.parse(result.artifact);
+    assertSuccessfulSemanticArtifact(result, plan);
     assertArtifactBinding(run, plan);
     if (plan.questionBudget !== run.questionCount) {
       throw new Error("Proof plan budget is not analyzer-owned.");
@@ -1349,7 +1406,32 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
       );
       const bundle = storedBundle.rows[0];
       if (bundle === undefined) {
+        const failed = await client.query<{
+          completed_at: Date | null;
+          degraded: boolean | null;
+        }>(
+          `SELECT completed_at, degraded
+             FROM semantic_generation_runs
+            WHERE generation_context_id = $1
+              AND purpose = 'learning_material'
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            FOR SHARE`,
+          [input.generationContextId],
+        );
+        const failedRun = failed.rows[0];
         await client.query("COMMIT");
+        if (
+          failedRun?.completed_at !== null &&
+          failedRun?.completed_at !== undefined &&
+          failedRun.degraded === true
+        ) {
+          return {
+            state: "generation_failed",
+            revisionId: input.revisionId,
+            headSha: row.head_sha,
+          };
+        }
         return {
           state: "generating",
           revisionId: input.revisionId,
@@ -2102,6 +2184,22 @@ async function persistInvocation(
             AND object_id = $1
        )`,
       [run.runId, JSON.stringify(failure)],
+    );
+  }
+}
+
+function assertSuccessfulSemanticArtifact(
+  result: SemanticGenerationResultV1<unknown>,
+  artifact: { generationOutcome: string },
+): void {
+  if (
+    result.degraded ||
+    result.providerMetadata.degraded ||
+    result.providerMetadata.outcome === "fallback" ||
+    artifact.generationOutcome === "fallback"
+  ) {
+    throw new Error(
+      "Refusing to persist template semantic content as a successful artifact.",
     );
   }
 }
