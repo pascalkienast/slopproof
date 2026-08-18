@@ -457,6 +457,19 @@ h2 {
   margin-top: 24px;
 }
 
+.review-repo-choice {
+  display: grid;
+  gap: 16px;
+}
+
+.review-repo-choice ul {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .review-empty {
   max-width: 780px;
 }

@@ -7,6 +7,10 @@ import {
   type ProviderContextV1,
 } from "./contracts";
 import { ProviderError } from "./errors";
+import type {
+  ProviderFailureTelemetry,
+  ProviderHttpStatusClass,
+} from "./errors";
 
 const MAX_HTTP_ATTEMPTS = 3;
 const DEFAULT_ATTEMPT_TIMEOUT_MS = 30_000;
@@ -159,14 +163,16 @@ type ResolvedRequestPolicy = {
 
 type RetryableFailure = {
   kind: "network" | "timeout" | "rate_limited" | "unavailable";
+  httpStatusClass?: ProviderHttpStatusClass;
   retryAfterMs?: number;
 };
 
-const OpenRouterVerboseTranscriptionSchema = z
+const OpenRouterTranscriptionResponseSchema = z
   .object({
     text: z.string(),
-    language: z.string().min(1).max(100),
-    duration: z.number().finite().nonnegative().optional(),
+    language: z.unknown().optional(),
+    duration: z.unknown().optional(),
+    usage: z.unknown().optional(),
   })
   .passthrough();
 
@@ -221,7 +227,7 @@ export class OpenRouterTranscriptionProvider {
       );
     }
 
-    const rawResponse = await requestTranscriptionWithRetry({
+    const response = await requestTranscriptionWithRetry({
       endpoint: this.endpoint,
       apiKey: this.apiKey,
       model: this.descriptor.model,
@@ -231,40 +237,34 @@ export class OpenRouterTranscriptionProvider {
       fetchImpl: this.fetchImpl,
       policy: this.policy,
     });
-    const parsedResponse =
-      OpenRouterVerboseTranscriptionSchema.safeParse(rawResponse);
-    if (!parsedResponse.success) throw invalidOutputError();
+    const parsedResponse = OpenRouterTranscriptionResponseSchema.safeParse(
+      response.payload,
+    );
+    if (!parsedResponse.success) {
+      throw invalidOutputError(response.transportAttemptCount);
+    }
     const text = parsedResponse.data.text.trim();
     if (
       text.length === 0 ||
       Buffer.byteLength(text, "utf8") > MAX_TRANSCRIPT_BYTES ||
       text.includes("\0")
     ) {
-      throw invalidOutputError();
+      throw invalidOutputError(response.transportAttemptCount);
     }
-    const language = normalizeDetectedLanguage(parsedResponse.data.language);
+    const language =
+      typeof parsedResponse.data.language === "string"
+        ? normalizeDetectedLanguage(parsedResponse.data.language)
+        : undefined;
     if (
-      language === undefined ||
-      (input.languagePolicy.mode === "fixed" &&
-        baseLanguage(language) !== baseLanguage(input.languagePolicy.language))
+      input.languagePolicy.mode === "fixed" &&
+      language !== undefined &&
+      baseLanguage(language) !== baseLanguage(input.languagePolicy.language)
     ) {
       throw safeProviderError(
         "INVALID_OUTPUT",
         "review",
         "Transcription language contradicts the accepted language policy",
-      );
-    }
-    const expectedDurationMs = input.endMs - input.startMs;
-    const durationToleranceMs = Math.max(500, expectedDurationMs * 0.1);
-    if (
-      parsedResponse.data.duration !== undefined &&
-      Math.abs(parsedResponse.data.duration * 1_000 - expectedDurationMs) >
-        durationToleranceMs
-    ) {
-      throw safeProviderError(
-        "INVALID_OUTPUT",
-        "review",
-        "Transcription duration contradicts the bounded question interval",
+        invalidOutputTelemetry(response.transportAttemptCount),
       );
     }
 
@@ -280,7 +280,7 @@ export class OpenRouterTranscriptionProvider {
       language:
         input.languagePolicy.mode === "fixed"
           ? input.languagePolicy.language
-          : language,
+          : (language ?? "und"),
       text: {
         trust: "untrusted",
         source: "transcript",
@@ -303,7 +303,7 @@ async function requestTranscriptionWithRetry(input: {
   deadlineAtMs: number;
   fetchImpl: typeof fetch;
   policy: ResolvedRequestPolicy;
-}): Promise<unknown> {
+}): Promise<{ payload: unknown; transportAttemptCount: number }> {
   let lastFailure: RetryableFailure | undefined;
   for (let attempt = 1; attempt <= input.policy.maxAttempts; attempt += 1) {
     const remaining = input.deadlineAtMs - input.policy.now();
@@ -342,7 +342,7 @@ async function requestTranscriptionWithRetry(input: {
           throw new SafeProtocolError("malformed_response");
         }
       })();
-      return await Promise.race([
+      const payload = await Promise.race([
         operation,
         new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(
@@ -354,12 +354,13 @@ async function requestTranscriptionWithRetry(input: {
           );
         }),
       ]);
+      return { payload, transportAttemptCount: attempt };
     } catch (error) {
       if (error instanceof SafeProtocolError) {
         if (error.kind === "response_stream") {
           lastFailure = { kind: "network" };
         } else {
-          throw invalidOutputError();
+          throw invalidOutputError(attempt);
         }
       } else if (isResponseStatusMarker(error)) {
         try {
@@ -370,6 +371,7 @@ async function requestTranscriptionWithRetry(input: {
         if (error.status === 429) {
           lastFailure = {
             kind: "rate_limited",
+            httpStatusClass: "4xx",
             ...(response === undefined
               ? {}
               : {
@@ -380,12 +382,17 @@ async function requestTranscriptionWithRetry(input: {
                 }),
           };
         } else if (error.status >= 500 && error.status <= 599) {
-          lastFailure = { kind: "unavailable" };
+          lastFailure = { kind: "unavailable", httpStatusClass: "5xx" };
         } else {
           throw safeProviderError(
             "PROVIDER_UNAVAILABLE",
             "terminal",
             "OpenRouter rejected the bounded transcription request",
+            {
+              lastFailureKind: "request_rejected",
+              httpStatusClass: "4xx",
+              transportAttemptCount: attempt,
+            },
           );
         }
       } else {
@@ -399,18 +406,22 @@ async function requestTranscriptionWithRetry(input: {
     }
 
     if (attempt === input.policy.maxAttempts) {
-      throw retryableProviderError(lastFailure);
+      throw retryableProviderError(lastFailure, attempt);
     }
     const delay = Math.max(
       jitteredBackoffMilliseconds(attempt, input.policy.random),
       lastFailure?.retryAfterMs ?? 0,
     );
     if (input.deadlineAtMs - input.policy.now() <= delay) {
-      throw deadlineError();
+      throw deadlineError({
+        lastFailureKind: "deadline_exceeded",
+        httpStatusClass: lastFailure?.httpStatusClass ?? null,
+        transportAttemptCount: attempt,
+      });
     }
     await input.policy.sleep(delay);
   }
-  throw retryableProviderError(lastFailure);
+  throw retryableProviderError(lastFailure, input.policy.maxAttempts);
 }
 
 function buildMultipartRequest(
@@ -420,7 +431,7 @@ function buildMultipartRequest(
 ): FormData {
   const form = new FormData();
   form.set("model", model);
-  form.set("response_format", "verbose_json");
+  form.set("response_format", "json");
   form.set("store", "false");
   if (languagePolicy.mode === "fixed") {
     form.set("language", languagePolicy.language);
@@ -717,8 +728,14 @@ function safeProviderError(
   code: ConstructorParameters<typeof ProviderError>[0],
   disposition: ConstructorParameters<typeof ProviderError>[1],
   message: string,
+  telemetry?: ProviderFailureTelemetry,
 ): ProviderError {
-  return new ProviderError(code, disposition, message);
+  return new ProviderError(
+    code,
+    disposition,
+    message,
+    telemetry === undefined ? undefined : { telemetry },
+  );
 }
 
 function invalidInputAudioError(): ProviderError {
@@ -729,28 +746,55 @@ function invalidInputAudioError(): ProviderError {
   );
 }
 
-function invalidOutputError(): ProviderError {
+function invalidOutputTelemetry(
+  transportAttemptCount: number,
+): ProviderFailureTelemetry {
+  return {
+    lastFailureKind: "invalid_output",
+    httpStatusClass: null,
+    transportAttemptCount,
+  };
+}
+
+function invalidOutputError(transportAttemptCount = 0): ProviderError {
   return safeProviderError(
     "INVALID_OUTPUT",
     "review",
     "Transcription provider returned an invalid bounded response",
+    invalidOutputTelemetry(transportAttemptCount),
   );
 }
 
-function deadlineError(): ProviderError {
+function deadlineError(telemetry?: ProviderFailureTelemetry): ProviderError {
   return safeProviderError(
     "DEADLINE_EXCEEDED",
     "retryable",
     "Transcription provider deadline was exceeded",
+    telemetry ?? {
+      lastFailureKind: "deadline_exceeded",
+      httpStatusClass: null,
+      transportAttemptCount: 0,
+    },
   );
 }
 
-function retryableProviderError(failure?: RetryableFailure): ProviderError {
+function retryableProviderError(
+  failure: RetryableFailure | undefined,
+  transportAttemptCount: number,
+): ProviderError {
   return safeProviderError(
     "PROVIDER_UNAVAILABLE",
     "retryable",
     failure?.kind === "rate_limited"
       ? "Transcription provider remained rate limited"
       : "Transcription provider remained unavailable",
+    {
+      lastFailureKind:
+        failure?.kind === "unavailable"
+          ? "upstream_unavailable"
+          : (failure?.kind ?? "network"),
+      httpStatusClass: failure?.httpStatusClass ?? null,
+      transportAttemptCount,
+    },
   );
 }

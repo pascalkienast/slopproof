@@ -3,28 +3,74 @@ import { loadReviewQueue } from "../../lib/maintainer-review";
 import { readPageSessionRequest } from "../../lib/http-auth";
 import { getWebRuntime } from "../../lib/runtime";
 import { WebRequestRateLimitExceededError } from "../../lib/request-rate-limit";
+import {
+  listActiveMaintainerRepositories,
+  loadActiveMaintainerRepository,
+  type ActiveMaintainerRepositoryV1,
+} from "../../lib/github-oauth-production";
 import { DemoMaintainerLogin } from "./demo-maintainer-login";
+import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReviewQueuePage() {
+export default async function ReviewQueuePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ repositoryId?: string | string[] }>;
+}) {
   const app = await getWebRuntime();
+  const requestedRepository = await loadRequestedReviewRepository(
+    app,
+    await searchParams,
+  );
   const pageAuth = await readPageSessionRequest(app, "/review");
-  if (!pageAuth) {
+  const sessionMatchesRequestedRepository =
+    requestedRepository === undefined ||
+    (requestedRepository !== "invalid" &&
+      pageAuth?.session.repositoryId === requestedRepository.id);
+  if (
+    requestedRepository === "invalid" ||
+    !pageAuth ||
+    !sessionMatchesRequestedRepository
+  ) {
     return (
-      <ReviewShell>
+      <ReviewShell demoMode={app.config.DEMO_MODE}>
         <section className="notice-card review-empty">
           <p className="eyebrow">Protected review</p>
-          <h2>Maintainer authorization required.</h2>
-          <p>
-            Evidence and review decisions are repository-bound. The local MVP
-            exposes a demo maintainer session only while offline demo mode is
-            enabled.
-          </p>
+          <h2>
+            {pageAuth && !sessionMatchesRequestedRepository
+              ? "This session cannot review this repository."
+              : "Maintainer authorization required."}
+          </h2>
+          {app.config.DEMO_MODE ? (
+            <p>
+              Evidence and review decisions are repository-bound. This local
+              environment exposes a demo maintainer session for offline use.
+            </p>
+          ) : requestedRepository && requestedRepository !== "invalid" ? (
+            <p>
+              Evidence and review decisions stay bound to{" "}
+              {requestedRepository.owner}/{requestedRepository.name}. Authorize
+              with GitHub for this repository.
+            </p>
+          ) : (
+            <p>
+              Evidence and review decisions are repository-bound. Authorize with
+              GitHub to open the protected maintainer queue.
+            </p>
+          )}
           {app.config.DEMO_MODE ? (
             <DemoMaintainerLogin />
           ) : (
-            <GithubMaintainerLogin />
+            <GithubMaintainerLogin
+              repositories={
+                requestedRepository === "invalid"
+                  ? []
+                  : requestedRepository
+                    ? [requestedRepository]
+                    : await loadReviewLoginRepositories(app)
+              }
+            />
           )}
         </section>
       </ReviewShell>
@@ -38,7 +84,7 @@ export default async function ReviewQueuePage() {
       pageAuth.session,
     );
     return (
-      <ReviewShell>
+      <ReviewShell demoMode={app.config.DEMO_MODE}>
         <div className="check-header">
           <div>
             <p className="eyebrow">
@@ -94,7 +140,7 @@ export default async function ReviewQueuePage() {
   } catch (error) {
     if (error instanceof WebRequestRateLimitExceededError) {
       return (
-        <ReviewShell>
+        <ReviewShell demoMode={app.config.DEMO_MODE}>
           <section className="notice-card review-empty">
             <p className="eyebrow">Protected review</p>
             <h2>Review refresh is temporarily limited.</h2>
@@ -109,7 +155,7 @@ export default async function ReviewQueuePage() {
     }
     if (!(error instanceof MaintainerAuthorizationError)) throw error;
     return (
-      <ReviewShell>
+      <ReviewShell demoMode={app.config.DEMO_MODE}>
         <section className="notice-card error-card review-empty">
           <p className="eyebrow">Access denied</p>
           <h2>This session cannot review this repository.</h2>
@@ -120,7 +166,13 @@ export default async function ReviewQueuePage() {
           {app.config.DEMO_MODE ? (
             <DemoMaintainerLogin />
           ) : (
-            <GithubMaintainerLogin />
+            <GithubMaintainerLogin
+              repositories={
+                requestedRepository
+                  ? [requestedRepository]
+                  : await loadReviewLoginRepositories(app)
+              }
+            />
           )}
         </section>
       </ReviewShell>
@@ -128,23 +180,92 @@ export default async function ReviewQueuePage() {
   }
 }
 
-function GithubMaintainerLogin() {
+async function loadRequestedReviewRepository(
+  app: Awaited<ReturnType<typeof getWebRuntime>>,
+  searchParams: { repositoryId?: string | string[] },
+): Promise<ActiveMaintainerRepositoryV1 | "invalid" | undefined> {
+  const raw = searchParams.repositoryId;
+  if (raw === undefined) return undefined;
+  if (Array.isArray(raw) || !z.uuid().safeParse(raw).success) return "invalid";
+  try {
+    return await loadActiveMaintainerRepository(app.database.pool, raw);
+  } catch {
+    return "invalid";
+  }
+}
+
+async function loadReviewLoginRepositories(
+  app: Awaited<ReturnType<typeof getWebRuntime>>,
+): Promise<readonly ActiveMaintainerRepositoryV1[]> {
+  try {
+    return await listActiveMaintainerRepositories(app.database.pool);
+  } catch {
+    return [];
+  }
+}
+
+function GithubMaintainerLogin({
+  repositories,
+}: {
+  repositories: readonly ActiveMaintainerRepositoryV1[];
+}) {
+  if (repositories.length === 0) {
+    return (
+      <p className="review-login">
+        Maintainer authorization is temporarily unavailable.
+      </p>
+    );
+  }
+  if (repositories.length === 1) {
+    return (
+      <a
+        className="button primary review-login"
+        href={reviewAuthorizationHref(repositories[0]!.id)}
+      >
+        Authorize with GitHub
+      </a>
+    );
+  }
   return (
-    <a
-      className="button primary"
-      href="/api/auth/github/start?returnTo=%2Freview"
+    <nav
+      className="review-login review-repo-choice"
+      aria-label="Choose repository"
     >
-      Authorize with GitHub
-    </a>
+      <p>Choose the repository to review.</p>
+      <ul>
+        {repositories.map((repository) => (
+          <li key={repository.id}>
+            <a
+              className="button primary"
+              href={reviewAuthorizationHref(repository.id)}
+            >
+              Authorize {repository.owner}/{repository.name}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }
 
-function ReviewShell({ children }: { children: React.ReactNode }) {
+function reviewAuthorizationHref(repositoryId: string): string {
+  return `/api/auth/github/start?returnTo=${encodeURIComponent("/review")}&repositoryId=${encodeURIComponent(repositoryId)}`;
+}
+
+function ReviewShell({
+  children,
+  demoMode,
+}: {
+  children: React.ReactNode;
+  demoMode: boolean;
+}) {
   return (
     <main className="shell flow-shell review-shell">
-      <a className="back-link" href="/demo">
-        ← Local demo
-      </a>
+      {demoMode ? (
+        <a className="back-link" href="/demo">
+          ← Local demo
+        </a>
+      ) : null}
       {children}
     </main>
   );

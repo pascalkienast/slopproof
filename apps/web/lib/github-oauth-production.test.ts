@@ -5,6 +5,8 @@ import {
   PgGithubOAuthSessionPort,
   PgGithubOAuthStateRepository,
   createGithubOAuthProductionRuntime,
+  listActiveMaintainerRepositories,
+  loadActiveMaintainerRepository,
   resolveProductionStartBinding,
 } from "./github-oauth-production";
 import { GithubOAuthWiringError } from "./github-oauth-runtime";
@@ -135,6 +137,121 @@ describe("production GitHub OAuth wiring", () => {
         new Request("https://slopproof.example/api/auth/github/start"),
         "/review",
       ),
+    ).rejects.toBeInstanceOf(GithubOAuthWiringError);
+  });
+
+  it("binds /review to an exact active local repository id", async () => {
+    const database = fakePool(async (sql, parameters) => {
+      expect(sql).toContain("WHERE repository.id = $1");
+      expect(sql).toContain("repository.status = 'active'");
+      expect(parameters).toEqual([REPOSITORY_ID]);
+      return result([
+        {
+          repository_id: REPOSITORY_ID,
+          github_repository_id: "987654321",
+        },
+      ]);
+    });
+    await expect(
+      resolveProductionStartBinding(
+        app(database.pool),
+        new Request(
+          `https://slopproof.example/api/auth/github/start?returnTo=${encodeURIComponent("/review")}&repositoryId=${REPOSITORY_ID}`,
+        ),
+        "/review",
+      ),
+    ).resolves.toEqual({
+      purpose: "maintainer_reauth",
+      repositoryId: REPOSITORY_ID,
+      githubRepositoryId: "987654321",
+    });
+    expect(database.query).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects unknown or malformed review repository ids", async () => {
+    const unknown = fakePool(async () => result());
+    await expect(
+      resolveProductionStartBinding(
+        app(unknown.pool),
+        new Request(
+          `https://slopproof.example/api/auth/github/start?repositoryId=${REPOSITORY_ID}`,
+        ),
+        "/review",
+      ),
+    ).rejects.toBeInstanceOf(GithubOAuthWiringError);
+
+    await expect(
+      resolveProductionStartBinding(
+        app(unknown.pool),
+        new Request(
+          "https://slopproof.example/api/auth/github/start?repositoryId=not-a-uuid",
+        ),
+        "/review",
+      ),
+    ).rejects.toBeInstanceOf(GithubOAuthWiringError);
+    expect(unknown.query).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists only active owner/name pairs for the review login", async () => {
+    const database = fakePool(async (sql, parameters) => {
+      expect(sql).toContain(
+        "SELECT repository.id, repository.owner, repository.name",
+      );
+      expect(sql).toContain(
+        "ORDER BY repository.owner, repository.name, repository.id",
+      );
+      expect(parameters).toEqual([33]);
+      return result([
+        {
+          id: REPOSITORY_ID,
+          owner: "pascalkienast",
+          name: "pixelcampus",
+        },
+        {
+          id: "40000000-0000-4000-8000-000000000005",
+          owner: "pascalkienast",
+          name: "slopproof",
+        },
+      ]);
+    });
+    await expect(
+      listActiveMaintainerRepositories(database.pool),
+    ).resolves.toEqual([
+      {
+        id: REPOSITORY_ID,
+        owner: "pascalkienast",
+        name: "pixelcampus",
+      },
+      {
+        id: "40000000-0000-4000-8000-000000000005",
+        owner: "pascalkienast",
+        name: "slopproof",
+      },
+    ]);
+  });
+
+  it("loads one active maintainer repository by local id", async () => {
+    const database = fakePool(async (sql, parameters) => {
+      expect(sql).toContain("WHERE repository.id = $1");
+      expect(sql).toContain("repository.status = 'active'");
+      expect(parameters).toEqual([REPOSITORY_ID]);
+      return result([
+        {
+          id: REPOSITORY_ID,
+          owner: "pascalkienast",
+          name: "slopproof",
+        },
+      ]);
+    });
+    await expect(
+      loadActiveMaintainerRepository(database.pool, REPOSITORY_ID),
+    ).resolves.toEqual({
+      id: REPOSITORY_ID,
+      owner: "pascalkienast",
+      name: "slopproof",
+    });
+    await expect(
+      loadActiveMaintainerRepository(database.pool, "not-a-uuid"),
     ).rejects.toBeInstanceOf(GithubOAuthWiringError);
   });
 

@@ -44,7 +44,7 @@ export async function handleGithubOAuthStart(
 ): Promise<NextResponse> {
   try {
     const url = exactRouteUrl(request, "GET", START_PATH);
-    rejectUnknownQuery(url, new Set(["returnTo"]));
+    rejectUnknownQuery(url, new Set(["returnTo", "repositoryId"]));
     const requestedRedirectPath = singleQueryValue(url, "returnTo");
     const runtime = await resolvedRuntime(resolve, request);
     const binding = await runtime.resolveStartBinding({

@@ -279,6 +279,8 @@
     .closing-loop { width: 860px; max-width: 100%; margin: -35px auto -20px; display: block; }
     footer { padding: 30px 0; border-top: var(--line); background: var(--sheet); }
     .footer-row { display: flex; justify-content: space-between; gap: 24px; font: 500 11px/1.4 var(--mono); }
+    .footer-row a { color: inherit; text-underline-offset: 3px; }
+    .footer-row a:hover { color: var(--orange); }
 
     dialog { width: min(430px, calc(100% - 28px)); padding: 0; border: 0; border-radius: 34px; background: transparent; color: var(--ink); }
     dialog::backdrop { background: rgba(23,23,17,.82); backdrop-filter: blur(4px); }
@@ -533,7 +535,7 @@
     </section>
   </main>
 
-  <footer><div class="shell footer-row"><span>SLOP/PROOF · PROVE YOU KNOW WHAT YOU SHIP.</span><span>Open-source product concept · 2026</span></div></footer>
+  <footer><div class="shell footer-row"><span>SLOP/PROOF · PROVE YOU KNOW WHAT YOU SHIP.</span><a href="https://github.com/pascalkienast/slopproof" rel="noreferrer">Open-source MVP · Live on GitHub · 2026</a></div></footer>
 
   <dialog id="proof-dialog" aria-labelledby="dialog-title">
     <div class="dialog-card">

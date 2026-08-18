@@ -67,7 +67,7 @@ describe("OpenRouter transcription provider", () => {
     expect(form).toBeInstanceOf(FormData);
     if (!(form instanceof FormData)) throw new Error("missing multipart body");
     expect(form.get("model")).toBe("openai/whisper-large-v3-turbo");
-    expect(form.get("response_format")).toBe("verbose_json");
+    expect(form.get("response_format")).toBe("json");
     expect(form.get("store")).toBe("false");
     expect(form.get("language")).toBeNull();
     const file = form.get("file");
@@ -195,7 +195,7 @@ describe("OpenRouter transcription provider", () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
-  it("rejects malformed, oversized, empty and contradictory success envelopes without retry", async () => {
+  it("rejects malformed, oversized, empty and fixed-language contradictory success envelopes without retry", async () => {
     const fixtures = [
       new Response("not-json", { status: 200 }),
       new Response("{}", {
@@ -204,8 +204,6 @@ describe("OpenRouter transcription provider", () => {
       }),
       Response.json({ text: "   ", language: "en" }),
       Response.json({ text: "Bound answer", language: "german" }),
-      Response.json({ text: "Bound answer", language: "en", duration: 9 }),
-      Response.json({ text: "Bound answer", language: "en", duration: 0.1 }),
       new Response("{}", {
         status: 200,
         headers: { "content-length": "not-a-number" },
@@ -227,6 +225,26 @@ describe("OpenRouter transcription provider", () => {
         disposition: "review",
       });
       expect(fetchImpl).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("accepts the documented text-only response and ignores advisory duration drift", async () => {
+    const responses = [
+      Response.json({ text: "Bound answer", usage: { seconds: 1 } }),
+      Response.json({
+        text: "Bound answer",
+        language: null,
+        duration: 99,
+      }),
+    ];
+    for (const response of responses) {
+      const provider = new OpenRouterTranscriptionProvider(
+        configuration(),
+        dependencies(vi.fn<typeof fetch>().mockResolvedValue(response)),
+      );
+      await expect(
+        provider.transcribeQuestion(request(), context()),
+      ).resolves.toMatchObject({ language: "und" });
     }
   });
 

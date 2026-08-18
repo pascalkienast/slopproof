@@ -384,7 +384,7 @@ describe("worker-only recording audio transcription", () => {
     }
   });
 
-  it("rejects contradictory per-question detected languages and propagates technical provider retries", async () => {
+  it("marks mixed per-question detected languages as undetermined and propagates technical provider retries", async () => {
     let call = 0;
     const contradictory = await dependencies({
       mutateProviderResult(value) {
@@ -398,7 +398,7 @@ describe("worker-only recording audio transcription", () => {
         ciphertextAccess(),
         providerContext(),
       ),
-    ).rejects.toMatchObject({ code: "INVALID_OUTPUT", disposition: "review" });
+    ).resolves.toMatchObject({ language: "und" });
 
     const retry = new ProviderError(
       "PROVIDER_UNAVAILABLE",
@@ -531,6 +531,49 @@ describe("bounded FFmpeg audio pipeline", () => {
     expect(new DataView(first.buffer).getUint32(40, true)).toBe(32_000);
     expect(first[44]).toBe(1);
     expect(second[44]).toBe(2);
+  });
+
+  it("clamps a 12ms last-question tail that overruns decoded PCM", () => {
+    const pcm = patternedPcm(1_988);
+    const wav = questionWavFromPcm(
+      pcm,
+      interval(QUESTION_TWO, 1, 1_000, 2_000),
+    );
+    expect(new DataView(wav.buffer).getUint32(40, true)).toBe(988 * 32);
+    expect(wav.subarray(44)).toEqual(pcm.subarray(1_000 * 32));
+  });
+
+  it("still rejects a last-question tail that overruns decoded PCM by more than 250ms", () => {
+    expect(() =>
+      questionWavFromPcm(
+        patternedPcm(1_700),
+        interval(QUESTION_TWO, 1, 1_000, 2_000),
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        code: "INVALID_OUTPUT",
+        disposition: "review",
+      }),
+    );
+  });
+
+  it("transcribes when the last stored interval ends 12ms after decoded audio", async () => {
+    const fixture = await dependencies({ pcm: patternedPcm(1_988) });
+    const transcript = await fixture.adapter.transcribe(
+      recordingSource(),
+      ciphertextAccess(),
+      providerContext(),
+    );
+    expect(fixture.provider.transcribeQuestion).toHaveBeenCalledTimes(2);
+    expect(
+      fixture.requests.map((request) => [request.startMs, request.endMs]),
+    ).toEqual([
+      [0, 1_000],
+      [1_000, 2_000],
+    ]);
+    expect(fixture.requests[1]?.audio.byteLength).toBe(44 + 988 * 32);
+    expect(transcript.segments).toHaveLength(2);
+    expect(transcript.durationMs).toBe(2_000);
   });
 });
 

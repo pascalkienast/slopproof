@@ -140,6 +140,30 @@ describe("GitHub OAuth route handlers", () => {
     expect(await rateLimited.json()).toEqual({ error: "rate_limited" });
   });
 
+  it("allows a local review repositoryId and rejects extra start parameters", async () => {
+    const allowed = harness();
+    const response = await handleGithubOAuthStart(
+      new Request(
+        `https://slopproof.example/api/auth/github/start?returnTo=${encodeURIComponent("/review")}&repositoryId=${REPOSITORY_ID}`,
+      ),
+      allowed.resolve,
+    );
+    expect(response.status).toBe(302);
+    expect(allowed.resolveStartBinding).toHaveBeenCalledWith({
+      request: expect.any(Request),
+      requestedRedirectPath: "/review",
+    });
+
+    const rejected = await handleGithubOAuthStart(
+      new Request(
+        `https://slopproof.example/api/auth/github/start?returnTo=${encodeURIComponent("/review")}&repositoryId=${REPOSITORY_ID}&repositoryId=${REPOSITORY_ID}`,
+      ),
+      harness().resolve,
+    );
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toEqual({ error: "oauth_rejected" });
+  });
+
   it("rotates session and sets only sealed Fresh-Auth material on callback", async () => {
     const test = harness();
     const response = await handleGithubOAuthCallback(
