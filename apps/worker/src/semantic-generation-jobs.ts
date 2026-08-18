@@ -22,10 +22,10 @@ export function createSemanticGenerationJobHandlers(
         payload,
       );
       if (run === "stale") return { outcome: "stale" };
-      if (run.completedArtifactId !== null) return { outcome: "replayed" };
-      if (run.completedAt !== null) {
+      if (isDegradedCompletion(run)) {
         return { outcome: "failed", degraded: true };
       }
+      if (run.completedArtifactId !== null) return { outcome: "replayed" };
       const forbiddenProofContent =
         await dependencies.repository.loadFrozenProofContent(run);
       if (forbiddenProofContent === "pending") {
@@ -61,10 +61,10 @@ export function createSemanticGenerationJobHandlers(
         payload,
       );
       if (run === "stale") return { outcome: "stale" };
-      if (run.completedArtifactId !== null) return { outcome: "replayed" };
-      if (run.completedAt !== null) {
+      if (isDegradedCompletion(run)) {
         return { outcome: "failed", degraded: true };
       }
+      if (run.completedArtifactId !== null) return { outcome: "replayed" };
       const privateInput =
         await dependencies.repository.loadPracticeQuestionAndAnswer(
           run,
@@ -110,11 +110,11 @@ export function createSemanticGenerationJobHandlers(
         payload,
       );
       if (run === "stale") return { outcome: "stale" };
+      if (isDegradedCompletion(run)) {
+        return { outcome: "generation_failed" };
+      }
       if (run.completedArtifactId !== null) {
         return dependencies.repository.replayCompletedProof(run);
-      }
-      if (run.completedAt !== null) {
-        return { outcome: "generation_failed" };
       }
       const request: GenerateProofQuestionPlanRequestV1 = {
         schemaVersion: "1",
@@ -150,6 +150,10 @@ export function createSemanticGenerationJobHandlers(
       return { outcome: await dependencies.repository.expirePrivate(payload) };
     },
   };
+}
+
+function isDegradedCompletion(run: SemanticRunContext): boolean {
+  return run.completedAt !== null && run.degraded === true;
 }
 
 async function persistHonestGenerationFailure(

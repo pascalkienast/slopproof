@@ -18,12 +18,15 @@ import {
   ProviderError,
   type LearningMaterialProvider,
   type PracticeCoachProvider,
+  type PracticeCoachProviderInputV1,
   type ProofQuestionProvider,
 } from "@slopproof/providers";
 import { DEFAULT_REPOSITORY_POLICY_V1 } from "@slopproof/policy";
 import {
   deterministicLearningFallbackV1,
+  deterministicPracticeFeedbackFallbackV1,
   deterministicProofFallbackV2,
+  proofQuestionsContentV1,
 } from "@slopproof/questions";
 import {
   afterAll,
@@ -139,12 +142,13 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
     expect(proofReady.write).not.toHaveBeenCalled();
 
     const failure = await database.pool.query<{
-      artifact_id: string | null;
+      artifact_id: string;
+      call_id: string;
       degraded: boolean;
       outcome: string;
       provider_failure: Record<string, unknown>;
     }>(
-      `SELECT run.artifact_id, run.degraded, invocation.outcome,
+      `SELECT run.artifact_id, invocation.call_id, run.degraded, invocation.outcome,
               audit.metadata AS provider_failure
          FROM semantic_generation_runs run
          JOIN semantic_provider_invocations invocation ON invocation.run_id = run.id
@@ -154,8 +158,8 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
           AND audit.action = 'semantic.provider_failed'
         WHERE run.purpose = 'proof_questions'`,
     );
+    expect(failure.rows[0]?.artifact_id).toBe(failure.rows[0]?.call_id);
     expect(failure.rows[0]).toMatchObject({
-      artifact_id: null,
       degraded: true,
       outcome: "fallback",
       provider_failure: {
@@ -166,6 +170,16 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
         transportAttemptCount: 3,
       },
     });
+    await expect(
+      handlers["semantic.generate-proof-questions"](
+        proofJob(generationContextId),
+      ),
+    ).resolves.toEqual({ outcome: "generation_failed" });
+    await expect(
+      database.pool.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM attempts",
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: 0 }] });
     expect(JSON.stringify(failure.rows[0]?.provider_failure)).not.toContain(
       "offline provider unavailable",
     );
@@ -188,13 +202,14 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
     ).resolves.toMatchObject({ rows: [{ count: 0 }] });
 
     const stored = await database.pool.query<{
-      artifact_id: string | null;
+      artifact_id: string;
+      call_id: string;
       provider: string;
       input_hash: string;
       provider_failure: Record<string, unknown>;
     }>(
-      `SELECT run.artifact_id, invocation.provider, invocation.input_hash,
-              audit.metadata AS provider_failure
+      `SELECT run.artifact_id, invocation.call_id, invocation.provider,
+              invocation.input_hash, audit.metadata AS provider_failure
          FROM semantic_generation_runs run
          JOIN semantic_provider_invocations invocation ON invocation.run_id = run.id
          JOIN audit_events audit
@@ -203,7 +218,7 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
           AND audit.action = 'semantic.provider_failed'
         WHERE run.purpose = 'learning_material'`,
     );
-    expect(stored.rows[0]?.artifact_id).toBeNull();
+    expect(stored.rows[0]?.artifact_id).toBe(stored.rows[0]?.call_id);
     expect(stored.rows[0]?.input_hash).toMatch(/^[0-9a-f]{64}$/u);
     expect(stored.rows[0]?.provider_failure).toEqual({
       schemaVersion: "semantic-provider-failure-v1",
@@ -227,6 +242,14 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
       revisionId: IDS.revision,
       headSha: HEAD,
     });
+    await expect(
+      handlers["semantic.generate-learning"](learningJob(generationContextId)),
+    ).resolves.toEqual({ outcome: "failed", degraded: true });
+    await expect(
+      database.pool.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM semantic_learning_bundles",
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: 0 }] });
 
     const served = await database.pool.query<{
       status: string;
@@ -607,7 +630,9 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
     }
     expect(pending.practiceSession.pendingQuestionIds).toEqual([question.id]);
 
-    await handlers["semantic.generate-practice-feedback"]({
+    await generatedFeedbackHandlers(repository, generationContext)[
+      "semantic.generate-practice-feedback"
+    ]({
       schemaVersion: "1",
       idempotencyKey: `semantic.practice.feedback:${submitted.answerId}`,
       artifactKind: "practice_feedback_v1",
@@ -953,7 +978,11 @@ function generatedLearningHandlers(
   repository: PostgresSemanticGenerationRepository,
   context: GenerationContextV1,
 ) {
-  const output = deterministicLearningFallbackV1(context, 3);
+  const output = deterministicLearningFallbackV1(
+    context,
+    3,
+    proofQuestionsContentV1(deterministicProofFallbackV2(context, 2)),
+  );
   const generate = async () => ({ output, tokenUsage: null });
   return createSemanticGenerationJobHandlers({
     repository,
@@ -964,6 +993,46 @@ function generatedLearningHandlers(
         repair: generate,
       },
       practiceCoachProvider: unavailableProvider(),
+      proofQuestionProvider: unavailableProvider(),
+      clock: { now: () => new Date(), monotonicNowMs: () => 1 },
+    }),
+  });
+}
+
+function generatedFeedbackHandlers(
+  repository: PostgresSemanticGenerationRepository,
+  context: GenerationContextV1,
+) {
+  const forbiddenProofContent = proofQuestionsContentV1(
+    deterministicProofFallbackV2(context, 2),
+  );
+  const generate = async (input: PracticeCoachProviderInputV1) => ({
+    output: deterministicPracticeFeedbackFallbackV1(
+      context,
+      {
+        ...input.practiceQuestion,
+        id: "83000000-0000-4000-8000-0000000000aa",
+        order: 1,
+        revisionId: context.revisionId,
+        headSha: context.headSha,
+        contextHash: context.contextHash,
+      },
+      forbiddenProofContent,
+    ),
+    tokenUsage: null,
+  });
+  return createSemanticGenerationJobHandlers({
+    repository,
+    service: createSemanticGenerationService({
+      learningMaterialProvider: unavailableProvider(),
+      practiceCoachProvider: {
+        descriptor: {
+          provider: "generated-feedback",
+          model: "generated-feedback",
+        },
+        generate,
+        repair: generate,
+      },
       proofQuestionProvider: unavailableProvider(),
       clock: { now: () => new Date(), monotonicNowMs: () => 1 },
     }),

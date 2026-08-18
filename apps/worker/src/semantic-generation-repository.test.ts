@@ -333,7 +333,7 @@ describe("Gate 4 persistence boundary", () => {
     );
   });
 
-  it("persists a failed generation without an artifact and refuses a later template write", async () => {
+  it("persists a failed generation bound to the invocation call id", async () => {
     const query = vi.fn(async (statement: string) => {
       if (statement.includes("SELECT artifact_id, completed_at")) {
         return {
@@ -348,19 +348,16 @@ describe("Gate 4 persistence boundary", () => {
       return { rowCount: 1, rows: [] };
     });
     const repository = repositoryFixture(query, schedulerFixture());
+    const metadata = failedMetadataFixture();
 
     await expect(
-      repository.persistFailedGeneration(
-        runFixture(),
-        failedMetadataFixture(),
-        {
-          schemaVersion: "semantic-provider-failure-v1",
-          failureCode: "PROVIDER_UNAVAILABLE",
-          lastFailureKind: "upstream_unavailable",
-          httpStatusClass: "5xx",
-          transportAttemptCount: 3,
-        },
-      ),
+      repository.persistFailedGeneration(runFixture(), metadata, {
+        schemaVersion: "semantic-provider-failure-v1",
+        failureCode: "PROVIDER_UNAVAILABLE",
+        lastFailureKind: "upstream_unavailable",
+        httpStatusClass: "5xx",
+        transportAttemptCount: 3,
+      }),
     ).resolves.toBe("created");
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO semantic_provider_invocations"),
@@ -368,7 +365,35 @@ describe("Gate 4 persistence boundary", () => {
     );
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("UPDATE semantic_generation_runs"),
-      [IDS.run, null, true],
+      [IDS.run, metadata.callId, true],
+    );
+  });
+
+  it("replays a fail-closed run already bound to the same call id", async () => {
+    const metadata = failedMetadataFixture();
+    const query = vi.fn(async (statement: string) => {
+      if (statement.includes("SELECT artifact_id, completed_at")) {
+        return {
+          rowCount: 1,
+          rows: [{ artifact_id: metadata.callId, completed_at: new Date() }],
+        };
+      }
+      return { rowCount: 1, rows: [] };
+    });
+    const repository = repositoryFixture(query, schedulerFixture());
+
+    await expect(
+      repository.persistFailedGeneration(runFixture(), metadata, {
+        schemaVersion: "semantic-provider-failure-v1",
+        failureCode: "PROVIDER_UNAVAILABLE",
+        lastFailureKind: "upstream_unavailable",
+        httpStatusClass: "5xx",
+        transportAttemptCount: 3,
+      }),
+    ).resolves.toBe("replayed");
+    expect(query).not.toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE semantic_generation_runs"),
+      expect.anything(),
     );
   });
 

@@ -488,7 +488,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
       );
       const row = completed.rows[0];
       if (row?.completed_at !== null && row?.completed_at !== undefined) {
-        if (row.artifact_id !== null) {
+        if (row.artifact_id !== metadata.callId) {
           throw new Error(
             "Completed semantic run already has an artifact and cannot fail closed.",
           );
@@ -497,7 +497,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
         return "replayed";
       }
       await persistInvocation(client, run, metadata, failure);
-      await completeRun(client, run, null, true);
+      await completeRun(client, run, metadata.callId, true);
       await client.query("COMMIT");
       return "created";
     } catch (error) {
@@ -2207,7 +2207,7 @@ function assertSuccessfulSemanticArtifact(
 async function completeRun(
   client: PoolClient,
   run: SemanticRunContext,
-  artifactId: string | null,
+  artifactId: string,
   degraded: boolean,
 ): Promise<void> {
   const updated = await client.query(
