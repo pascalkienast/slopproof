@@ -5,6 +5,7 @@ import { getWebRuntime } from "../../../lib/runtime";
 export const dynamic = "force-dynamic";
 
 type PublicRevision = {
+  repository_id: string;
   owner: string;
   name: string;
   pull_request_number: number;
@@ -28,7 +29,7 @@ export default async function PublicRevisionPage({
   if (!revisionId.success) notFound();
   const app = await getWebRuntime();
   const result = await app.database.pool.query<PublicRevision>(
-    `SELECT repository.owner, repository.name,
+    `SELECT repository.id AS repository_id, repository.owner, repository.name,
             pull_request.number AS pull_request_number,
             revision.head_sha, revision.is_current,
             check_run.status, check_run.conclusion, check_run.public_summary,
@@ -82,7 +83,10 @@ export default async function PublicRevisionPage({
               Continue as contributor
             </a>
           ) : null}
-          <a className="button maintainer-button" href="/review">
+          <a
+            className="button maintainer-button"
+            href={`/review?repositoryId=${encodeURIComponent(revision.repository_id)}`}
+          >
             Protected maintainer view
           </a>
         </div>

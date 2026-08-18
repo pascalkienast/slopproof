@@ -6,6 +6,7 @@ import {
   PgGithubOAuthStateRepository,
   createGithubOAuthProductionRuntime,
   listActiveMaintainerRepositories,
+  loadActiveMaintainerRepository,
   resolveProductionStartBinding,
 } from "./github-oauth-production";
 import { GithubOAuthWiringError } from "./github-oauth-runtime";
@@ -223,6 +224,31 @@ describe("production GitHub OAuth wiring", () => {
         name: "slopproof",
       },
     ]);
+  });
+
+  it("loads one active maintainer repository by local id", async () => {
+    const database = fakePool(async (sql, parameters) => {
+      expect(sql).toContain("WHERE repository.id = $1");
+      expect(sql).toContain("repository.status = 'active'");
+      expect(parameters).toEqual([REPOSITORY_ID]);
+      return result([
+        {
+          id: REPOSITORY_ID,
+          owner: "pascalkienast",
+          name: "slopproof",
+        },
+      ]);
+    });
+    await expect(
+      loadActiveMaintainerRepository(database.pool, REPOSITORY_ID),
+    ).resolves.toEqual({
+      id: REPOSITORY_ID,
+      owner: "pascalkienast",
+      name: "slopproof",
+    });
+    await expect(
+      loadActiveMaintainerRepository(database.pool, "not-a-uuid"),
+    ).rejects.toBeInstanceOf(GithubOAuthWiringError);
   });
 
   it("prefers an active repository-bound session for /review", async () => {

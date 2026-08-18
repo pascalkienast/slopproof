@@ -38,7 +38,10 @@ test("offers one contributor entry and one protected maintainer entry", async ({
   ).toHaveAttribute("href", `/revisions/${revisionId}/contribute`);
   await expect(
     page.getByRole("link", { name: "Protected maintainer view" }),
-  ).toHaveAttribute("href", "/review");
+  ).toHaveAttribute(
+    "href",
+    "/review?repositoryId=50000000-0000-4000-8000-000000000002",
+  );
   await expect(page.getByText("Practice first (optional)")).toHaveCount(0);
   await expect(
     page.getByText(/contributors choose between optional practice/iu),

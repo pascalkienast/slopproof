@@ -763,11 +763,41 @@ export async function listActiveMaintainerRepositories(
   if (result.rows.length > MAX_ACTIVE_MAINTAINER_REPOSITORIES) {
     throw new GithubOAuthWiringError();
   }
-  return result.rows.map((row) => {
-    const parsed = ActiveMaintainerRepositorySchema.safeParse(row);
-    if (!parsed.success) throw new GithubOAuthWiringError();
-    return parsed.data;
-  });
+  return result.rows.map(parseActiveMaintainerRepository);
+}
+
+export async function loadActiveMaintainerRepository(
+  pool: SqlPool,
+  repositoryId: string,
+): Promise<ActiveMaintainerRepositoryV1> {
+  const parsedId = z.uuid().safeParse(repositoryId);
+  if (!parsedId.success) throw new GithubOAuthWiringError();
+  const result = await pool.query<{
+    id: string;
+    owner: string;
+    name: string;
+  }>(
+    `SELECT repository.id, repository.owner, repository.name
+       FROM repositories repository
+       JOIN installations installation
+         ON installation.id = repository.installation_id
+      WHERE repository.id = $1
+        AND repository.status = 'active'
+        AND installation.status = 'active'
+      LIMIT 1`,
+    [parsedId.data],
+  );
+  const row = result.rows[0];
+  if (row === undefined) throw new GithubOAuthWiringError();
+  return parseActiveMaintainerRepository(row);
+}
+
+function parseActiveMaintainerRepository(
+  row: unknown,
+): ActiveMaintainerRepositoryV1 {
+  const parsed = ActiveMaintainerRepositorySchema.safeParse(row);
+  if (!parsed.success) throw new GithubOAuthWiringError();
+  return parsed.data;
 }
 
 async function peekActiveStateRedirect(

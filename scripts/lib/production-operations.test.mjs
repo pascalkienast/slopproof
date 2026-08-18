@@ -62,6 +62,7 @@ test("landing interactions obey the strict script policy and default to Proof", 
 
 test("production review chrome does not expose the local demo", () => {
   const reviewPage = read("apps/web/app/review/page.tsx");
+  const revisionPage = read("apps/web/app/revisions/[revisionId]/page.tsx");
 
   assert.match(
     reviewPage,
@@ -76,6 +77,11 @@ test("production review chrome does not expose the local demo", () => {
     reviewPage,
     /returnTo=\$\{encodeURIComponent\("\/review"\)\}&repositoryId=\$\{encodeURIComponent\(repositoryId\)\}/u,
   );
+  assert.match(
+    revisionPage,
+    /\/review\?repositoryId=\$\{encodeURIComponent\(revision\.repository_id\)\}/u,
+  );
+  assert.doesNotMatch(revisionPage, /href="\/review"/u);
   assert.doesNotMatch(reviewPage, /githubRepositoryId/u);
   assert.doesNotMatch(reviewPage, /The local MVP exposes a demo maintainer/u);
 });

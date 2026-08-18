@@ -5,25 +5,53 @@ import { getWebRuntime } from "../../lib/runtime";
 import { WebRequestRateLimitExceededError } from "../../lib/request-rate-limit";
 import {
   listActiveMaintainerRepositories,
+  loadActiveMaintainerRepository,
   type ActiveMaintainerRepositoryV1,
 } from "../../lib/github-oauth-production";
 import { DemoMaintainerLogin } from "./demo-maintainer-login";
+import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReviewQueuePage() {
+export default async function ReviewQueuePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ repositoryId?: string | string[] }>;
+}) {
   const app = await getWebRuntime();
+  const requestedRepository = await loadRequestedReviewRepository(
+    app,
+    await searchParams,
+  );
   const pageAuth = await readPageSessionRequest(app, "/review");
-  if (!pageAuth) {
+  const sessionMatchesRequestedRepository =
+    requestedRepository === undefined ||
+    (requestedRepository !== "invalid" &&
+      pageAuth?.session.repositoryId === requestedRepository.id);
+  if (
+    requestedRepository === "invalid" ||
+    !pageAuth ||
+    !sessionMatchesRequestedRepository
+  ) {
     return (
       <ReviewShell demoMode={app.config.DEMO_MODE}>
         <section className="notice-card review-empty">
           <p className="eyebrow">Protected review</p>
-          <h2>Maintainer authorization required.</h2>
+          <h2>
+            {pageAuth && !sessionMatchesRequestedRepository
+              ? "This session cannot review this repository."
+              : "Maintainer authorization required."}
+          </h2>
           {app.config.DEMO_MODE ? (
             <p>
               Evidence and review decisions are repository-bound. This local
               environment exposes a demo maintainer session for offline use.
+            </p>
+          ) : requestedRepository && requestedRepository !== "invalid" ? (
+            <p>
+              Evidence and review decisions stay bound to{" "}
+              {requestedRepository.owner}/{requestedRepository.name}. Authorize
+              with GitHub for this repository.
             </p>
           ) : (
             <p>
@@ -35,7 +63,13 @@ export default async function ReviewQueuePage() {
             <DemoMaintainerLogin />
           ) : (
             <GithubMaintainerLogin
-              repositories={await loadReviewLoginRepositories(app)}
+              repositories={
+                requestedRepository === "invalid"
+                  ? []
+                  : requestedRepository
+                    ? [requestedRepository]
+                    : await loadReviewLoginRepositories(app)
+              }
             />
           )}
         </section>
@@ -133,12 +167,30 @@ export default async function ReviewQueuePage() {
             <DemoMaintainerLogin />
           ) : (
             <GithubMaintainerLogin
-              repositories={await loadReviewLoginRepositories(app)}
+              repositories={
+                requestedRepository
+                  ? [requestedRepository]
+                  : await loadReviewLoginRepositories(app)
+              }
             />
           )}
         </section>
       </ReviewShell>
     );
+  }
+}
+
+async function loadRequestedReviewRepository(
+  app: Awaited<ReturnType<typeof getWebRuntime>>,
+  searchParams: { repositoryId?: string | string[] },
+): Promise<ActiveMaintainerRepositoryV1 | "invalid" | undefined> {
+  const raw = searchParams.repositoryId;
+  if (raw === undefined) return undefined;
+  if (Array.isArray(raw) || !z.uuid().safeParse(raw).success) return "invalid";
+  try {
+    return await loadActiveMaintainerRepository(app.database.pool, raw);
+  } catch {
+    return "invalid";
   }
 }
 
