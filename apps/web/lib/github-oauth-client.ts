@@ -162,7 +162,7 @@ export class GithubOAuthHttpClient implements GithubOAuthClient {
       code: string;
       codeVerifier: string;
       redirectUri: string;
-      repositoryId: string;
+      repositoryId?: string;
     }>,
   ): Promise<GithubOAuthAccessGrant> {
     try {
@@ -178,12 +178,15 @@ export class GithubOAuthHttpClient implements GithubOAuthClient {
       code: string;
       codeVerifier: string;
       redirectUri: string;
-      repositoryId: string;
+      repositoryId?: string;
     }>,
   ): Promise<GithubOAuthAccessGrant> {
-    const repositoryId = DecimalIdSchema.safeParse(input.repositoryId);
+    const repositoryId =
+      input.repositoryId === undefined
+        ? undefined
+        : DecimalIdSchema.safeParse(input.repositoryId);
     if (
-      !repositoryId.success ||
+      (repositoryId !== undefined && !repositoryId.success) ||
       !input.code ||
       input.code.length > 1_024 ||
       /[\0\r\n]/u.test(input.code) ||
@@ -199,7 +202,7 @@ export class GithubOAuthHttpClient implements GithubOAuthClient {
       code: input.code,
       redirect_uri: input.redirectUri,
       code_verifier: input.codeVerifier,
-      repository_id: repositoryId.data,
+      ...(repositoryId ? { repository_id: repositoryId.data } : {}),
     });
     const payload = await this.#requestJson(TOKEN_URL, {
       method: "POST",

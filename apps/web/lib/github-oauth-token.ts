@@ -20,7 +20,7 @@ export function requireFreshGithubUserToken(
   input: Readonly<{
     session: AuthenticatedSession;
     githubRepositoryId: string;
-    purpose: GithubOAuthPurpose;
+    purpose: Exclude<GithubOAuthPurpose, "maintainer_identify">;
     sessionSecret: string;
     now?: Date;
   }>,

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  GITHUB_USER_SEAL_TTL_MS,
   GithubUserTokenRejectedError,
+  sealGithubMaintainerDirectory,
   sealGithubUserAccessToken,
+  unsealGithubMaintainerDirectory,
   unsealGithubUserAccessToken,
   type GithubUserTokenBinding,
 } from "./github-user-token";
@@ -90,7 +93,95 @@ describe("sealed GitHub user access token", () => {
           accessToken: "request-scoped-user-token",
           binding: BINDING,
           issuedAt: NOW,
-          expiresAt: new Date(NOW.getTime() + 15 * 60_000 + 1),
+          expiresAt: new Date(NOW.getTime() + GITHUB_USER_SEAL_TTL_MS + 1),
+        },
+        SECRET,
+      ),
+    ).toThrow(GithubUserTokenRejectedError);
+  });
+});
+
+const FIRST_REPOSITORY_ID = "10000000-0000-4000-8000-000000000002";
+const SECOND_REPOSITORY_ID = "40000000-0000-4000-8000-000000000005";
+
+function sealDirectory() {
+  return sealGithubMaintainerDirectory(
+    {
+      githubUserId: "12345678",
+      repositoryIds: [FIRST_REPOSITORY_ID, SECOND_REPOSITORY_ID],
+      issuedAt: NOW,
+      expiresAt: new Date(NOW.getTime() + GITHUB_USER_SEAL_TTL_MS),
+    },
+    SECRET,
+    { entropy: (bytes) => Buffer.alloc(bytes, 9) },
+  );
+}
+
+describe("sealed GitHub maintainer directory", () => {
+  it("round-trips repository ids without owner/name or token material", () => {
+    const sealed = sealDirectory();
+    expect(sealed).toMatch(
+      /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u,
+    );
+    expect(sealed).not.toContain("pascalkienast");
+    expect(sealed).not.toContain("pixelcampus");
+    expect(sealed).not.toContain("request-scoped-user-token");
+    expect(unsealGithubMaintainerDirectory(sealed, SECRET, NOW)).toEqual({
+      githubUserId: "12345678",
+      repositoryIds: [FIRST_REPOSITORY_ID, SECOND_REPOSITORY_ID],
+      issuedAt: NOW,
+      expiresAt: new Date("2026-08-12T12:15:00.000Z"),
+    });
+  });
+
+  it("rejects a user-token cookie and a directory cookie at each other's AAD", () => {
+    expect(() => unsealGithubMaintainerDirectory(seal(), SECRET, NOW)).toThrow(
+      GithubUserTokenRejectedError,
+    );
+    expect(() =>
+      unsealGithubUserAccessToken(sealDirectory(), BINDING, SECRET, NOW),
+    ).toThrow(GithubUserTokenRejectedError);
+  });
+
+  it("rejects tampering, another secret, and expired authorization", () => {
+    const sealed = sealDirectory();
+    expect(() =>
+      unsealGithubMaintainerDirectory(`${sealed.slice(0, -1)}x`, SECRET, NOW),
+    ).toThrow(GithubUserTokenRejectedError);
+    expect(() =>
+      unsealGithubMaintainerDirectory(sealed, `${SECRET}-different`, NOW),
+    ).toThrow(GithubUserTokenRejectedError);
+    expect(() =>
+      unsealGithubMaintainerDirectory(
+        sealed,
+        SECRET,
+        new Date("2026-08-12T12:15:00.000Z"),
+      ),
+    ).toThrow(GithubUserTokenRejectedError);
+  });
+
+  it("refuses a lifetime above the short 15-minute cap", () => {
+    expect(() =>
+      sealGithubMaintainerDirectory(
+        {
+          githubUserId: "12345678",
+          repositoryIds: [FIRST_REPOSITORY_ID],
+          issuedAt: NOW,
+          expiresAt: new Date(NOW.getTime() + GITHUB_USER_SEAL_TTL_MS + 1),
+        },
+        SECRET,
+      ),
+    ).toThrow(GithubUserTokenRejectedError);
+  });
+
+  it("refuses duplicate repository ids", () => {
+    expect(() =>
+      sealGithubMaintainerDirectory(
+        {
+          githubUserId: "12345678",
+          repositoryIds: [FIRST_REPOSITORY_ID, FIRST_REPOSITORY_ID],
+          issuedAt: NOW,
+          expiresAt: new Date(NOW.getTime() + GITHUB_USER_SEAL_TTL_MS),
         },
         SECRET,
       ),

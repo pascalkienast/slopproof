@@ -110,6 +110,46 @@ describe("GitHub OAuth HTTP client", () => {
     expect(JSON.stringify(result)).not.toContain("github-refresh-token-value");
   });
 
+  it("omits repository_id only for an unbound identify exchange", async () => {
+    const fetchImpl = vi.fn(
+      async (
+        _input: string | URL | Request,
+        _init?: RequestInit,
+      ): Promise<Response> =>
+        jsonResponse({
+          access_token: "github-user-access-token",
+          token_type: "bearer",
+        }),
+    );
+    const client = new GithubOAuthHttpClient({
+      clientId: "Iv1.client",
+      clientSecret: "client-secret-placeholder",
+      fetchImpl: fetchImpl as typeof fetch,
+      now: () => NOW,
+    });
+    await expect(
+      client.exchangeCode({
+        code: "one-use-code",
+        codeVerifier: "a".repeat(43),
+        redirectUri: "https://slopproof.example/api/auth/github/callback",
+      }),
+    ).resolves.toEqual({
+      accessToken: "github-user-access-token",
+      expiresAt: new Date("2026-08-12T12:15:00.000Z"),
+    });
+    const init = fetchImpl.mock.calls[0]![1];
+    if (!init) throw new Error("test expected fetch init");
+    const body = Object.fromEntries((init.body as URLSearchParams).entries());
+    expect(body).toEqual({
+      client_id: "Iv1.client",
+      client_secret: "client-secret-placeholder",
+      code: "one-use-code",
+      redirect_uri: "https://slopproof.example/api/auth/github/callback",
+      code_verifier: "a".repeat(43),
+    });
+    expect(body).not.toHaveProperty("repository_id");
+  });
+
   it("performs exact GET /user and strictly projects only server identity", async () => {
     const fetchImpl = vi.fn(
       async (

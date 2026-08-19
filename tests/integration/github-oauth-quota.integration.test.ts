@@ -91,6 +91,32 @@ databaseDescribe("production GitHub OAuth flow quotas", () => {
     await expect(flowCount(database)).resolves.toBe(240);
   });
 
+  it("admits unbound identify starts only under the global quota", async () => {
+    const repository = new PgGithubOAuthStateRepository(database.pool);
+    await repository.create({
+      purpose: "maintainer_identify",
+      stateHash: createHash("sha256")
+        .update("identify-unbound")
+        .digest("hex") as OAuthStateHash,
+      redirectPath: "/review",
+      createdAt: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60_000),
+    });
+    const stored = await database.pool.query<{
+      purpose: string;
+      repository_id: string | null;
+    }>(
+      `SELECT purpose, repository_id
+         FROM github_oauth_flows
+        WHERE state_hash = $1`,
+      [createHash("sha256").update("identify-unbound").digest("hex")],
+    );
+    expect(stored.rows[0]).toEqual({
+      purpose: "maintainer_identify",
+      repository_id: null,
+    });
+  });
+
   it("rejects a start at the global active-flow boundary", async () => {
     await seedFlows(database, {
       count: 500,

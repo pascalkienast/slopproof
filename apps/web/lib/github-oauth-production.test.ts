@@ -7,6 +7,7 @@ import {
   createGithubOAuthProductionRuntime,
   listActiveMaintainerRepositories,
   loadActiveMaintainerRepository,
+  loadMaintainerRepositoriesByIds,
   resolveProductionStartBinding,
 } from "./github-oauth-production";
 import { GithubOAuthWiringError } from "./github-oauth-runtime";
@@ -96,7 +97,7 @@ describe("production GitHub OAuth wiring", () => {
     ).resolves.toEqual(BINDING);
   });
 
-  it("binds review detail to its attempt and fails closed for ambiguous /review", async () => {
+  it("binds review detail to its attempt and starts identify for unbound /review", async () => {
     const detailDatabase = fakePool(async (sql, parameters) => {
       expect(sql).toContain("FROM attempts attempt");
       expect(parameters).toEqual([ATTEMPT_ID]);
@@ -119,25 +120,13 @@ describe("production GitHub OAuth wiring", () => {
       githubRepositoryId: "987654321",
     });
 
-    const ambiguous = fakePool(async () =>
-      result([
-        {
-          repository_id: REPOSITORY_ID,
-          github_repository_id: "987654321",
-        },
-        {
-          repository_id: "40000000-0000-4000-8000-000000000005",
-          github_repository_id: "987654322",
-        },
-      ]),
-    );
     await expect(
       resolveProductionStartBinding(
-        app(ambiguous.pool),
+        app(fakePool(async () => result()).pool),
         new Request("https://slopproof.example/api/auth/github/start"),
         "/review",
       ),
-    ).rejects.toBeInstanceOf(GithubOAuthWiringError);
+    ).resolves.toEqual({ purpose: "maintainer_identify" });
   });
 
   it("binds /review to an exact active local repository id", async () => {
@@ -192,7 +181,7 @@ describe("production GitHub OAuth wiring", () => {
     expect(unknown.query).toHaveBeenCalledTimes(1);
   });
 
-  it("lists only active owner/name pairs for the review login", async () => {
+  it("lists only active owner/name pairs for the authenticated directory filter", async () => {
     const database = fakePool(async (sql, parameters) => {
       expect(sql).toContain(
         "SELECT repository.id, repository.owner, repository.name",
@@ -226,6 +215,34 @@ describe("production GitHub OAuth wiring", () => {
         id: "40000000-0000-4000-8000-000000000005",
         owner: "pascalkienast",
         name: "slopproof",
+      },
+    ]);
+  });
+
+  it("reloads only the sealed directory's still-active repositories", async () => {
+    const allowedId = "40000000-0000-4000-8000-000000000005";
+    const database = fakePool(async (sql, parameters) => {
+      expect(sql).toContain("WHERE repository.id = ANY($1::uuid[])");
+      expect(sql).toContain("repository.status = 'active'");
+      expect(parameters).toEqual([[REPOSITORY_ID, allowedId]]);
+      return result([
+        {
+          id: REPOSITORY_ID,
+          owner: "pascalkienast",
+          name: "pixelcampus",
+        },
+      ]);
+    });
+    await expect(
+      loadMaintainerRepositoriesByIds(database.pool, [
+        REPOSITORY_ID,
+        allowedId,
+      ]),
+    ).resolves.toEqual([
+      {
+        id: REPOSITORY_ID,
+        owner: "pascalkienast",
+        name: "pixelcampus",
       },
     ]);
   });
@@ -341,6 +358,48 @@ describe("production GitHub OAuth wiring", () => {
       repository.consume({ stateHash: record.stateHash, now: NOW }),
     ).resolves.toEqual(record);
     expect(database.client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists unbound identify state without joining a repository", async () => {
+    const database = fakePool(async (sql, parameters) => {
+      if (sql === "BEGIN" || sql === "COMMIT") return result();
+      if (sql.includes("pg_advisory_xact_lock")) return result();
+      if (sql.includes("DELETE FROM github_oauth_flows")) return result();
+      if (sql.includes("INSERT INTO github_oauth_flows")) {
+        expect(sql).toContain("SELECT $1, $2, NULL, $3");
+        expect(sql).not.toContain("repository.github_repository_id");
+        expect(parameters.slice(0, 3)).toEqual([
+          "a".repeat(64),
+          "maintainer_identify",
+          "/review",
+        ]);
+        return result([{ state_hash: "a".repeat(64) }]);
+      }
+      expect(sql).toContain("flow.purpose = 'maintainer_identify'");
+      return result([
+        {
+          state_hash: "a".repeat(64),
+          purpose: "maintainer_identify",
+          repository_id: null,
+          github_repository_id: null,
+          redirect_path: "/review",
+          created_at: NOW,
+          expires_at: new Date(NOW.getTime() + 5 * 60_000),
+        },
+      ]);
+    });
+    const repository = new PgGithubOAuthStateRepository(database.pool);
+    const record = {
+      purpose: "maintainer_identify" as const,
+      stateHash: "a".repeat(64) as OAuthStateHash,
+      redirectPath: "/review",
+      createdAt: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60_000),
+    };
+    await repository.create(record);
+    await expect(
+      repository.consume({ stateHash: record.stateHash, now: NOW }),
+    ).resolves.toEqual(record);
   });
 
   it("commits bounded stale cleanup while rejecting a quota-exhausted start", async () => {

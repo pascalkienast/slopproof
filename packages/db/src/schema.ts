@@ -66,6 +66,7 @@ export const githubLifecycleStatusEnum = pgEnum("github_lifecycle_status", [
 export const githubOauthPurposeEnum = pgEnum("github_oauth_purpose", [
   "contributor_login",
   "maintainer_reauth",
+  "maintainer_identify",
 ]);
 export const githubCheckIntentReasonEnum = pgEnum(
   "github_check_intent_reason",
@@ -130,9 +131,9 @@ export const githubOauthFlows = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     stateHash: text("state_hash").notNull(),
     purpose: githubOauthPurposeEnum("purpose").notNull(),
-    repositoryId: uuid("repository_id")
-      .notNull()
-      .references(() => repositories.id, { onDelete: "restrict" }),
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "restrict",
+    }),
     redirectPath: text("redirect_path").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
@@ -169,6 +170,10 @@ export const githubOauthFlows = pgTable(
     check(
       "github_oauth_flows_consumption_window",
       sql`${table.consumedAt} IS NULL OR (${table.consumedAt} >= ${table.createdAt} AND ${table.consumedAt} < ${table.expiresAt})`,
+    ),
+    check(
+      "github_oauth_flows_identify_binding",
+      sql`(${table.purpose} = 'maintainer_identify' AND ${table.repositoryId} IS NULL) OR (${table.purpose} <> 'maintainer_identify' AND ${table.repositoryId} IS NOT NULL)`,
     ),
   ],
 );
