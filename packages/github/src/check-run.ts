@@ -26,12 +26,34 @@ import {
   type GithubRequestPolicy,
 } from "./request-policy";
 
+const remoteCheckStatusSchema = z.enum([
+  "queued",
+  "in_progress",
+  "completed",
+  "waiting",
+  "requested",
+  "pending",
+]);
+const remoteCheckConclusionSchema = z
+  .enum([
+    "action_required",
+    "cancelled",
+    "failure",
+    "neutral",
+    "success",
+    "skipped",
+    "stale",
+    "timed_out",
+  ])
+  .nullable();
 const upstreamCheckRunSchema = z
   .object({
     id: z.number().int().positive().safe(),
     name: z.string(),
     head_sha: z.string().regex(/^[0-9a-f]{40}$/u),
     external_id: z.string().nullable(),
+    status: remoteCheckStatusSchema,
+    conclusion: remoteCheckConclusionSchema,
   })
   .passthrough();
 const upstreamCheckRunListSchema = z
@@ -67,36 +89,16 @@ export class OctokitCheckRunAdapter implements GithubCheckRunPort {
     if (!parsed.success) throw new GithubControlError("INVALID_INPUT");
     const input = parsed.data;
     const client = await this.createClient(input);
-    let existing: CheckRunReference | undefined;
     try {
-      existing =
-        (await this.findExistingWithClient(client, input)) ?? undefined;
+      const existing = await this.findExistingWithClient(client, input);
       await this.assertCurrentHead(input);
-      const existingCheckRunId = existing?.checkRunId;
-      const response = existingCheckRunId
-        ? await this.executeWrite((signal) =>
-            client.updateCheckRun(
-              checkUpdateRequest(input, existingCheckRunId),
-              signal,
-            ),
-          )
-        : await this.executeWrite((signal) =>
-            client.createCheckRun(
-              {
-                owner: input.owner,
-                repositoryName: input.repositoryName,
-                name: GITHUB_CHECK_NAME,
-                headSha: input.headSha,
-                detailsUrl: input.detailsUrl,
-                externalId: input.revisionId,
-                status: input.status,
-                conclusion: input.conclusion,
-                summary: input.summary,
-              },
-              signal,
-            ),
-          );
-      return parseCheckRunResponse(response.data, input, existingCheckRunId);
+      return await this.applyIntent(
+        client,
+        input,
+        existing && canReuseRemoteCheck(existing, input)
+          ? existing.checkRunId
+          : undefined,
+      );
     } catch (error) {
       this.invalidateRejectedToken(input, error);
       throw error;
@@ -121,15 +123,13 @@ export class OctokitCheckRunAdapter implements GithubCheckRunPort {
           ),
         this.requestPolicy,
       );
-      parseCheckRunResponse(persisted.data, input, input.checkRunId);
+      const remote = parseRemoteCheck(persisted.data, input, input.checkRunId);
       await this.assertCurrentHead(input);
-      const response = await this.executeWrite((signal) =>
-        client.updateCheckRun(
-          checkUpdateRequest(input, input.checkRunId),
-          signal,
-        ),
+      return await this.applyIntent(
+        client,
+        input,
+        canReuseRemoteCheck(remote, input) ? input.checkRunId : undefined,
       );
-      return parseCheckRunResponse(response.data, input, input.checkRunId);
     } catch (error) {
       this.invalidateRejectedToken(input, error);
       throw error;
@@ -162,7 +162,7 @@ export class OctokitCheckRunAdapter implements GithubCheckRunPort {
           ),
         this.requestPolicy,
       );
-      parseCheckRunResponse(persisted.data, input, input.checkRunId);
+      parseRemoteCheck(persisted.data, input, input.checkRunId);
       const current = await this.pullRequestHeadPort.getCurrentHead({
         installationId: input.installationId,
         repositoryId: input.repositoryId,
@@ -182,7 +182,11 @@ export class OctokitCheckRunAdapter implements GithubCheckRunPort {
           signal,
         ),
       );
-      return parseCheckRunResponse(response.data, input, input.checkRunId);
+      const remote = parseRemoteCheck(response.data, input, input.checkRunId);
+      if (!remoteMatchesIntent(remote, input)) {
+        throw new GithubControlError("INVALID_RESPONSE");
+      }
+      return { checkRunId: remote.checkRunId };
     } catch (error) {
       this.invalidateRejectedToken(input, error);
       throw error;
@@ -197,21 +201,82 @@ export class OctokitCheckRunAdapter implements GithubCheckRunPort {
     const input = parsed.data;
     const client = await this.createClient(input);
     try {
-      return await this.findExistingWithClient(client, input);
+      const existing = await this.findExistingWithClient(client, input);
+      return existing ? { checkRunId: existing.checkRunId } : null;
     } catch (error) {
       this.invalidateRejectedToken(input, error);
       throw error;
     }
   }
 
+  /**
+   * GitHub cannot reopen a completed check run. An in_progress update can also
+   * land as completed+neutral. In either case a new run with the same name
+   * supersedes the old one and keeps a required check pending.
+   */
+  private async applyIntent(
+    client: GithubRestClient,
+    input: CheckIntentInput,
+    existingCheckRunId: string | undefined,
+  ): Promise<CheckRunReference> {
+    if (existingCheckRunId !== undefined) {
+      const updated = await this.writeUpdate(client, input, existingCheckRunId);
+      if (remoteMatchesIntent(updated, input)) {
+        return { checkRunId: updated.checkRunId };
+      }
+      if (!shouldCreateSupersedingCheck(updated, input)) {
+        throw new GithubControlError("INVALID_RESPONSE");
+      }
+    }
+    return this.writeCreate(client, input);
+  }
+
+  private async writeCreate(
+    client: GithubRestClient,
+    input: CheckIntentInput,
+  ): Promise<CheckRunReference> {
+    const response = await this.executeWrite((signal) =>
+      client.createCheckRun(
+        {
+          owner: input.owner,
+          repositoryName: input.repositoryName,
+          name: GITHUB_CHECK_NAME,
+          headSha: input.headSha,
+          detailsUrl: input.detailsUrl,
+          externalId: input.revisionId,
+          status: input.status,
+          conclusion: input.conclusion,
+          summary: input.summary,
+        },
+        signal,
+      ),
+    );
+    const remote = parseRemoteCheck(response.data, input);
+    if (!remoteMatchesIntent(remote, input)) {
+      throw new GithubControlError("INVALID_RESPONSE");
+    }
+    return { checkRunId: remote.checkRunId };
+  }
+
+  private async writeUpdate(
+    client: GithubRestClient,
+    input: CheckIntentInput,
+    checkRunId: string,
+  ): Promise<RemoteCheck> {
+    const response = await this.executeWrite((signal) =>
+      client.updateCheckRun(checkUpdateRequest(input, checkRunId), signal),
+    );
+    return parseRemoteCheck(response.data, input, checkRunId);
+  }
+
   private async findExistingWithClient(
     client: GithubRestClient,
     input: CheckIntentInput,
-  ): Promise<CheckRunReference | null> {
+  ): Promise<RemoteCheck | null> {
     let page = 1;
     let expectedTotal: number | undefined;
     let seen = 0;
-    let match: CheckRunReference | undefined;
+    const matches: RemoteCheck[] = [];
 
     do {
       const response = await executeGithubRequest(
@@ -257,16 +322,26 @@ export class OctokitCheckRunAdapter implements GithubCheckRunPort {
           check.name === GITHUB_CHECK_NAME &&
           check.external_id === input.revisionId
         ) {
-          if (check.head_sha !== input.headSha || match !== undefined) {
+          if (check.head_sha !== input.headSha) {
             throw new GithubControlError("INVALID_RESPONSE");
           }
-          match = { checkRunId: String(check.id) };
+          const reference = CheckRunReferenceSchema.safeParse({
+            checkRunId: String(check.id),
+          });
+          if (!reference.success) {
+            throw new GithubControlError("INVALID_RESPONSE");
+          }
+          matches.push({
+            checkRunId: reference.data.checkRunId,
+            status: check.status,
+            conclusion: check.conclusion,
+          });
         }
       }
       page += 1;
     } while (seen < (expectedTotal ?? 0));
 
-    return match ?? null;
+    return selectReusableRemote(matches, input);
   }
 
   private async assertCurrentHead(input: CheckIntentInput): Promise<void> {
@@ -366,11 +441,17 @@ function checkUpdateRequest(input: CheckIntentInput, checkRunId: string) {
   };
 }
 
-function parseCheckRunResponse(
+type RemoteCheck = {
+  checkRunId: string;
+  status: z.infer<typeof remoteCheckStatusSchema>;
+  conclusion: z.infer<typeof remoteCheckConclusionSchema>;
+};
+
+function parseRemoteCheck(
   value: unknown,
   input: CheckIntentInput,
-  expectedCheckRunId: string | undefined,
-): CheckRunReference {
+  expectedCheckRunId?: string,
+): RemoteCheck {
   const parsed = upstreamCheckRunSchema.safeParse(value);
   if (
     !parsed.success ||
@@ -386,5 +467,48 @@ function parseCheckRunResponse(
     checkRunId: String(parsed.data.id),
   });
   if (!reference.success) throw new GithubControlError("INVALID_RESPONSE");
-  return reference.data;
+  return {
+    checkRunId: reference.data.checkRunId,
+    status: parsed.data.status,
+    conclusion: parsed.data.conclusion,
+  };
+}
+
+function canReuseRemoteCheck(
+  remote: RemoteCheck,
+  intent: CheckIntentInput,
+): boolean {
+  return intent.status === "completed" || remote.status !== "completed";
+}
+
+function shouldCreateSupersedingCheck(
+  remote: RemoteCheck,
+  intent: CheckIntentInput,
+): boolean {
+  return intent.status !== "completed" && remote.status === "completed";
+}
+
+function remoteMatchesIntent(
+  remote: RemoteCheck,
+  intent: CheckIntentInput,
+): boolean {
+  if (intent.status !== "completed") {
+    return remote.status !== "completed" && remote.conclusion === null;
+  }
+  return (
+    remote.status === "completed" && remote.conclusion === intent.conclusion
+  );
+}
+
+function selectReusableRemote(
+  matches: RemoteCheck[],
+  intent: CheckIntentInput,
+): RemoteCheck | null {
+  const open = matches.filter((match) => match.status !== "completed");
+  const pool =
+    intent.status === "completed" && open.length === 0 ? matches : open;
+  if (pool.length === 0) return null;
+  return pool.reduce((latest, current) =>
+    Number(current.checkRunId) > Number(latest.checkRunId) ? current : latest,
+  );
 }

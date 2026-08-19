@@ -95,36 +95,173 @@ describe("OctokitCheckRunAdapter", () => {
     );
   });
 
-  it("fails closed for duplicate replay matches or an unbounded result set", async () => {
-    const write = vi.fn();
-    const duplicates = new OctokitCheckRunAdapter(tokenProvider(), headPort(), {
+  it("reuses the latest open check when GitHub lists superseded runs", async () => {
+    const createCheckRun = vi.fn();
+    const updateCheckRun = vi.fn(async () => ({
+      data: checkRun(702),
+    }));
+    const adapter = new OctokitCheckRunAdapter(tokenProvider(), headPort(), {
       clientFactory: () =>
         githubRestClientStub({
           listCheckRunsForRef: async () => ({
             data: {
               total_count: 2,
-              check_runs: [checkRun(701), checkRun(702)],
+              check_runs: [
+                checkRun(701, {
+                  status: "completed",
+                  conclusion: "neutral",
+                }),
+                checkRun(702),
+              ],
             },
           }),
-          createCheckRun: write,
-          updateCheckRun: write,
+          createCheckRun,
+          updateCheckRun,
         }),
     });
-    await expect(duplicates.create(intent)).rejects.toMatchObject({
-      code: "INVALID_RESPONSE",
+    await expect(adapter.create(intent)).resolves.toEqual({
+      checkRunId: "702",
     });
-    expect(write).not.toHaveBeenCalled();
+    expect(createCheckRun).not.toHaveBeenCalled();
+    expect(updateCheckRun).toHaveBeenCalledWith(
+      expect.objectContaining({ checkRunId: 702 }),
+      expect.any(AbortSignal),
+    );
+  });
 
+  it("fails closed for an unbounded result set", async () => {
+    const write = vi.fn();
     const unbounded = new OctokitCheckRunAdapter(tokenProvider(), headPort(), {
       clientFactory: () =>
         githubRestClientStub({
           listCheckRunsForRef: async () => ({
             data: { total_count: 301, check_runs: [] },
           }),
+          createCheckRun: write,
+          updateCheckRun: write,
         }),
     });
     await expect(unbounded.create(intent)).rejects.toMatchObject({
       code: "LIMIT_EXCEEDED",
+    });
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("creates a new pending run when the listed check is already completed", async () => {
+    const updateCheckRun = vi.fn();
+    const createCheckRun = vi.fn(async () => ({
+      data: checkRun(802),
+    }));
+    const adapter = new OctokitCheckRunAdapter(tokenProvider(), headPort(), {
+      clientFactory: () =>
+        githubRestClientStub({
+          listCheckRunsForRef: async () => ({
+            data: {
+              total_count: 1,
+              check_runs: [
+                checkRun(701, {
+                  status: "completed",
+                  conclusion: "neutral",
+                }),
+              ],
+            },
+          }),
+          createCheckRun,
+          updateCheckRun,
+        }),
+    });
+    await expect(adapter.create(intent)).resolves.toEqual({
+      checkRunId: "802",
+    });
+    expect(updateCheckRun).not.toHaveBeenCalled();
+    expect(createCheckRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "in_progress",
+        conclusion: null,
+      }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("creates a new pending run when update completes a review_required check as neutral", async () => {
+    const createCheckRun = vi.fn(async () => ({
+      data: checkRun(802),
+    }));
+    const updateCheckRun = vi.fn(async () => ({
+      data: checkRun(701, {
+        status: "completed",
+        conclusion: "neutral",
+      }),
+    }));
+    const adapter = new OctokitCheckRunAdapter(tokenProvider(), headPort(), {
+      clientFactory: () =>
+        githubRestClientStub({
+          getCheckRun: async () => ({ data: checkRun(701) }),
+          updateCheckRun,
+          createCheckRun,
+        }),
+    });
+    await expect(
+      adapter.update({
+        ...intent,
+        checkRunId: "701",
+        summary: "maintainer review required for head " + headSha,
+      }),
+    ).resolves.toEqual({ checkRunId: "802" });
+    expect(updateCheckRun).toHaveBeenCalledOnce();
+    expect(createCheckRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "in_progress",
+        conclusion: null,
+        summary: "maintainer review required for head " + headSha,
+      }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("does not try to reopen a persisted completed run for an in_progress intent", async () => {
+    const updateCheckRun = vi.fn();
+    const createCheckRun = vi.fn(async () => ({
+      data: checkRun(802),
+    }));
+    const adapter = new OctokitCheckRunAdapter(tokenProvider(), headPort(), {
+      clientFactory: () =>
+        githubRestClientStub({
+          getCheckRun: async () => ({
+            data: checkRun(701, {
+              status: "completed",
+              conclusion: "neutral",
+            }),
+          }),
+          updateCheckRun,
+          createCheckRun,
+        }),
+    });
+    await expect(
+      adapter.update({ ...intent, checkRunId: "701" }),
+    ).resolves.toEqual({ checkRunId: "802" });
+    expect(updateCheckRun).not.toHaveBeenCalled();
+    expect(createCheckRun).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a create that GitHub completes while the intent is still pending", async () => {
+    const createCheckRun = vi.fn(async () => ({
+      data: checkRun(701, {
+        status: "completed",
+        conclusion: "neutral",
+      }),
+    }));
+    const adapter = new OctokitCheckRunAdapter(tokenProvider(), headPort(), {
+      clientFactory: () =>
+        githubRestClientStub({
+          listCheckRunsForRef: async () => ({
+            data: { total_count: 0, check_runs: [] },
+          }),
+          createCheckRun,
+        }),
+    });
+    await expect(adapter.create(intent)).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
     });
   });
 
@@ -342,6 +479,8 @@ function checkRun(id: number, overrides: Record<string, unknown> = {}) {
     name: GITHUB_CHECK_NAME,
     head_sha: headSha,
     external_id: revisionId,
+    status: "in_progress",
+    conclusion: null,
     ...overrides,
   };
 }

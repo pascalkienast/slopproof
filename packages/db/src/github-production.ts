@@ -218,6 +218,17 @@ const GithubCheckIntentSchema = z
         message: "non-completed checks cannot have a conclusion",
       });
     }
+    if (
+      intent.reason === "review_required" &&
+      (intent.status !== "in_progress" || intent.conclusion !== null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["status"],
+        message:
+          "review_required checks must stay in_progress without a conclusion",
+      });
+    }
   });
 
 export type GithubOauthFlow = {
@@ -231,6 +242,12 @@ export type GithubOauthFlow = {
 
 export type GithubCheckIntent = z.input<typeof GithubCheckIntentSchema>;
 export type { GithubRevisionSource };
+
+export function parseGithubCheckIntent(
+  rawInput: GithubCheckIntent,
+): z.output<typeof GithubCheckIntentSchema> {
+  return GithubCheckIntentSchema.parse(rawInput);
+}
 
 export type PersistedGithubRevisionSource = {
   revisionId: string;
@@ -493,7 +510,7 @@ export async function persistGithubCheckIntentInTransaction(
   outbox: GithubCheckOutbox,
   rawInput: GithubCheckIntent,
 ): Promise<{ checkRunId: string; replay: boolean; queueJobId: string | null }> {
-  const input = GithubCheckIntentSchema.parse(rawInput);
+  const input = parseGithubCheckIntent(rawInput);
   const intentHash = hashCheckIntent(input);
   const revision = await client.query<{
     head_sha: string;
