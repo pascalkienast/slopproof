@@ -113,6 +113,57 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
     }
   });
 
+  it("does not consume the Learning generate deadline while waiting for Proof", async () => {
+    await expect(
+      handlers["semantic.generate-learning"](learningJob(generationContextId)),
+    ).resolves.toEqual({ outcome: "proof_pending" });
+    await expect(
+      database.pool.query<{ count: number }>(
+        `SELECT count(*)::int AS count
+           FROM semantic_generation_runs
+          WHERE purpose = 'learning_material'`,
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: 0 }] });
+
+    const beforeEligible = await database.pool.query<{ now: Date }>(
+      "SELECT clock_timestamp() AS now",
+    );
+    const proof = await handlers["semantic.generate-proof-questions"](
+      proofJob(generationContextId),
+    );
+    expect(proof).toMatchObject({ outcome: "created" });
+
+    await expect(
+      generatedLearningHandlers(repository, generationContext)[
+        "semantic.generate-learning"
+      ](learningJob(generationContextId)),
+    ).resolves.toMatchObject({ outcome: "created", degraded: false });
+
+    const learningRun = await database.pool.query<{
+      created_at: Date;
+      window_seconds: number;
+      invocation_count: number;
+      outcome: string;
+    }>(
+      `SELECT run.created_at,
+              extract(epoch FROM (run.deadline_at - run.created_at))::int
+                AS window_seconds,
+              invocation.invocation_count,
+              invocation.outcome
+         FROM semantic_generation_runs run
+         JOIN semantic_provider_invocations invocation
+           ON invocation.run_id = run.id
+        WHERE run.purpose = 'learning_material'`,
+    );
+    expect(learningRun.rows).toHaveLength(1);
+    expect(learningRun.rows[0]?.window_seconds).toBe(480);
+    expect(learningRun.rows[0]?.invocation_count).toBe(1);
+    expect(learningRun.rows[0]?.outcome).toBe("generated");
+    expect(learningRun.rows[0]!.created_at.getTime()).toBeGreaterThanOrEqual(
+      beforeEligible.rows[0]!.now.getTime(),
+    );
+  });
+
   it("stores degraded Learning privately without serving it as Practice", async () => {
     await expect(
       handlers["semantic.generate-learning"](learningJob(generationContextId)),
@@ -863,7 +914,7 @@ const AUTHOR = "8305";
 function learningJob(generationContextId: string) {
   return {
     schemaVersion: "1" as const,
-    idempotencyKey: `semantic.learning.v2:${generationContextId}`,
+    idempotencyKey: `semantic.learning.v3:${generationContextId}`,
     artifactKind: "learning_bundle_v1" as const,
     revisionId: IDS.revision,
     generationContextId,

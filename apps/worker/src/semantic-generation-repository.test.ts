@@ -1,3 +1,9 @@
+import {
+  analyzePullRequestPatch,
+  boundedRevisionSourcePatch,
+  buildBoundedRevisionSourceV1,
+  buildGenerationContextV1,
+} from "@slopproof/analysis";
 import type { DatabaseConnection, JobPayload } from "@slopproof/db";
 import { describe, expect, it, vi } from "vitest";
 import type { PoolClient } from "pg";
@@ -330,6 +336,46 @@ describe("Gate 4 persistence boundary", () => {
       expect.anything(),
     );
   });
+
+  it("does not insert a Learning run while frozen Proof content is pending", async () => {
+    const query = reserveRunQueryFixture({ proofReady: false });
+    const repository = repositoryFixture(query, schedulerFixture());
+
+    await expect(
+      repository.reserveRun("semantic.generate-learning", learningPayload()),
+    ).resolves.toBe("proof_pending");
+    expect(
+      query.mock.calls.some((call) =>
+        String(call.at(0) ?? "").includes(
+          "INSERT INTO semantic_generation_runs",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("arms the full Learning deadline only after frozen Proof content exists", async () => {
+    const now = new Date("2026-08-19T15:46:12.000Z");
+    const query = reserveRunQueryFixture({ proofReady: true, now });
+    const repository = repositoryFixture(query, schedulerFixture());
+
+    const reserved = await repository.reserveRun(
+      "semantic.generate-learning",
+      learningPayload(),
+    );
+
+    expect(reserved).not.toBe("stale");
+    expect(reserved).not.toBe("proof_pending");
+    if (reserved === "stale" || reserved === "proof_pending") return;
+    expect(reserved.createdAt).toEqual(now);
+    expect(reserved.deadlineAt).toEqual(new Date(now.getTime() + 8 * 60_000));
+    expect(reserved.completedArtifactId).toBeNull();
+    const insert = query.mock.calls.find((call) =>
+      String(call.at(0) ?? "").includes("INSERT INTO semantic_generation_runs"),
+    );
+    expect(insert?.at(1)).toEqual(
+      expect.arrayContaining([now, new Date(now.getTime() + 8 * 60_000)]),
+    );
+  });
 });
 
 const IDS = {
@@ -380,4 +426,151 @@ function repositoryFixture(
   );
 }
 
-void (null as unknown as JobPayload<"semantic.generate-learning">);
+function learningPayload(): JobPayload<"semantic.generate-learning"> {
+  return {
+    schemaVersion: "1",
+    idempotencyKey: `semantic.learning.v3:${IDS.context}`,
+    artifactKind: "learning_bundle_v1",
+    revisionId: IDS.revision,
+    generationContextId: IDS.context,
+    expectedHeadSha: HEAD,
+  };
+}
+
+function reserveRunQueryFixture(input: {
+  proofReady: boolean;
+  now?: Date;
+}): ReturnType<typeof vi.fn> {
+  const now = input.now ?? new Date("2026-08-19T15:41:35.000Z");
+  const context = generationContextFixture();
+  let inserted: unknown[] | undefined;
+  return vi.fn(async (statement: string, values: unknown[] = []) => {
+    if (
+      statement === "BEGIN" ||
+      statement === "COMMIT" ||
+      statement === "ROLLBACK" ||
+      statement.includes("pg_advisory_xact_lock")
+    ) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (statement.includes("FROM generation_contexts context")) {
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            repository_id: IDS.repository,
+            revision_id: IDS.revision,
+            generation_context_id: IDS.context,
+            author_id: "author-1",
+            repository_policy_id: IDS.policy,
+            head_sha: HEAD,
+            context_hash: context.contextHash,
+            context,
+            question_budget: 3,
+            is_current: true,
+            pull_request_state: "open",
+          },
+        ],
+      };
+    }
+    if (statement.includes("SELECT clock_timestamp() AS now")) {
+      return { rows: [{ now }], rowCount: 1 };
+    }
+    if (statement.includes("FROM proof_plans plan")) {
+      return input.proofReady
+        ? {
+            rowCount: 1,
+            rows: [
+              {
+                semantic_plan: null,
+                legacy_questions: [
+                  {
+                    prompt: "Explain the exact cache-miss return change.",
+                    rubric: {
+                      requiredPoints: [
+                        "Name the previous empty-string fallback.",
+                        "Name the new null miss return.",
+                      ],
+                    },
+                  },
+                ],
+              },
+            ],
+          }
+        : { rows: [], rowCount: 0 };
+    }
+    if (statement.includes("INSERT INTO semantic_generation_runs")) {
+      inserted = values;
+      return { rows: [], rowCount: 1 };
+    }
+    if (statement.includes("FROM semantic_generation_runs")) {
+      if (inserted === undefined) return { rows: [], rowCount: 0 };
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            id: "82000000-0000-4000-8000-000000000099",
+            idempotency_key: inserted[0],
+            purpose: inserted[1],
+            repository_id: inserted[2],
+            revision_id: inserted[3],
+            generation_context_id: inserted[4],
+            practice_session_id: inserted[5],
+            practice_question_id: inserted[6],
+            practice_answer_id: inserted[7],
+            artifact_seed: inserted[8],
+            question_count: inserted[9],
+            created_at: inserted[10],
+            deadline_at: inserted[11],
+            delete_after: inserted[12],
+            artifact_id: null,
+          },
+        ],
+      };
+    }
+    return { rows: [], rowCount: 0 };
+  });
+}
+
+function generationContextFixture() {
+  const bounded = buildBoundedRevisionSourceV1({
+    githubPullRequestId: "8201",
+    number: 8,
+    state: "open",
+    draft: false,
+    title: "Return an explicit cache miss",
+    body: "Replace the empty-string fallback with null.",
+    authorId: "8205",
+    authorLogin: "contributor",
+    headSha: HEAD,
+    baseSha: "b".repeat(40),
+    changedFiles: 1,
+    isFork: false,
+    files: [
+      {
+        sha: "c".repeat(40),
+        gitKind: "blob" as const,
+        filename: "src/cache.ts",
+        previousFilename: null,
+        status: "modified" as const,
+        additions: 1,
+        deletions: 1,
+        changes: 2,
+        patch:
+          "@@ -1,1 +1,1 @@\n-return cache.get(key) ?? '';\n+return cache.get(key) ?? null;",
+      },
+    ],
+    limitsHit: {
+      files: false,
+      patchBytes: false,
+      patchUnavailable: false,
+    },
+  });
+  const analysis = analyzePullRequestPatch(boundedRevisionSourcePatch(bounded));
+  return buildGenerationContextV1({
+    revisionId: IDS.revision,
+    analysisSnapshotId: IDS.context,
+    boundedSource: bounded,
+    analysis,
+  });
+}

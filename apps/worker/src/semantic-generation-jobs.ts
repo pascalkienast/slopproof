@@ -20,6 +20,7 @@ export function createSemanticGenerationJobHandlers(
         payload,
       );
       if (run === "stale") return { outcome: "stale" };
+      if (run === "proof_pending") return { outcome: "proof_pending" };
       if (run.completedArtifactId !== null) return { outcome: "replayed" };
       const forbiddenProofContent =
         await dependencies.repository.loadFrozenProofContent(run);
@@ -51,6 +52,7 @@ export function createSemanticGenerationJobHandlers(
         payload,
       );
       if (run === "stale") return { outcome: "stale" };
+      if (run === "proof_pending") return { outcome: "proof_pending" };
       if (run.completedArtifactId !== null) return { outcome: "replayed" };
       const privateInput =
         await dependencies.repository.loadPracticeQuestionAndAnswer(
@@ -93,6 +95,11 @@ export function createSemanticGenerationJobHandlers(
         payload,
       );
       if (run === "stale") return { outcome: "stale" };
+      if (run === "proof_pending") {
+        throw new Error(
+          "Proof generation does not wait on frozen Proof content.",
+        );
+      }
       if (run.completedArtifactId !== null) {
         return dependencies.repository.replayCompletedProof(run);
       }
