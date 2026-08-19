@@ -20,9 +20,7 @@ const SECOND = {
 };
 
 function port(
-  lookup: (
-    repositoryName: string,
-  ) => Promise<{
+  lookup: (repositoryName: string) => Promise<{
     permission: "admin" | "write" | "read" | "none";
     roleName: string;
   }>,
