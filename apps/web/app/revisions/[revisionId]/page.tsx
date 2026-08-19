@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { getWebRuntime } from "../../../lib/runtime";
+import { publicCheckCtas } from "./public-check-ctas";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ type PublicRevision = {
   status: "queued" | "in_progress" | "completed";
   conclusion: "action_required" | "success" | "neutral" | "cancelled" | null;
   public_summary: string;
-  has_contributor_flow: boolean;
+  has_attempt: boolean;
 };
 
 export default async function PublicRevisionPage({
@@ -33,13 +34,10 @@ export default async function PublicRevisionPage({
             pull_request.number AS pull_request_number,
             revision.head_sha, revision.is_current,
             check_run.status, check_run.conclusion, check_run.public_summary,
-            (EXISTS (
+            EXISTS (
               SELECT 1 FROM attempts attempt
               WHERE attempt.revision_id = revision.id
-            ) OR EXISTS (
-              SELECT 1 FROM semantic_generation_budgets semantic_budget
-              WHERE semantic_budget.revision_id = revision.id
-            )) AS has_contributor_flow
+            ) AS has_attempt
      FROM pull_request_revisions revision
      JOIN pull_requests pull_request ON pull_request.id = revision.pull_request_id
      JOIN repositories repository ON repository.id = pull_request.repository_id
@@ -50,6 +48,11 @@ export default async function PublicRevisionPage({
   );
   const revision = result.rows[0];
   if (!revision) notFound();
+  const ctas = publicCheckCtas({
+    isCurrent: revision.is_current,
+    conclusion: revision.conclusion,
+    hasAttempt: revision.has_attempt,
+  });
 
   return (
     <main className="shell flow-shell public-check-shell">
@@ -75,7 +78,7 @@ export default async function PublicRevisionPage({
         </div>
         <p>{revision.public_summary}</p>
         <div className="public-check-actions">
-          {revision.is_current && revision.has_contributor_flow ? (
+          {ctas.showContributor ? (
             <a
               className="button primary"
               href={`/revisions/${revisionId.data}/contribute`}
@@ -83,14 +86,16 @@ export default async function PublicRevisionPage({
               Continue as contributor
             </a>
           ) : null}
-          <a
-            className="button maintainer-button"
-            href={`/review?repositoryId=${encodeURIComponent(revision.repository_id)}`}
-          >
-            Protected maintainer view
-          </a>
+          {ctas.showMaintainer ? (
+            <a
+              className="button maintainer-button"
+              href={`/review?repositoryId=${encodeURIComponent(revision.repository_id)}`}
+            >
+              Protected maintainer view
+            </a>
+          ) : null}
         </div>
-        {revision.is_current && revision.has_contributor_flow ? (
+        {ctas.showContributor ? (
           <p className="public-check-guidance">
             After GitHub authorization, contributors choose between optional
             practice and the required live proof.

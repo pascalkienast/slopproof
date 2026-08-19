@@ -164,6 +164,47 @@ describe("GitHub OAuth route handlers", () => {
     expect(await rejected.json()).toEqual({ error: "oauth_rejected" });
   });
 
+  it("accepts GitHub iss on the callback query allowlist and ignores its value", async () => {
+    const test = harness();
+    const response = await handleGithubOAuthCallback(
+      new Request(
+        "https://slopproof.example/api/auth/github/callback?code=one-use-code&state=one-use-state&iss=https%3A%2F%2Fgithub.com%2Flogin%2Foauth",
+        {
+          headers: {
+            cookie: `${GITHUB_OAUTH_FLOW_COOKIE}=v1.sealed-pkce-cookie`,
+          },
+        },
+      ),
+      test.resolve,
+    );
+    expect(response.status).toBe(303);
+    expect(test.oauth.callback).toHaveBeenCalledWith({
+      code: "one-use-code",
+      state: "one-use-state",
+      sealedCookie: "v1.sealed-pkce-cookie",
+    });
+  });
+
+  it("still rejects unknown callback query keys after allowing iss", async () => {
+    const test = harness();
+    const response = await handleGithubOAuthCallback(
+      new Request(
+        "https://slopproof.example/api/auth/github/callback?code=one-use-code&state=one-use-state&iss=https%3A%2F%2Fgithub.com%2Flogin%2Foauth&scope=repo",
+        {
+          headers: {
+            cookie: `${GITHUB_OAUTH_FLOW_COOKIE}=v1.sealed-pkce-cookie`,
+          },
+        },
+      ),
+      test.resolve,
+    );
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain(
+      "GitHub authorization did not finish",
+    );
+    expect(test.oauth.callback).not.toHaveBeenCalled();
+  });
+
   it("rotates session and sets only sealed Fresh-Auth material on callback", async () => {
     const test = harness();
     const response = await handleGithubOAuthCallback(

@@ -89,11 +89,11 @@ export async function handleGithubOAuthCallback(
     if (url.searchParams.has("error")) {
       rejectUnknownQuery(
         url,
-        new Set(["error", "error_description", "error_uri", "state"]),
+        new Set(["error", "error_description", "error_uri", "state", "iss"]),
       );
       throw new GithubOAuthRejectedError();
     }
-    rejectUnknownQuery(url, new Set(["code", "state"]));
+    rejectUnknownQuery(url, new Set(["code", "state", "iss"]));
     const code = requiredSingleQueryValue(url, "code");
     const state = requiredSingleQueryValue(url, "state");
     const sealedCookie = requestCookieValue(request, GITHUB_OAUTH_FLOW_COOKIE);
