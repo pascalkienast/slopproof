@@ -1,9 +1,5 @@
 export type PublicCheckConclusion =
-  | "action_required"
-  | "success"
-  | "neutral"
-  | "cancelled"
-  | null;
+  "action_required" | "success" | "neutral" | "cancelled" | null;
 
 export function publicCheckCtas(input: {
   isCurrent: boolean;
