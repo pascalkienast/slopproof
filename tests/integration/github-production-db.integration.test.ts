@@ -272,6 +272,44 @@ databaseDescribe("production GitHub persistence", () => {
     ).rejects.toBeInstanceOf(GithubOauthFlowConflictError);
   });
 
+  it("stores unbound maintainer identify state and rejects mixed bindings", async () => {
+    const stateHash = "f".repeat(64);
+    await expect(
+      createGithubOauthFlow(database.pool, {
+        stateHash,
+        purpose: "maintainer_identify",
+        redirectPath: "/review",
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      }),
+    ).resolves.toMatchObject({
+      purpose: "maintainer_identify",
+      repositoryId: null,
+      redirectPath: "/review",
+    });
+    await expect(
+      consumeGithubOauthFlow(database.pool, stateHash),
+    ).resolves.toMatchObject({
+      purpose: "maintainer_identify",
+      repositoryId: null,
+    });
+    await expect(
+      database.pool.query(
+        `INSERT INTO github_oauth_flows
+           (state_hash, purpose, repository_id, redirect_path, expires_at)
+         VALUES ($1, 'maintainer_identify', $2, '/review', now() + interval '5 minutes')`,
+        ["1".repeat(64), repositoryId],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+    await expect(
+      database.pool.query(
+        `INSERT INTO github_oauth_flows
+           (state_hash, purpose, repository_id, redirect_path, expires_at)
+         VALUES ($1, 'maintainer_reauth', NULL, '/review', now() + interval '5 minutes')`,
+        ["2".repeat(64)],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+  });
+
   it("persists one immutable bounded revision source before transaction commit", async () => {
     const client = await database.pool.connect();
     const fetchedAt = new Date("2026-08-12T16:00:00.000Z");

@@ -17,6 +17,7 @@ import {
 const GithubOauthPurposeSchema = z.enum([
   "contributor_login",
   "maintainer_reauth",
+  "maintainer_identify",
 ]);
 const GithubRedirectPathSchema = z
   .string()
@@ -167,15 +168,27 @@ function immutableRevisionMaterial(source: GithubRevisionSource): string {
   ]);
 }
 
-const GithubOauthFlowInputSchema = z
+const GithubOauthBoundFlowInputSchema = z
   .object({
     stateHash: Sha256Schema,
-    purpose: GithubOauthPurposeSchema,
+    purpose: z.enum(["contributor_login", "maintainer_reauth"]),
     repositoryId: UuidSchema,
     redirectPath: GithubRedirectPathSchema,
     expiresAt: z.date(),
   })
   .strict();
+const GithubOauthIdentifyFlowInputSchema = z
+  .object({
+    stateHash: Sha256Schema,
+    purpose: z.literal("maintainer_identify"),
+    redirectPath: z.literal("/review"),
+    expiresAt: z.date(),
+  })
+  .strict();
+const GithubOauthFlowInputSchema = z.discriminatedUnion("purpose", [
+  GithubOauthBoundFlowInputSchema,
+  GithubOauthIdentifyFlowInputSchema,
+]);
 
 const GithubCheckIntentSchema = z
   .object({
@@ -210,7 +223,7 @@ const GithubCheckIntentSchema = z
 export type GithubOauthFlow = {
   id: string;
   purpose: z.infer<typeof GithubOauthPurposeSchema>;
-  repositoryId: string;
+  repositoryId: string | null;
   redirectPath: string;
   expiresAt: Date;
   consumedAt: Date | null;
@@ -290,7 +303,7 @@ export async function createGithubOauthFlow(
       [
         input.stateHash,
         input.purpose,
-        input.repositoryId,
+        input.purpose === "maintainer_identify" ? null : input.repositoryId,
         input.redirectPath,
         input.expiresAt,
       ],
@@ -988,7 +1001,7 @@ export async function replayDueGithubCheckSyncs(
 type GithubOauthFlowRow = {
   id: string;
   purpose: GithubOauthFlow["purpose"];
-  repository_id: string;
+  repository_id: string | null;
   redirect_path: string;
   expires_at: Date;
   consumed_at: Date | null;
@@ -1026,7 +1039,7 @@ type DueGithubCheckSyncRow = {
 function mapOauthFlow(row: GithubOauthFlowRow): GithubOauthFlow {
   return {
     id: row.id,
-    purpose: row.purpose,
+    purpose: GithubOauthPurposeSchema.parse(row.purpose),
     repositoryId: row.repository_id,
     redirectPath: row.redirect_path,
     expiresAt: row.expires_at,

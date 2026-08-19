@@ -58,15 +58,27 @@ export const GithubOAuthUserSchema = z
 export const GithubOAuthPurposeSchema = z.enum([
   "contributor_login",
   "maintainer_reauth",
+  "maintainer_identify",
 ]);
 
-export const GithubOAuthBindingSchema = z
+export const GithubOAuthIdentifyBindingSchema = z
   .object({
-    purpose: GithubOAuthPurposeSchema,
+    purpose: z.literal("maintainer_identify"),
+  })
+  .strict();
+
+export const GithubOAuthBoundBindingSchema = z
+  .object({
+    purpose: z.enum(["contributor_login", "maintainer_reauth"]),
     repositoryId: z.uuid(),
     githubRepositoryId: GithubDecimalIdSchema,
   })
   .strict();
+
+export const GithubOAuthBindingSchema = z.union([
+  GithubOAuthIdentifyBindingSchema,
+  GithubOAuthBoundBindingSchema,
+]);
 
 const GithubOAuthAccessGrantSchema = z
   .object({
@@ -81,6 +93,12 @@ const GithubOAuthAccessGrantSchema = z
 
 export type GithubOAuthUser = z.infer<typeof GithubOAuthUserSchema>;
 export type GithubOAuthPurpose = z.infer<typeof GithubOAuthPurposeSchema>;
+export type GithubOAuthIdentifyBinding = z.infer<
+  typeof GithubOAuthIdentifyBindingSchema
+>;
+export type GithubOAuthBoundBinding = z.infer<
+  typeof GithubOAuthBoundBindingSchema
+>;
 export type GithubOAuthBinding = z.infer<typeof GithubOAuthBindingSchema>;
 export type GithubOAuthAccessGrant = z.infer<
   typeof GithubOAuthAccessGrantSchema
@@ -115,10 +133,11 @@ export interface GithubOAuthStateRepository {
 
 /**
  * Request-scoped provider port. The access token returned by `exchangeCode`
- * may only be passed to `getUser` and the sealed-token helper. Neither this
- * port nor callers may persist or log it. `repositoryId` is GitHub's numeric
- * repository ID and must be sent as `repository_id` during the GitHub App
- * token exchange.
+ * may only be passed to `getUser`, the sealed-token helper, or the identify
+ * directory port. Neither this port nor callers may persist or log it.
+ * `repositoryId` is GitHub's numeric repository ID and must be sent as
+ * `repository_id` during a repository-bound GitHub App token exchange. Identify
+ * exchanges omit it.
  */
 export interface GithubOAuthClient {
   exchangeCode(
@@ -126,11 +145,33 @@ export interface GithubOAuthClient {
       code: string;
       codeVerifier: string;
       redirectUri: string;
-      repositoryId: string;
+      repositoryId?: string;
     }>,
   ): Promise<GithubOAuthAccessGrant>;
   getUser(accessToken: string): Promise<GithubOAuthUser>;
 }
+
+/**
+ * Completes a repository-unbound maintainer identify exchange. The access
+ * token is request-scoped and must never be persisted, logged, or returned.
+ * Return a sealed directory cookie, or `null` to fail closed without a
+ * partial repository list.
+ */
+export interface GithubOAuthIdentifyDirectoryPort {
+  resolve(
+    input: Readonly<{
+      user: GithubOAuthUser;
+      accessToken: string;
+      now: Date;
+    }>,
+  ): Promise<GithubOAuthIdentifyDirectory | null>;
+}
+
+export type GithubOAuthIdentifyDirectory = Readonly<{
+  sealedCookie: string;
+  expiresAt: Date;
+  maxAgeSeconds: number;
+}>;
 
 /**
  * Session persistence boundary. Rotation must atomically revoke any resolved
@@ -142,7 +183,7 @@ export interface GithubOAuthSessionPort {
   rotate(
     input: Readonly<{
       user: GithubOAuthUser;
-      binding: GithubOAuthBinding;
+      binding: GithubOAuthBoundBinding;
       actorRole: Extract<ActorRole, "author" | "maintainer">;
       redirectPath: string;
       currentSessionToken?: string;
@@ -183,15 +224,29 @@ export type GithubOAuthStart = Readonly<{
   cookieExpiresAt: Date;
 }>;
 
-export type GithubOAuthCallback = Readonly<{
+export type GithubOAuthSessionCallback = Readonly<{
+  kind: "session";
   issuedSession: IssuedSession;
   redirectPath: string;
   user: GithubOAuthUser;
-  binding: GithubOAuthBinding;
+  binding: GithubOAuthBoundBinding;
   sealedUserToken: string;
   userTokenExpiresAt: Date;
   userTokenMaxAgeSeconds: number;
 }>;
+
+export type GithubOAuthIdentifyCallback = Readonly<{
+  kind: "identify";
+  redirectPath: string;
+  user: GithubOAuthUser;
+  binding: GithubOAuthIdentifyBinding;
+  sealedDirectory: string | null;
+  directoryExpiresAt: Date | null;
+  directoryMaxAgeSeconds: number | null;
+}>;
+
+export type GithubOAuthCallback =
+  GithubOAuthSessionCallback | GithubOAuthIdentifyCallback;
 
 export type GithubOAuthServiceOptions = Readonly<{
   clientId: string;
@@ -203,6 +258,7 @@ export type GithubOAuthServiceOptions = Readonly<{
   stateRepository: GithubOAuthStateRepository;
   client: GithubOAuthClient;
   sessions: GithubOAuthSessionPort;
+  identifyDirectory?: GithubOAuthIdentifyDirectoryPort;
   stateTtlMs?: number;
   sessionTtlMs?: number;
   freshTokenTtlMs?: number;
@@ -219,6 +275,7 @@ type ValidatedOptions = Readonly<{
   stateRepository: GithubOAuthStateRepository;
   client: GithubOAuthClient;
   sessions: GithubOAuthSessionPort;
+  identifyDirectory?: GithubOAuthIdentifyDirectoryPort;
   stateTtlMs: number;
   sessionTtlMs: number;
   freshTokenTtlMs: number;
@@ -345,11 +402,7 @@ export class GithubOAuthService {
       throw new GithubOAuthUnavailableError();
     }
     const binding = persisted
-      ? parseBinding({
-          purpose: persisted.purpose,
-          repositoryId: persisted.repositoryId,
-          githubRepositoryId: persisted.githubRepositoryId,
-        })
+      ? parseBinding(persistedBinding(persisted))
       : null;
     if (
       !persisted ||
@@ -369,7 +422,9 @@ export class GithubOAuthService {
           code,
           codeVerifier: cookie.codeVerifier,
           redirectUri: this.#options.callbackUrl,
-          repositoryId: binding.githubRepositoryId,
+          ...(isBoundGithubOAuthBinding(binding)
+            ? { repositoryId: binding.githubRepositoryId }
+            : {}),
         }),
       );
       if (grant.expiresAt <= now) throw new GithubOAuthUnavailableError();
@@ -378,6 +433,19 @@ export class GithubOAuthService {
       );
     } catch {
       throw new GithubOAuthUnavailableError();
+    }
+
+    if (binding.purpose === "maintainer_identify") {
+      return completeIdentifyCallback({
+        binding,
+        grant,
+        ...(this.#options.identifyDirectory
+          ? { identifyDirectory: this.#options.identifyDirectory }
+          : {}),
+        now,
+        redirectPath: persisted.redirectPath,
+        user,
+      });
     }
 
     try {
@@ -417,6 +485,7 @@ export class GithubOAuthService {
         { entropy: this.#options.entropy },
       );
       return Object.freeze({
+        kind: "session",
         issuedSession,
         redirectPath: persisted.redirectPath,
         user,
@@ -522,6 +591,53 @@ function parseBinding(value: unknown): GithubOAuthBinding {
   return binding.data;
 }
 
+function persistedBinding(record: GithubOAuthStateRecord): GithubOAuthBinding {
+  if (record.purpose === "maintainer_identify") {
+    return { purpose: "maintainer_identify" };
+  }
+  return {
+    purpose: record.purpose,
+    repositoryId: record.repositoryId,
+    githubRepositoryId: record.githubRepositoryId,
+  };
+}
+
+export function isBoundGithubOAuthBinding(
+  binding: GithubOAuthBinding,
+): binding is GithubOAuthBoundBinding {
+  return binding.purpose !== "maintainer_identify";
+}
+
+async function completeIdentifyCallback(input: {
+  binding: GithubOAuthIdentifyBinding;
+  grant: GithubOAuthAccessGrant;
+  identifyDirectory?: GithubOAuthIdentifyDirectoryPort;
+  now: Date;
+  redirectPath: string;
+  user: GithubOAuthUser;
+}): Promise<GithubOAuthIdentifyCallback> {
+  if (!input.identifyDirectory) throw new GithubOAuthUnavailableError();
+  let directory: GithubOAuthIdentifyDirectory | null = null;
+  try {
+    directory = await input.identifyDirectory.resolve({
+      user: input.user,
+      accessToken: input.grant.accessToken,
+      now: input.now,
+    });
+  } catch {
+    directory = null;
+  }
+  return Object.freeze({
+    kind: "identify",
+    redirectPath: input.redirectPath,
+    user: input.user,
+    binding: input.binding,
+    sealedDirectory: directory?.sealedCookie ?? null,
+    directoryExpiresAt: directory?.expiresAt ?? null,
+    directoryMaxAgeSeconds: directory?.maxAgeSeconds ?? null,
+  });
+}
+
 function isSafeLocalPath(path: string): boolean {
   return (
     path.startsWith("/") &&
@@ -565,7 +681,7 @@ function validateProviderCode(code: string): string {
 function validateIssuedSession(
   issued: IssuedSession,
   user: GithubOAuthUser,
-  binding: GithubOAuthBinding,
+  binding: GithubOAuthBoundBinding,
   now: Date,
 ): void {
   if (
@@ -582,7 +698,7 @@ function validateIssuedSession(
 }
 
 export function githubOAuthActorRole(
-  purpose: GithubOAuthPurpose,
+  purpose: Exclude<GithubOAuthPurpose, "maintainer_identify">,
 ): Extract<ActorRole, "author" | "maintainer"> {
   return purpose === "contributor_login" ? "author" : "maintainer";
 }

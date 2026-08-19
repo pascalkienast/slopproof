@@ -18,6 +18,7 @@ import {
   GithubOAuthStartPolicyError,
   GithubOAuthStartRateLimitError,
 } from "./github-oauth-runtime";
+import { MAINTAINER_DIRECTORY_COOKIE } from "./maintainer-directory";
 import { GITHUB_USER_TOKEN_COOKIE } from "./github-oauth-token";
 
 const REPOSITORY_ID = "10000000-0000-4000-8000-000000000002";
@@ -48,6 +49,7 @@ function harness() {
     cookieExpiresAt: new Date("2099-08-12T12:05:00.000Z"),
   };
   const callbackResult: GithubOAuthCallback = {
+    kind: "session",
     issuedSession: issuedSession(),
     redirectPath: PRACTICE_PATH,
     user: { githubUserId: "12345678", login: "octocat" },
@@ -65,7 +67,7 @@ function harness() {
     stateTtlMs: 5 * 60_000,
     freshTokenTtlMs: 10 * 60_000,
     start: vi.fn(async () => startResult),
-    callback: vi.fn(async () => callbackResult),
+    callback: vi.fn(async (): Promise<GithubOAuthCallback> => callbackResult),
     logout: vi.fn(async () => {}),
   };
   const resolveStartBinding = vi.fn(async () => callbackResult.binding);
@@ -205,6 +207,42 @@ describe("GitHub OAuth route handlers", () => {
     expect(test.oauth.callback).not.toHaveBeenCalled();
   });
 
+  it("sets only a sealed directory cookie after identify and does not install a session", async () => {
+    const test = harness();
+    test.oauth.callback.mockResolvedValueOnce({
+      kind: "identify",
+      redirectPath: "/review",
+      user: { githubUserId: "12345678", login: "octocat" },
+      binding: { purpose: "maintainer_identify" },
+      sealedDirectory: "v1.sealed-directory-cookie",
+      directoryExpiresAt: new Date("2099-08-12T12:15:00.000Z"),
+      directoryMaxAgeSeconds: 900,
+    });
+    const response = await handleGithubOAuthCallback(
+      new Request(
+        "https://slopproof.example/api/auth/github/callback?code=one-use-code&state=one-use-state",
+        {
+          headers: {
+            cookie: `${GITHUB_OAUTH_FLOW_COOKIE}=v1.sealed-pkce-cookie`,
+          },
+        },
+      ),
+      test.resolve,
+    );
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://slopproof.example/review",
+    );
+    const cookies = setCookies(response).join("\n");
+    expect(cookies).toContain(
+      `${MAINTAINER_DIRECTORY_COOKIE}=v1.sealed-directory-cookie`,
+    );
+    expect(cookies).not.toContain("slopproof_session=");
+    expect(cookies).not.toContain(`${GITHUB_USER_TOKEN_COOKIE}=v1.`);
+    expect(cookies).not.toContain("request-scoped-user-token");
+    expect(await response.text()).toBe("");
+  });
+
   it("rotates session and sets only sealed Fresh-Auth material on callback", async () => {
     const test = harness();
     const response = await handleGithubOAuthCallback(
@@ -323,6 +361,7 @@ describe("GitHub OAuth route handlers", () => {
     expect(cookies).toContain("slopproof_csrf=");
     expect(cookies).toContain(`${GITHUB_OAUTH_FLOW_COOKIE}=`);
     expect(cookies).toContain(`${GITHUB_USER_TOKEN_COOKIE}=`);
+    expect(cookies).toContain(`${MAINTAINER_DIRECTORY_COOKIE}=`);
     expect(cookies).toContain("Max-Age=0");
   });
 

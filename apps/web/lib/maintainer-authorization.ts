@@ -269,7 +269,7 @@ function localAuthorization(
   });
 }
 
-function isMaintainerPermission(
+export function isMaintainerPermission(
   permission: "admin" | "write" | "read" | "none",
   roleName: string,
 ): permission is "admin" | "write" {

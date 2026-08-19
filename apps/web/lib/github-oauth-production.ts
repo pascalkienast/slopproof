@@ -93,7 +93,7 @@ export type ActiveMaintainerRepositoryV1 = z.infer<
 
 const MAX_ACTIVE_MAINTAINER_REPOSITORIES = 32;
 
-const StateRowSchema = z
+const BoundStateRowSchema = z
   .object({
     state_hash: StateHashSchema,
     purpose: z.enum(["contributor_login", "maintainer_reauth"]),
@@ -104,6 +104,18 @@ const StateRowSchema = z
     expires_at: z.date(),
   })
   .strict();
+const IdentifyStateRowSchema = z
+  .object({
+    state_hash: StateHashSchema,
+    purpose: z.literal("maintainer_identify"),
+    repository_id: z.null(),
+    github_repository_id: z.null(),
+    redirect_path: z.literal("/review"),
+    created_at: z.date(),
+    expires_at: z.date(),
+  })
+  .strict();
+const StateRowSchema = z.union([BoundStateRowSchema, IdentifyStateRowSchema]);
 
 type SqlPool = WebRuntime["database"]["pool"];
 type GithubOAuthOperationalFailureStage =
@@ -133,11 +145,15 @@ export class PgGithubOAuthStateRepository implements GithubOAuthStateRepository 
   constructor(private readonly pool: SqlPool) {}
 
   async create(record: GithubOAuthStateRecord): Promise<void> {
-    const binding = GithubOAuthBindingSchema.safeParse({
-      purpose: record.purpose,
-      repositoryId: record.repositoryId,
-      githubRepositoryId: record.githubRepositoryId,
-    });
+    const binding = GithubOAuthBindingSchema.safeParse(
+      record.purpose === "maintainer_identify"
+        ? { purpose: record.purpose }
+        : {
+            purpose: record.purpose,
+            repositoryId: record.repositoryId,
+            githubRepositoryId: record.githubRepositoryId,
+          },
+    );
     const redirect = OAuthRedirectSchema.safeParse(record.redirectPath);
     const createdAtMs =
       record.createdAt instanceof Date ? record.createdAt.getTime() : NaN;
@@ -152,7 +168,9 @@ export class PgGithubOAuthStateRepository implements GithubOAuthStateRepository 
       !Number.isFinite(createdAtMs) ||
       !Number.isFinite(expiresAtMs) ||
       expiresAtMs <= createdAtMs ||
-      expiresAtMs - createdAtMs > STATE_TTL_MS
+      expiresAtMs - createdAtMs > STATE_TTL_MS ||
+      (binding.data.purpose === "maintainer_identify" &&
+        redirect.data !== "/review")
     ) {
       throw new GithubOAuthPersistenceError();
     }
@@ -178,55 +196,84 @@ export class PgGithubOAuthStateRepository implements GithubOAuthStateRepository 
           )`,
         [record.createdAt, OAUTH_FLOW_CLEANUP_BATCH_SIZE],
       );
-      const inserted = await client.query(
-        `INSERT INTO github_oauth_flows
-         (state_hash, purpose, repository_id, redirect_path,
-          expires_at, created_at)
-       SELECT $1, $2, repository.id, $4, $5::timestamptz, $6::timestamptz
-         FROM repositories repository
-         JOIN installations installation
-           ON installation.id = repository.installation_id
-        WHERE repository.id = $3
-          AND repository.github_repository_id = $7
-          AND repository.status = 'active'
-          AND installation.status = 'active'
-          AND $5::timestamptz > $6::timestamptz
-          AND (
-            SELECT count(*) FROM github_oauth_flows active
-             WHERE active.repository_id = repository.id
-               AND active.consumed_at IS NULL
-               AND active.expires_at > $6::timestamptz
-          ) < $8::bigint
-          AND (
-            SELECT count(*) FROM github_oauth_flows recent
-             WHERE recent.repository_id = repository.id
-               AND recent.created_at >= $9::timestamptz
-          ) < $10::bigint
-          AND (
-            SELECT count(*) FROM github_oauth_flows active
-             WHERE active.consumed_at IS NULL
-               AND active.expires_at > $6::timestamptz
-          ) < $11::bigint
-          AND (
-            SELECT count(*) FROM github_oauth_flows recent
-             WHERE recent.created_at >= $9::timestamptz
-          ) < $12::bigint
-       RETURNING state_hash`,
-        [
-          record.stateHash,
-          binding.data.purpose,
-          binding.data.repositoryId,
-          redirect.data,
-          record.expiresAt,
-          record.createdAt,
-          binding.data.githubRepositoryId,
-          OAUTH_FLOW_REPOSITORY_ACTIVE_LIMIT,
-          quotaWindowStart,
-          OAUTH_FLOW_REPOSITORY_WINDOW_LIMIT,
-          OAUTH_FLOW_GLOBAL_ACTIVE_LIMIT,
-          OAUTH_FLOW_GLOBAL_WINDOW_LIMIT,
-        ],
-      );
+      const inserted =
+        binding.data.purpose === "maintainer_identify"
+          ? await client.query(
+              `INSERT INTO github_oauth_flows
+               (state_hash, purpose, repository_id, redirect_path,
+                expires_at, created_at)
+             SELECT $1, $2, NULL, $3, $4::timestamptz, $5::timestamptz
+              WHERE $4::timestamptz > $5::timestamptz
+                AND (
+                  SELECT count(*) FROM github_oauth_flows active
+                   WHERE active.consumed_at IS NULL
+                     AND active.expires_at > $5::timestamptz
+                ) < $6::bigint
+                AND (
+                  SELECT count(*) FROM github_oauth_flows recent
+                   WHERE recent.created_at >= $7::timestamptz
+                ) < $8::bigint
+             RETURNING state_hash`,
+              [
+                record.stateHash,
+                binding.data.purpose,
+                redirect.data,
+                record.expiresAt,
+                record.createdAt,
+                OAUTH_FLOW_GLOBAL_ACTIVE_LIMIT,
+                quotaWindowStart,
+                OAUTH_FLOW_GLOBAL_WINDOW_LIMIT,
+              ],
+            )
+          : await client.query(
+              `INSERT INTO github_oauth_flows
+               (state_hash, purpose, repository_id, redirect_path,
+                expires_at, created_at)
+             SELECT $1, $2, repository.id, $4, $5::timestamptz, $6::timestamptz
+               FROM repositories repository
+               JOIN installations installation
+                 ON installation.id = repository.installation_id
+              WHERE repository.id = $3
+                AND repository.github_repository_id = $7
+                AND repository.status = 'active'
+                AND installation.status = 'active'
+                AND $5::timestamptz > $6::timestamptz
+                AND (
+                  SELECT count(*) FROM github_oauth_flows active
+                   WHERE active.repository_id = repository.id
+                     AND active.consumed_at IS NULL
+                     AND active.expires_at > $6::timestamptz
+                ) < $8::bigint
+                AND (
+                  SELECT count(*) FROM github_oauth_flows recent
+                   WHERE recent.repository_id = repository.id
+                     AND recent.created_at >= $9::timestamptz
+                ) < $10::bigint
+                AND (
+                  SELECT count(*) FROM github_oauth_flows active
+                   WHERE active.consumed_at IS NULL
+                     AND active.expires_at > $6::timestamptz
+                ) < $11::bigint
+                AND (
+                  SELECT count(*) FROM github_oauth_flows recent
+                   WHERE recent.created_at >= $9::timestamptz
+                ) < $12::bigint
+             RETURNING state_hash`,
+              [
+                record.stateHash,
+                binding.data.purpose,
+                binding.data.repositoryId,
+                redirect.data,
+                record.expiresAt,
+                record.createdAt,
+                binding.data.githubRepositoryId,
+                OAUTH_FLOW_REPOSITORY_ACTIVE_LIMIT,
+                quotaWindowStart,
+                OAUTH_FLOW_REPOSITORY_WINDOW_LIMIT,
+                OAUTH_FLOW_GLOBAL_ACTIVE_LIMIT,
+                OAUTH_FLOW_GLOBAL_WINDOW_LIMIT,
+              ],
+            );
       insertedRowCount = inserted.rowCount ?? 0;
       // Commit bounded cleanup even when the quota rejects this start. This
       // lets abuse traffic drain stale rows instead of rolling cleanup back.
@@ -259,8 +306,8 @@ export class PgGithubOAuthStateRepository implements GithubOAuthStateRepository 
     const consumed = await this.pool.query<{
       state_hash: string;
       purpose: string;
-      repository_id: string;
-      github_repository_id: string;
+      repository_id: string | null;
+      github_repository_id: string | null;
       redirect_path: string;
       created_at: Date;
       expires_at: Date;
@@ -268,37 +315,56 @@ export class PgGithubOAuthStateRepository implements GithubOAuthStateRepository 
       `WITH consumed AS (
          UPDATE github_oauth_flows flow
             SET consumed_at = $2
-           FROM repositories repository,
-                installations installation
           WHERE flow.state_hash = $1
             AND flow.consumed_at IS NULL
             AND flow.expires_at > $2
-            AND repository.id = flow.repository_id
-            AND repository.status = 'active'
-            AND installation.id = repository.installation_id
-            AND installation.status = 'active'
+            AND (
+              (
+                flow.purpose = 'maintainer_identify'
+                AND flow.repository_id IS NULL
+              )
+              OR EXISTS (
+                SELECT 1
+                  FROM repositories repository
+                  JOIN installations installation
+                    ON installation.id = repository.installation_id
+                 WHERE repository.id = flow.repository_id
+                   AND repository.status = 'active'
+                   AND installation.status = 'active'
+              )
+            )
           RETURNING flow.state_hash, flow.purpose, flow.repository_id,
-                    repository.github_repository_id, flow.redirect_path,
-                    flow.created_at, flow.expires_at
+                    flow.redirect_path, flow.created_at, flow.expires_at
        )
-       SELECT state_hash, purpose, repository_id, github_repository_id,
-              redirect_path, created_at, expires_at
-         FROM consumed`,
+       SELECT consumed.state_hash, consumed.purpose, consumed.repository_id,
+              repository.github_repository_id, consumed.redirect_path,
+              consumed.created_at, consumed.expires_at
+         FROM consumed
+         LEFT JOIN repositories repository
+           ON repository.id = consumed.repository_id`,
       [input.stateHash, input.now],
     );
     const row = consumed.rows[0];
     if (!row) return null;
     const parsed = StateRowSchema.safeParse(row);
     if (!parsed.success) throw new GithubOAuthPersistenceError();
-    return Object.freeze({
-      stateHash: parsed.data.state_hash as OAuthStateHash,
-      purpose: parsed.data.purpose,
-      repositoryId: parsed.data.repository_id,
-      githubRepositoryId: parsed.data.github_repository_id,
-      redirectPath: parsed.data.redirect_path,
-      createdAt: parsed.data.created_at,
-      expiresAt: parsed.data.expires_at,
-    });
+    return parsed.data.purpose === "maintainer_identify"
+      ? Object.freeze({
+          stateHash: parsed.data.state_hash as OAuthStateHash,
+          purpose: parsed.data.purpose,
+          redirectPath: parsed.data.redirect_path,
+          createdAt: parsed.data.created_at,
+          expiresAt: parsed.data.expires_at,
+        })
+      : Object.freeze({
+          stateHash: parsed.data.state_hash as OAuthStateHash,
+          purpose: parsed.data.purpose,
+          repositoryId: parsed.data.repository_id,
+          githubRepositoryId: parsed.data.github_repository_id,
+          redirectPath: parsed.data.redirect_path,
+          createdAt: parsed.data.created_at,
+          expiresAt: parsed.data.expires_at,
+        });
   }
 }
 
@@ -330,6 +396,7 @@ export class PgGithubOAuthSessionPort implements GithubOAuthSessionPort {
     const redirect = OAuthRedirectSchema.safeParse(input.redirectPath);
     if (
       !binding.success ||
+      binding.data.purpose === "maintainer_identify" ||
       !user.success ||
       !redirect.success ||
       input.actorRole !== githubOAuthActorRole(binding.data.purpose) ||
@@ -507,6 +574,13 @@ export async function createGithubOAuthProductionRuntime(
       app.config.SESSION_SECRET,
       reportGithubOAuthFailure,
     ),
+    identifyDirectory: {
+      async resolve(input) {
+        const { resolveProductionIdentifyDirectory } =
+          await import("./maintainer-directory");
+        return resolveProductionIdentifyDirectory(app, input);
+      },
+    },
     stateTtlMs: STATE_TTL_MS,
     sessionTtlMs: SESSION_TTL_MS,
     freshTokenTtlMs: FRESH_TOKEN_TTL_MS,
@@ -685,22 +759,7 @@ export async function resolveProductionStartBinding(
     }
   }
 
-  const active = await app.database.pool.query<{
-    repository_id: string;
-    github_repository_id: string;
-  }>(
-    `SELECT repository.id AS repository_id,
-            repository.github_repository_id
-       FROM repositories repository
-       JOIN installations installation
-         ON installation.id = repository.installation_id
-      WHERE repository.status = 'active'
-        AND installation.status = 'active'
-      ORDER BY repository.id
-      LIMIT 2`,
-  );
-  if (active.rows.length !== 1) throw new GithubOAuthWiringError();
-  return bindingFromRow(active.rows[0]!, "maintainer_reauth");
+  return { purpose: "maintainer_identify" };
 }
 
 async function loadSingleActiveBinding(
@@ -792,6 +851,38 @@ export async function loadActiveMaintainerRepository(
   return parseActiveMaintainerRepository(row);
 }
 
+export async function loadMaintainerRepositoriesByIds(
+  pool: SqlPool,
+  repositoryIds: readonly string[],
+): Promise<readonly ActiveMaintainerRepositoryV1[]> {
+  if (repositoryIds.length === 0) return [];
+  if (repositoryIds.length > MAX_ACTIVE_MAINTAINER_REPOSITORIES) {
+    throw new GithubOAuthWiringError();
+  }
+  const parsedIds = repositoryIds.map((id) => z.uuid().safeParse(id));
+  if (parsedIds.some((id) => !id.success)) throw new GithubOAuthWiringError();
+  const uniqueIds = [...new Set(parsedIds.map((id) => id.data))];
+  if (uniqueIds.length !== repositoryIds.length) {
+    throw new GithubOAuthWiringError();
+  }
+  const result = await pool.query<{
+    id: string;
+    owner: string;
+    name: string;
+  }>(
+    `SELECT repository.id, repository.owner, repository.name
+       FROM repositories repository
+       JOIN installations installation
+         ON installation.id = repository.installation_id
+      WHERE repository.id = ANY($1::uuid[])
+        AND repository.status = 'active'
+        AND installation.status = 'active'
+      ORDER BY repository.owner, repository.name, repository.id`,
+    [uniqueIds],
+  );
+  return result.rows.map(parseActiveMaintainerRepository);
+}
+
 function parseActiveMaintainerRepository(
   row: unknown,
 ): ActiveMaintainerRepositoryV1 {
@@ -808,14 +899,22 @@ async function peekActiveStateRedirect(
   const result = await pool.query<{ redirect_path: string }>(
     `SELECT flow.redirect_path
        FROM github_oauth_flows flow
-       JOIN repositories repository ON repository.id = flow.repository_id
-       JOIN installations installation
+       LEFT JOIN repositories repository ON repository.id = flow.repository_id
+       LEFT JOIN installations installation
          ON installation.id = repository.installation_id
       WHERE flow.state_hash = $1
         AND flow.consumed_at IS NULL
         AND flow.expires_at > $2
-        AND repository.status = 'active'
-        AND installation.status = 'active'
+        AND (
+          (
+            flow.purpose = 'maintainer_identify'
+            AND flow.repository_id IS NULL
+          )
+          OR (
+            repository.status = 'active'
+            AND installation.status = 'active'
+          )
+        )
       LIMIT 1`,
     [stateHash, now],
   );

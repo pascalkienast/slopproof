@@ -68,6 +68,13 @@ function createHarness() {
     rotate: vi.fn(async () => issuedSession()),
     revoke: vi.fn(async () => {}),
   };
+  const identifyDirectory = {
+    resolve: vi.fn(async () => ({
+      sealedCookie: "v1.sealed-directory-cookie",
+      expiresAt: new Date(NOW.getTime() + 15 * 60_000),
+      maxAgeSeconds: 900,
+    })),
+  };
   let entropyCall = 0;
   const entropy = (bytes: number): Buffer => {
     entropyCall += 1;
@@ -82,10 +89,19 @@ function createHarness() {
     stateRepository,
     client,
     sessions,
+    identifyDirectory,
     now: () => new Date(NOW),
     entropy,
   });
-  return { service, stateRepository, client, sessions, records, created };
+  return {
+    service,
+    stateRepository,
+    client,
+    sessions,
+    identifyDirectory,
+    records,
+    created,
+  };
 }
 
 async function started(harness: Harness, redirectPath = "/review") {
@@ -186,6 +202,7 @@ describe("GitHub OAuth service", () => {
       JSON.stringify(vi.mocked(harness.sessions.rotate).mock.calls),
     ).not.toContain("request-scoped-user-token");
     expect(JSON.stringify(result)).not.toContain("request-scoped-user-token");
+    if (result.kind !== "session") throw new Error("expected session callback");
     expect(result.userTokenExpiresAt.toISOString()).toBe(
       "2026-08-12T12:10:00.000Z",
     );
@@ -339,5 +356,81 @@ describe("GitHub OAuth service", () => {
       }),
     ).rejects.toBeInstanceOf(GithubOAuthRejectedError);
     expect(GithubOAuthUnavailableError).toBeDefined();
+  });
+
+  it("identifies without a repository-bound token or session", async () => {
+    const harness = createHarness();
+    const start = await harness.service.start({
+      binding: { purpose: "maintainer_identify" },
+      requestedRedirectPath: "/review",
+    });
+    const state = start.authorizationUrl.searchParams.get("state");
+    if (!state) throw new Error("test setup expected state");
+
+    expect(harness.created[0]).toEqual(
+      expect.objectContaining({
+        purpose: "maintainer_identify",
+        redirectPath: "/review",
+      }),
+    );
+    expect(harness.created[0]).not.toHaveProperty("repositoryId");
+
+    const result = await harness.service.callback({
+      code: "provider-code",
+      state,
+      sealedCookie: start.sealedCookie,
+    });
+
+    expect(harness.client.exchangeCode).toHaveBeenCalledWith({
+      code: "provider-code",
+      codeVerifier: Buffer.alloc(32, 2).toString("base64url"),
+      redirectUri: "https://slopproof.example/api/auth/github/callback",
+    });
+    expect(harness.sessions.rotate).not.toHaveBeenCalled();
+    expect(harness.identifyDirectory.resolve).toHaveBeenCalledWith({
+      user: { githubUserId: "12345678", login: "octocat" },
+      accessToken: "request-scoped-user-token",
+      now: NOW,
+    });
+    expect(result).toEqual({
+      kind: "identify",
+      redirectPath: "/review",
+      user: { githubUserId: "12345678", login: "octocat" },
+      binding: { purpose: "maintainer_identify" },
+      sealedDirectory: "v1.sealed-directory-cookie",
+      directoryExpiresAt: new Date(NOW.getTime() + 15 * 60_000),
+      directoryMaxAgeSeconds: 900,
+    });
+    expect(JSON.stringify(result)).not.toContain("request-scoped-user-token");
+  });
+
+  it("fails closed to no directory when identify filtering throws", async () => {
+    const harness = createHarness();
+    harness.identifyDirectory.resolve.mockRejectedValueOnce(
+      new Error("must not leak request-scoped-user-token"),
+    );
+    const start = await harness.service.start({
+      binding: { purpose: "maintainer_identify" },
+      requestedRedirectPath: "/review",
+    });
+    const state = start.authorizationUrl.searchParams.get("state");
+    if (!state) throw new Error("test setup expected state");
+
+    await expect(
+      harness.service.callback({
+        code: "provider-code",
+        state,
+        sealedCookie: start.sealedCookie,
+      }),
+    ).resolves.toEqual({
+      kind: "identify",
+      redirectPath: "/review",
+      user: { githubUserId: "12345678", login: "octocat" },
+      binding: { purpose: "maintainer_identify" },
+      sealedDirectory: null,
+      directoryExpiresAt: null,
+      directoryMaxAgeSeconds: null,
+    });
+    expect(harness.sessions.rotate).not.toHaveBeenCalled();
   });
 });

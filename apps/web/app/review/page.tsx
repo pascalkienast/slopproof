@@ -1,10 +1,14 @@
+import { cookies } from "next/headers";
 import { MaintainerAuthorizationError } from "../../lib/maintainer-authorization";
+import {
+  loadSealedMaintainerDirectory,
+  MAINTAINER_DIRECTORY_COOKIE,
+} from "../../lib/maintainer-directory";
 import { loadReviewQueue } from "../../lib/maintainer-review";
 import { readPageSessionRequest } from "../../lib/http-auth";
 import { getWebRuntime } from "../../lib/runtime";
 import { WebRequestRateLimitExceededError } from "../../lib/request-rate-limit";
 import {
-  listActiveMaintainerRepositories,
   loadActiveMaintainerRepository,
   type ActiveMaintainerRepositoryV1,
 } from "../../lib/github-oauth-production";
@@ -35,44 +39,19 @@ export default async function ReviewQueuePage({
   ) {
     return (
       <ReviewShell demoMode={app.config.DEMO_MODE}>
-        <section className="notice-card review-empty">
-          <p className="eyebrow">Protected review</p>
-          <h2>
-            {pageAuth && !sessionMatchesRequestedRepository
-              ? "This session cannot review this repository."
-              : "Maintainer authorization required."}
-          </h2>
-          {app.config.DEMO_MODE ? (
-            <p>
-              Evidence and review decisions are repository-bound. This local
-              environment exposes a demo maintainer session for offline use.
-            </p>
-          ) : requestedRepository && requestedRepository !== "invalid" ? (
-            <p>
-              Evidence and review decisions stay bound to{" "}
-              {requestedRepository.owner}/{requestedRepository.name}. Authorize
-              with GitHub for this repository.
-            </p>
-          ) : (
-            <p>
-              Evidence and review decisions are repository-bound. Authorize with
-              GitHub to open the protected maintainer queue.
-            </p>
+        <ReviewAuthWall
+          demoMode={app.config.DEMO_MODE}
+          directory={
+            app.config.DEMO_MODE || requestedRepository !== undefined
+              ? null
+              : await loadPageMaintainerDirectory(app)
+          }
+          pageAuth={Boolean(pageAuth)}
+          requestedRepository={requestedRepository}
+          sessionMismatch={Boolean(
+            pageAuth && !sessionMatchesRequestedRepository,
           )}
-          {app.config.DEMO_MODE ? (
-            <DemoMaintainerLogin />
-          ) : (
-            <GithubMaintainerLogin
-              repositories={
-                requestedRepository === "invalid"
-                  ? []
-                  : requestedRepository
-                    ? [requestedRepository]
-                    : await loadReviewLoginRepositories(app)
-              }
-            />
-          )}
-        </section>
+        />
       </ReviewShell>
     );
   }
@@ -170,7 +149,12 @@ export default async function ReviewQueuePage({
               repositories={
                 requestedRepository
                   ? [requestedRepository]
-                  : await loadReviewLoginRepositories(app)
+                  : pageAuth.session.repositoryId
+                    ? await loadBoundLoginRepository(
+                        app,
+                        pageAuth.session.repositoryId,
+                      )
+                    : []
               }
             />
           )}
@@ -178,6 +162,83 @@ export default async function ReviewQueuePage({
       </ReviewShell>
     );
   }
+}
+
+export function ReviewAuthWall({
+  demoMode,
+  directory,
+  pageAuth,
+  requestedRepository,
+  sessionMismatch,
+}: {
+  demoMode: boolean;
+  directory: readonly ActiveMaintainerRepositoryV1[] | null;
+  pageAuth: boolean;
+  requestedRepository: ActiveMaintainerRepositoryV1 | "invalid" | undefined;
+  sessionMismatch: boolean;
+}) {
+  const identified =
+    !demoMode && requestedRepository === undefined && directory !== null;
+  const identifiedRepositories = directory ?? [];
+  return (
+    <section className="notice-card review-empty">
+      <p className="eyebrow">Protected review</p>
+      <h2>
+        {sessionMismatch
+          ? "This session cannot review this repository."
+          : identified
+            ? identifiedRepositories.length === 0
+              ? "No repositories available."
+              : "Choose a repository to review."
+            : "Maintainer authorization required."}
+      </h2>
+      {demoMode ? (
+        <p>
+          Evidence and review decisions are repository-bound. This local
+          environment exposes a demo maintainer session for offline use.
+        </p>
+      ) : requestedRepository && requestedRepository !== "invalid" ? (
+        <p>
+          Evidence and review decisions stay bound to{" "}
+          {requestedRepository.owner}/{requestedRepository.name}. Authorize with
+          GitHub for this repository.
+        </p>
+      ) : identified && identifiedRepositories.length === 0 ? (
+        <p>
+          This GitHub account is not a live maintainer on an active SlopProof
+          installation.
+        </p>
+      ) : identified ? (
+        <p>
+          Evidence and review decisions are repository-bound. Choose a
+          repository this GitHub account can review.
+        </p>
+      ) : (
+        <p>
+          Evidence and review decisions are repository-bound. Authorize with
+          GitHub to open the protected maintainer queue.
+        </p>
+      )}
+      {demoMode ? (
+        <DemoMaintainerLogin />
+      ) : (
+        <GithubMaintainerLogin
+          identify={
+            requestedRepository === undefined &&
+            (directory === null || directory.length === 0) &&
+            !pageAuth
+          }
+          repositories={
+            requestedRepository === "invalid"
+              ? []
+              : requestedRepository
+                ? [requestedRepository]
+                : (directory ?? [])
+          }
+        />
+      )}
+    </section>
+  );
 }
 
 async function loadRequestedReviewRepository(
@@ -194,21 +255,43 @@ async function loadRequestedReviewRepository(
   }
 }
 
-async function loadReviewLoginRepositories(
+async function loadPageMaintainerDirectory(
   app: Awaited<ReturnType<typeof getWebRuntime>>,
+): Promise<readonly ActiveMaintainerRepositoryV1[] | null> {
+  const cookieStore = await cookies();
+  return loadSealedMaintainerDirectory(
+    app,
+    cookieStore.get(MAINTAINER_DIRECTORY_COOKIE)?.value,
+  );
+}
+
+async function loadBoundLoginRepository(
+  app: Awaited<ReturnType<typeof getWebRuntime>>,
+  repositoryId: string,
 ): Promise<readonly ActiveMaintainerRepositoryV1[]> {
   try {
-    return await listActiveMaintainerRepositories(app.database.pool);
+    return [
+      await loadActiveMaintainerRepository(app.database.pool, repositoryId),
+    ];
   } catch {
     return [];
   }
 }
 
-function GithubMaintainerLogin({
+export function GithubMaintainerLogin({
+  identify = false,
   repositories,
 }: {
+  identify?: boolean;
   repositories: readonly ActiveMaintainerRepositoryV1[];
 }) {
+  if (identify) {
+    return (
+      <a className="button primary review-login" href={reviewIdentifyHref()}>
+        Authorize with GitHub
+      </a>
+    );
+  }
   if (repositories.length === 0) {
     return (
       <p className="review-login">
@@ -246,6 +329,10 @@ function GithubMaintainerLogin({
       </ul>
     </nav>
   );
+}
+
+function reviewIdentifyHref(): string {
+  return `/api/auth/github/start?returnTo=${encodeURIComponent("/review")}`;
 }
 
 function reviewAuthorizationHref(repositoryId: string): string {

@@ -17,6 +17,7 @@ import {
   resolveGithubOAuthRuntime,
   validateGithubOAuthRuntime,
 } from "./github-oauth-runtime";
+import { MAINTAINER_DIRECTORY_COOKIE } from "./maintainer-directory";
 import { GITHUB_USER_TOKEN_COOKIE } from "./github-oauth-token";
 
 export const GITHUB_OAUTH_FLOW_COOKIE = "__Secure-slopproof_github_oauth";
@@ -110,6 +111,30 @@ export async function handleGithubOAuthCallback(
     const redirect = exactLocalRedirect(runtime, result);
     const response = NextResponse.redirect(redirect, 303);
     setNoStoreHeaders(response);
+    if (result.kind === "identify") {
+      if (
+        result.sealedDirectory &&
+        result.directoryExpiresAt &&
+        result.directoryMaxAgeSeconds !== null
+      ) {
+        response.cookies.set(
+          MAINTAINER_DIRECTORY_COOKIE,
+          result.sealedDirectory,
+          {
+            httpOnly: true,
+            secure: true,
+            sameSite: "lax",
+            path: "/",
+            maxAge: result.directoryMaxAgeSeconds,
+            expires: result.directoryExpiresAt,
+            priority: "high",
+          },
+        );
+      }
+      clearFlowCookie(response);
+      clearUserTokenCookie(response);
+      return response;
+    }
     attachSessionCookies(response, result.issuedSession, runtime.appBaseUrl);
     response.cookies.set(GITHUB_USER_TOKEN_COOKIE, result.sealedUserToken, {
       httpOnly: true,
@@ -121,6 +146,7 @@ export async function handleGithubOAuthCallback(
       priority: "high",
     });
     clearFlowCookie(response);
+    clearDirectoryCookie(response);
     return response;
   } catch (error) {
     const response = oauthCallbackFailure(
@@ -128,6 +154,7 @@ export async function handleGithubOAuthCallback(
     );
     clearFlowCookie(response);
     clearUserTokenCookie(response);
+    clearDirectoryCookie(response);
     return response;
   }
 }
@@ -304,6 +331,15 @@ function clearAllAuthCookies(response: NextResponse): void {
   response.cookies.set(CSRF_COOKIE, "", expiredCookie("/", false, "strict"));
   clearFlowCookie(response);
   clearUserTokenCookie(response);
+  clearDirectoryCookie(response);
+}
+
+function clearDirectoryCookie(response: NextResponse): void {
+  response.cookies.set(
+    MAINTAINER_DIRECTORY_COOKIE,
+    "",
+    expiredCookie("/", true, "lax"),
+  );
 }
 
 function clearFlowCookie(response: NextResponse): void {
