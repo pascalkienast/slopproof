@@ -47,7 +47,7 @@ const MAX_PRACTICE_ANSWER_BYTES = 4_000;
 const GENERATION_DEADLINE_MS = 8 * 60_000;
 const PRIVATE_RETENTION_MS = 24 * 60 * 60_000;
 const ATTEMPT_LIFETIME_MS = 8 * 60 * 60_000;
-const LEARNING_GENERATION_IDEMPOTENCY_VERSION = "v2";
+const LEARNING_GENERATION_IDEMPOTENCY_VERSION = "v3";
 
 type RunLookupRow = {
   repository_id: string;
@@ -201,85 +201,12 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
   async loadFrozenProofContent(
     run: SemanticRunContext,
   ): Promise<ForbiddenProofContentV1 | "pending"> {
-    const result = await this.database.pool.query<{
-      semantic_plan: unknown | null;
-      legacy_questions: unknown;
-    }>(
-      `SELECT semantic_plan.plan AS semantic_plan,
-              jsonb_agg(
-                jsonb_build_object(
-                  'prompt', question.prompt,
-                  'rubric', question.rubric
-                ) ORDER BY question.ordinal
-              ) AS legacy_questions
-         FROM proof_plans plan
-         JOIN semantic_generation_budgets budget
-           ON budget.generation_context_id = plan.generation_context_id
-          AND budget.revision_id = plan.revision_id
-         JOIN proof_questions question ON question.proof_plan_id = plan.id
-         LEFT JOIN semantic_proof_plans_v2 semantic_plan
-           ON semantic_plan.id = plan.id
-        WHERE plan.revision_id = $1
-          AND plan.generation_context_id = $2
-          AND plan.status = 'ready'
-          AND plan.question_budget = budget.question_budget
-          AND EXISTS (
-            SELECT 1 FROM attempts attempt
-             WHERE attempt.proof_plan_id = plan.id
-               AND attempt.revision_id = $1
-               AND attempt.author_id = $3
-               AND attempt.head_sha = $4
-          )
-        GROUP BY plan.id, plan.created_at, semantic_plan.plan
-       HAVING count(question.id)::int = plan.question_budget
-        ORDER BY plan.created_at DESC, plan.id DESC
-        LIMIT 1`,
-      [
-        run.revisionId,
-        run.generationContextId,
-        run.authorId,
-        run.generationContext.headSha,
-      ],
-    );
-    const row = result.rows[0];
-    if (row === undefined) return "pending";
-    if (row.semantic_plan !== null) {
-      const plan = hydrateSemanticArtifact(
-        row.semantic_plan,
-        ProofQuestionPlanV2Schema,
-      );
-      if (plan === null) {
-        throw new Error("Frozen semantic Proof plan is invalid.");
-      }
-      return ForbiddenProofContentV1Schema.parse(
-        proofQuestionsContentV1(plan.questions),
-      );
-    }
-    const questions = z
-      .array(
-        z
-          .object({
-            prompt: z.string().trim().min(1).max(2_000),
-            rubric: z
-              .object({
-                requiredPoints: z
-                  .array(z.string().trim().min(1).max(300))
-                  .min(1)
-                  .max(8),
-              })
-              .passthrough(),
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(5)
-      .parse(row.legacy_questions);
-    return ForbiddenProofContentV1Schema.parse(
-      questions.flatMap((question) => [
-        question.prompt,
-        ...question.rubric.requiredPoints,
-      ]),
-    );
+    return readFrozenProofContent(this.database.pool, {
+      revisionId: run.revisionId,
+      generationContextId: run.generationContextId,
+      authorId: run.authorId,
+      headSha: run.generationContext.headSha,
+    });
   }
 
   async reserveRun(
@@ -291,7 +218,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
       | JobPayload<"semantic.generate-learning">
       | JobPayload<"semantic.generate-practice-feedback">
       | JobPayload<"semantic.generate-proof-questions">,
-  ): Promise<SemanticRunContext | "stale"> {
+  ): Promise<SemanticRunContext | "stale" | "proof_pending"> {
     const purpose = purposeForJob(name);
     const client = await this.database.pool.connect();
     try {
@@ -377,30 +304,6 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
           payload.idempotencyKey,
         ].join(":"),
       );
-      await client.query(
-        `INSERT INTO semantic_generation_runs
-           (idempotency_key, purpose, repository_id, revision_id,
-            generation_context_id, practice_session_id, practice_question_id,
-            practice_answer_id, artifact_seed, question_count, created_at,
-            deadline_at, delete_after)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-         ON CONFLICT (idempotency_key) DO NOTHING`,
-        [
-          payload.idempotencyKey,
-          purpose,
-          lookup.repository_id,
-          lookup.revision_id,
-          lookup.generation_context_id,
-          practice?.practiceSessionId ?? null,
-          practice?.practiceQuestionId ?? null,
-          practice?.practiceAnswerId ?? null,
-          artifactSeed,
-          questionCount,
-          now,
-          new Date(now.getTime() + GENERATION_DEADLINE_MS),
-          deleteAfter,
-        ],
-      );
       const persisted = await client.query<RunRow>(
         `SELECT id, idempotency_key, purpose, repository_id, revision_id,
                 generation_context_id, practice_session_id,
@@ -412,7 +315,57 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
           FOR SHARE`,
         [payload.idempotencyKey],
       );
-      const run = persisted.rows[0];
+      let run = persisted.rows[0];
+      if (run === undefined) {
+        if (purposeRequiresFrozenProof(purpose)) {
+          const forbiddenProofContent = await readFrozenProofContent(client, {
+            revisionId: lookup.revision_id,
+            generationContextId: lookup.generation_context_id,
+            authorId: lookup.author_id,
+            headSha: lookup.head_sha,
+          });
+          if (forbiddenProofContent === "pending") {
+            await client.query("ROLLBACK");
+            return "proof_pending";
+          }
+        }
+        await client.query(
+          `INSERT INTO semantic_generation_runs
+             (idempotency_key, purpose, repository_id, revision_id,
+              generation_context_id, practice_session_id, practice_question_id,
+              practice_answer_id, artifact_seed, question_count, created_at,
+              deadline_at, delete_after)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+           ON CONFLICT (idempotency_key) DO NOTHING`,
+          [
+            payload.idempotencyKey,
+            purpose,
+            lookup.repository_id,
+            lookup.revision_id,
+            lookup.generation_context_id,
+            practice?.practiceSessionId ?? null,
+            practice?.practiceQuestionId ?? null,
+            practice?.practiceAnswerId ?? null,
+            artifactSeed,
+            questionCount,
+            now,
+            new Date(now.getTime() + GENERATION_DEADLINE_MS),
+            deleteAfter,
+          ],
+        );
+        const inserted = await client.query<RunRow>(
+          `SELECT id, idempotency_key, purpose, repository_id, revision_id,
+                  generation_context_id, practice_session_id,
+                  practice_question_id, practice_answer_id,
+                  artifact_seed, question_count,
+                  created_at, deadline_at, delete_after, artifact_id
+             FROM semantic_generation_runs
+            WHERE idempotency_key = $1
+            FOR SHARE`,
+          [payload.idempotencyKey],
+        );
+        run = inserted.rows[0];
+      }
       if (
         run === undefined ||
         run.repository_id !== lookup.repository_id ||
@@ -1976,6 +1929,102 @@ function purposeForJob(
     : name === "semantic.generate-practice-feedback"
       ? ("practice_feedback" as const)
       : ("proof_questions" as const);
+}
+
+function purposeRequiresFrozenProof(
+  purpose: ReturnType<typeof purposeForJob>,
+): boolean {
+  return purpose !== "proof_questions";
+}
+
+async function readFrozenProofContent(
+  queryable: Pick<PoolClient, "query">,
+  input: {
+    revisionId: string;
+    generationContextId: string;
+    authorId: string;
+    headSha: string;
+  },
+): Promise<ForbiddenProofContentV1 | "pending"> {
+  const result = await queryable.query<{
+    semantic_plan: unknown | null;
+    legacy_questions: unknown;
+  }>(
+    `SELECT semantic_plan.plan AS semantic_plan,
+            jsonb_agg(
+              jsonb_build_object(
+                'prompt', question.prompt,
+                'rubric', question.rubric
+              ) ORDER BY question.ordinal
+            ) AS legacy_questions
+       FROM proof_plans plan
+       JOIN semantic_generation_budgets budget
+         ON budget.generation_context_id = plan.generation_context_id
+        AND budget.revision_id = plan.revision_id
+       JOIN proof_questions question ON question.proof_plan_id = plan.id
+       LEFT JOIN semantic_proof_plans_v2 semantic_plan
+         ON semantic_plan.id = plan.id
+      WHERE plan.revision_id = $1
+        AND plan.generation_context_id = $2
+        AND plan.status = 'ready'
+        AND plan.question_budget = budget.question_budget
+        AND EXISTS (
+          SELECT 1 FROM attempts attempt
+           WHERE attempt.proof_plan_id = plan.id
+             AND attempt.revision_id = $1
+             AND attempt.author_id = $3
+             AND attempt.head_sha = $4
+        )
+      GROUP BY plan.id, plan.created_at, semantic_plan.plan
+     HAVING count(question.id)::int = plan.question_budget
+      ORDER BY plan.created_at DESC, plan.id DESC
+      LIMIT 1`,
+    [
+      input.revisionId,
+      input.generationContextId,
+      input.authorId,
+      input.headSha,
+    ],
+  );
+  const row = result.rows[0];
+  if (row === undefined) return "pending";
+  if (row.semantic_plan !== null) {
+    const plan = hydrateSemanticArtifact(
+      row.semantic_plan,
+      ProofQuestionPlanV2Schema,
+    );
+    if (plan === null) {
+      throw new Error("Frozen semantic Proof plan is invalid.");
+    }
+    return ForbiddenProofContentV1Schema.parse(
+      proofQuestionsContentV1(plan.questions),
+    );
+  }
+  const questions = z
+    .array(
+      z
+        .object({
+          prompt: z.string().trim().min(1).max(2_000),
+          rubric: z
+            .object({
+              requiredPoints: z
+                .array(z.string().trim().min(1).max(300))
+                .min(1)
+                .max(8),
+            })
+            .passthrough(),
+        })
+        .strict(),
+    )
+    .min(1)
+    .max(5)
+    .parse(row.legacy_questions);
+  return ForbiddenProofContentV1Schema.parse(
+    questions.flatMap((question) => [
+      question.prompt,
+      ...question.rubric.requiredPoints,
+    ]),
+  );
 }
 
 function learningJob(input: {

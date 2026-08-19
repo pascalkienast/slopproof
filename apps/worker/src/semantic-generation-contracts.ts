@@ -160,7 +160,7 @@ export interface SemanticGenerationRepository {
       | JobPayload<"semantic.generate-learning">
       | JobPayload<"semantic.generate-practice-feedback">
       | JobPayload<"semantic.generate-proof-questions">,
-  ): Promise<SemanticRunContext | "stale">;
+  ): Promise<SemanticRunContext | "stale" | "proof_pending">;
   loadPracticeQuestionAndAnswer(
     run: SemanticRunContext,
     payload: JobPayload<"semantic.generate-practice-feedback">,
