@@ -540,11 +540,83 @@ h2 {
     monospace;
 }
 
-.review-detail-grid {
+.review-detail-grid,
+.review-proof-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 22px;
   margin-top: 42px;
+}
+
+.review-proof-layout {
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  align-items: start;
+}
+
+.review-video-column {
+  position: sticky;
+  top: 24px;
+  display: grid;
+  gap: 22px;
+}
+
+.review-video-column .evidence-card,
+.review-video-column .review-decision-card,
+.review-video-column .notice-card,
+.review-video-column .model-context-card {
+  margin-top: 0;
+}
+
+.review-question-stack {
+  display: grid;
+  gap: 22px;
+  margin-top: 20px;
+}
+
+.review-question-block {
+  padding: clamp(24px, 4vw, 36px);
+  border: 2px solid var(--ink);
+  border-radius: 22px 14px 30px 16px;
+  background: var(--sheet);
+  box-shadow: 7px 7px 0 var(--ink);
+}
+
+.review-question-block h3 {
+  margin: 10px 0 0;
+  font:
+    750 clamp(1.4rem, 2.6vw, 2.1rem)/1.2 "Bricolage Grotesque",
+    ui-sans-serif,
+    system-ui;
+}
+
+.review-question-section {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ink);
+}
+
+.review-question-section h4 {
+  margin: 0 0 10px;
+  color: var(--carbon);
+  font:
+    700 0.78rem/1.2 "IBM Plex Mono",
+    ui-monospace,
+    monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.review-question-section p,
+.review-question-section li {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.review-question-section ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 1.15rem;
 }
 
 .review-facts-card,
@@ -606,6 +678,10 @@ h2 {
 .evidence-card,
 .review-decision-card {
   margin-top: 36px;
+}
+
+.review-proof-layout .review-questions {
+  margin-top: 0;
 }
 
 .review-questions .question-list {
@@ -1456,8 +1532,13 @@ h2 {
 
   .review-row,
   .review-detail-grid,
+  .review-proof-layout,
   .review-facts > div {
     grid-template-columns: 1fr;
+  }
+
+  .review-video-column {
+    position: static;
   }
 
   .review-row {

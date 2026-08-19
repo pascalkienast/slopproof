@@ -89,6 +89,7 @@ export type ReviewQueueItem = {
   pullRequestNumber: number;
   headSha: string;
   authorId: string;
+  authorLogin: string | null;
   status: "review_required";
   submittedAt: Date;
   questionCount: number;
@@ -112,6 +113,7 @@ export type ReviewDetail = {
   repository: string;
   headSha: string;
   authorId: string;
+  authorLogin: string | null;
   status:
     | "review_required"
     | "passed"
@@ -246,6 +248,7 @@ export async function loadReviewQueue(
       pull_request_number: number;
       head_sha: string;
       author_id: string;
+      author_login: string | null;
       status: "review_required";
       submitted_at: Date;
       question_count: number;
@@ -256,7 +259,14 @@ export async function loadReviewQueue(
     }>(
       `SELECT attempt.id AS attempt_id, revision.id AS revision_id,
               pull_request.number AS pull_request_number, revision.head_sha,
-              attempt.author_id, attempt.status, attempt.updated_at AS submitted_at,
+              attempt.author_id,
+              CASE
+                WHEN source.source->>'authorLogin' ~ '^[A-Za-z0-9-]{1,100}$'
+                  AND source.source->>'authorLogin' !~ '^[0-9]+$'
+                THEN source.source->>'authorLogin'
+                ELSE NULL
+              END AS author_login,
+              attempt.status, attempt.updated_at AS submitted_at,
               (SELECT count(*)::int FROM proof_questions question
                WHERE question.proof_plan_id = attempt.proof_plan_id) AS question_count,
               evaluation.recommendation,
@@ -268,6 +278,7 @@ export async function loadReviewQueue(
        FROM attempts attempt
        JOIN pull_request_revisions revision ON revision.id = attempt.revision_id
        JOIN pull_requests pull_request ON pull_request.id = revision.pull_request_id
+       LEFT JOIN github_revision_sources source ON source.revision_id = revision.id
        LEFT JOIN LATERAL (
          SELECT candidate.recommendation
          FROM evaluations candidate
@@ -302,6 +313,7 @@ export async function loadReviewQueue(
         pullRequestNumber: row.pull_request_number,
         headSha: row.head_sha,
         authorId: row.author_id,
+        authorLogin: row.author_login,
         status: row.status,
         submittedAt: row.submitted_at,
         questionCount: row.question_count,
@@ -348,6 +360,7 @@ export async function loadReviewDetail(
       name: string;
       head_sha: string;
       author_id: string;
+      author_login: string | null;
       status: ReviewDetail["status"];
       is_current: boolean;
       submitted_at: Date;
@@ -366,7 +379,14 @@ export async function loadReviewDetail(
       `SELECT attempt.id AS attempt_id, revision.id AS revision_id,
               pull_request.number AS pull_request_number,
               repository.owner, repository.name, revision.head_sha,
-              attempt.author_id, attempt.status, revision.is_current,
+              attempt.author_id,
+              CASE
+                WHEN source.source->>'authorLogin' ~ '^[A-Za-z0-9-]{1,100}$'
+                  AND source.source->>'authorLogin' !~ '^[0-9]+$'
+                THEN source.source->>'authorLogin'
+                ELSE NULL
+              END AS author_login,
+              attempt.status, revision.is_current,
               attempt.updated_at AS submitted_at,
               evaluation.recommendation,
               evaluation.provider AS evaluation_provider,
@@ -383,6 +403,7 @@ export async function loadReviewDetail(
        JOIN pull_request_revisions revision ON revision.id = attempt.revision_id
        JOIN pull_requests pull_request ON pull_request.id = revision.pull_request_id
        JOIN repositories repository ON repository.id = attempt.repository_id
+       LEFT JOIN github_revision_sources source ON source.revision_id = revision.id
        LEFT JOIN LATERAL (
          SELECT candidate.recommendation, candidate.provider, candidate.model
          FROM evaluations candidate
@@ -432,6 +453,7 @@ export async function loadReviewDetail(
       repository: `${row.owner}/${row.name}`,
       headSha: row.head_sha,
       authorId: row.author_id,
+      authorLogin: row.author_login,
       status: row.status,
       isCurrent: row.is_current,
       submittedAt: row.submitted_at,

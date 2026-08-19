@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   HetznerMultimodalJudgeProvider,
   LocalFakeInlineMultimodalJudgeProvider,
+  PROOF_JUDGE_SYSTEM_V2,
   manualReviewFallbackCandidateV1,
   validateMultimodalJudgeCandidateV1,
   type HetznerMultimodalJudgeDependencies,
@@ -60,6 +61,29 @@ describe("HetznerMultimodalJudgeProvider", () => {
     expect(serialized).not.toContain("revisionId");
     expect(serialized).not.toContain("contributor");
     expect(serialized).toContain("question-bound transcript");
+    const system = (
+      bodies[0] as {
+        messages: Array<{ role: string; content: unknown }>;
+      }
+    ).messages.find((message) => message.role === "system")?.content;
+    expect(system).toBe(PROOF_JUDGE_SYSTEM_V2);
+  });
+
+  it("allows frames for help versus no-help and keeps the biometric ban", () => {
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain("question-bound transcript");
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain("help versus no-help");
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain("second screen");
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain("notes");
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain("reading off a device");
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain(
+      "Never identify or characterize a person",
+    );
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain("gaze as identity");
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain("disability");
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain("authorship");
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain("Do not describe a face");
+    expect(PROOF_JUDGE_SYSTEM_V2).not.toContain("AUTHORITATIVE");
+    expect(PROOF_JUDGE_SYSTEM_V2).not.toMatch(/identify the speaker/i);
   });
 
   it("uses the primary text model when no inline frame is available", async () => {

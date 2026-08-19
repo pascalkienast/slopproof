@@ -78,7 +78,7 @@ export function EvidencePlayer({
       setState({
         kind: "error",
         message:
-          "The private video stream is not available. Request fresh access and try again.",
+          "The video is not available. Request fresh access and try again.",
       });
     }
   }
@@ -87,10 +87,9 @@ export function EvidencePlayer({
     <section className="evidence-card" aria-labelledby="evidence-heading">
       <div className="check-header">
         <div>
-          <p className="eyebrow">Private evidence</p>
-          <h2 id="evidence-heading">Recorded explanation</h2>
+          <p className="eyebrow">Video</p>
+          <h2 id="evidence-heading">Watch the proof</h2>
         </div>
-        <span className="status-pill">audited access</span>
       </div>
       {state.kind === "ready" ? (
         <>
@@ -105,7 +104,7 @@ export function EvidencePlayer({
             Your browser cannot play this WebM recording.
           </video>
           {markers.length > 0 ? (
-            <div className="evidence-markers" aria-label="Evidence timestamps">
+            <div className="evidence-markers" aria-label="Question timestamps">
               {markers.map((marker) => (
                 <button
                   key={marker.id}
@@ -123,9 +122,8 @@ export function EvidencePlayer({
             </div>
           ) : null}
           <p className="review-help">
-            The one-use worker authorization expires at{" "}
-            {new Date(state.expiresAt).toLocaleTimeString()}. The decrypted
-            video exists only in this tab&apos;s volatile memory.
+            Access expires at {new Date(state.expiresAt).toLocaleTimeString()}.
+            The video stays in this tab.
           </p>
         </>
       ) : (
@@ -135,7 +133,7 @@ export function EvidencePlayer({
           onClick={() => void openEvidence()}
           type="button"
         >
-          {state.kind === "loading" ? "Authorizing…" : "Open private video"}
+          {state.kind === "loading" ? "Opening…" : "Play the recording"}
         </button>
       )}
       {state.kind === "error" ? (
