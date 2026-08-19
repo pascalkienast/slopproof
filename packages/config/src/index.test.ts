@@ -183,6 +183,11 @@ describe("process-scoped configuration", () => {
       "GENERATION_PROVIDER",
     ],
     [
+      "openrouter generation",
+      { GENERATION_PROVIDER: "openrouter" },
+      "GENERATION_PROVIDER",
+    ],
+    [
       "real transcription",
       { TRANSCRIPTION_PROVIDER: "openrouter" },
       "TRANSCRIPTION_PROVIDER",
@@ -307,6 +312,108 @@ describe("process-scoped configuration", () => {
     expect(config.TRANSCRIPTION_PROVIDER).toBe("openrouter");
     expect(config.MULTIMODAL_JUDGE_PROVIDER).toBe("hetzner");
     expect(config).not.toHaveProperty("GITHUB_CLIENT_SECRET");
+  });
+
+  it("accepts OpenRouter-primary generation and judge with Hetzner transport fallback", () => {
+    const config = loadWorkerConfig({
+      ...productionCore,
+      ...productionStorage,
+      ...productionWorkerRuntime,
+      GITHUB_ADAPTER: "octokit",
+      KEY_WRAPPING_PROVIDER: "local",
+      KEY_WRAPPING_PRIVATE_KEY_PATH: "/host/secrets/wrapping-private.pem",
+      KEY_WRAPPING_PRIVATE_KEY_CONTAINER_PATH:
+        "/run/secrets/wrapping-private.pem",
+      WORKER_INTERNAL_SECRET: "i".repeat(48),
+      PROVIDER_PAYLOAD_KEY_BASE64: Buffer.alloc(32, 112).toString("base64"),
+      GENERATION_PROVIDER: "openrouter",
+      GENERATION_BASE_URL: "https://openrouter.ai/api/v1",
+      GENERATION_API_KEY: "g".repeat(40),
+      LEARNING_MODEL: "xiaomi/mimo-v2.5",
+      PRACTICE_MODEL: "xiaomi/mimo-v2.5",
+      PROOF_QUESTION_MODEL: "xiaomi/mimo-v2.5",
+      GENERATION_FALLBACK_BASE_URL: "https://inference.example/api/v1",
+      GENERATION_FALLBACK_API_KEY: "h".repeat(40),
+      LEARNING_FALLBACK_MODEL: "hetzner-learning",
+      PRACTICE_FALLBACK_MODEL: "hetzner-practice",
+      PROOF_QUESTION_FALLBACK_MODEL: "hetzner-proof",
+      TRANSCRIPTION_PROVIDER: "openrouter",
+      TRANSCRIPTION_BASE_URL: "https://transcription.example/api/v1",
+      TRANSCRIPTION_API_KEY: "t".repeat(40),
+      TRANSCRIPTION_MODEL: "transcription-model",
+      MULTIMODAL_JUDGE_PROVIDER: "openrouter",
+      JUDGE_BASE_URL: "https://openrouter.ai/api/v1",
+      JUDGE_API_KEY: "j".repeat(40),
+      JUDGE_MODEL: "xiaomi/mimo-v2.5",
+      JUDGE_FALLBACK_MODEL: "xiaomi/mimo-v2.5",
+      JUDGE_TRANSPORT_FALLBACK_BASE_URL: "https://inference.example/api/v1",
+      JUDGE_TRANSPORT_FALLBACK_API_KEY: "k".repeat(40),
+      JUDGE_TRANSPORT_FALLBACK_MODEL: "hetzner-judge",
+      JUDGE_TRANSPORT_FALLBACK_VISION_MODEL: "hetzner-vision",
+    });
+
+    expect(config.GENERATION_PROVIDER).toBe("openrouter");
+    expect(config.MULTIMODAL_JUDGE_PROVIDER).toBe("openrouter");
+    expect(config.LEARNING_MODEL).toBe("xiaomi/mimo-v2.5");
+    expect(config.GENERATION_FALLBACK_BASE_URL).toBe(
+      "https://inference.example/api/v1",
+    );
+    expect(config.JUDGE_TRANSPORT_FALLBACK_MODEL).toBe("hetzner-judge");
+  });
+
+  it("rejects production OpenRouter generation without a Hetzner transport fallback", () => {
+    expectConfigurationFields(
+      () =>
+        loadWorkerConfig({
+          ...productionCore,
+          ...productionStorage,
+          ...productionWorkerRuntime,
+          GITHUB_ADAPTER: "octokit",
+          KEY_WRAPPING_PROVIDER: "local",
+          KEY_WRAPPING_PRIVATE_KEY_PATH: "/host/secrets/wrapping-private.pem",
+          KEY_WRAPPING_PRIVATE_KEY_CONTAINER_PATH:
+            "/run/secrets/wrapping-private.pem",
+          WORKER_INTERNAL_SECRET: "i".repeat(48),
+          PROVIDER_PAYLOAD_KEY_BASE64: Buffer.alloc(32, 112).toString("base64"),
+          GENERATION_PROVIDER: "openrouter",
+          GENERATION_BASE_URL: "https://openrouter.ai/api/v1",
+          GENERATION_API_KEY: "g".repeat(40),
+          LEARNING_MODEL: "xiaomi/mimo-v2.5",
+          PRACTICE_MODEL: "xiaomi/mimo-v2.5",
+          PROOF_QUESTION_MODEL: "xiaomi/mimo-v2.5",
+          TRANSCRIPTION_PROVIDER: "openrouter",
+          TRANSCRIPTION_BASE_URL: "https://transcription.example/api/v1",
+          TRANSCRIPTION_API_KEY: "t".repeat(40),
+          TRANSCRIPTION_MODEL: "transcription-model",
+          MULTIMODAL_JUDGE_PROVIDER: "hetzner",
+          JUDGE_BASE_URL: "https://inference.example/api/v1",
+          JUDGE_API_KEY: "j".repeat(40),
+          JUDGE_MODEL: "judge-model",
+          JUDGE_FALLBACK_MODEL: "vision-model",
+        }),
+      "GENERATION_FALLBACK_BASE_URL",
+      "GENERATION_FALLBACK_API_KEY",
+      "LEARNING_FALLBACK_MODEL",
+      "PRACTICE_FALLBACK_MODEL",
+      "PROOF_QUESTION_FALLBACK_MODEL",
+    );
+  });
+
+  it("rejects leftover Hetzner fallback fields when generation stays Hetzner-only", () => {
+    expectConfigurationFields(
+      () =>
+        loadWorkerConfig({
+          ...localWorker,
+          GENERATION_PROVIDER: "hetzner",
+          GENERATION_BASE_URL: "https://inference.example/api/v1",
+          GENERATION_API_KEY: "g".repeat(40),
+          LEARNING_MODEL: "text-model",
+          PRACTICE_MODEL: "text-model",
+          PROOF_QUESTION_MODEL: "text-model",
+          GENERATION_FALLBACK_BASE_URL: "https://inference.example/api/v1",
+        }),
+      "GENERATION_FALLBACK_BASE_URL",
+    );
   });
 
   it.each([

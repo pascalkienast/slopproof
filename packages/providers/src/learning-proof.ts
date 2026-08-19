@@ -66,6 +66,7 @@ export const SemanticProviderRawResponseV1Schema = z
     output: z.unknown(),
     tokenUsage: SemanticTokenUsageV1Schema.nullable(),
     transportAttemptCount: z.number().int().min(1).max(3).optional(),
+    answeredBy: SemanticProviderDescriptorV1Schema.optional(),
   })
   .strict();
 

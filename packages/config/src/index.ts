@@ -4,9 +4,17 @@ import { z } from "zod";
 
 export const DeploymentProfileSchema = z.enum(["local", "production"]);
 export const GithubAdapterSchema = z.enum(["fake", "octokit"]);
-export const GenerationProviderSchema = z.enum(["fake", "hetzner"]);
+export const GenerationProviderSchema = z.enum([
+  "fake",
+  "hetzner",
+  "openrouter",
+]);
 export const TranscriptionProviderSchema = z.enum(["fake", "openrouter"]);
-export const MultimodalJudgeProviderSchema = z.enum(["fake", "hetzner"]);
+export const MultimodalJudgeProviderSchema = z.enum([
+  "fake",
+  "hetzner",
+  "openrouter",
+]);
 
 const booleanFromEnv = z
   .enum(["true", "false"])
@@ -176,6 +184,11 @@ const workerSchema = z
     LEARNING_MODEL: z.string().trim().min(1).optional(),
     PRACTICE_MODEL: z.string().trim().min(1).optional(),
     PROOF_QUESTION_MODEL: z.string().trim().min(1).optional(),
+    GENERATION_FALLBACK_BASE_URL: z.url().optional(),
+    GENERATION_FALLBACK_API_KEY: z.string().min(16).optional(),
+    LEARNING_FALLBACK_MODEL: z.string().trim().min(1).optional(),
+    PRACTICE_FALLBACK_MODEL: z.string().trim().min(1).optional(),
+    PROOF_QUESTION_FALLBACK_MODEL: z.string().trim().min(1).optional(),
     TRANSCRIPTION_PROVIDER: TranscriptionProviderSchema.default("fake"),
     TRANSCRIPTION_BASE_URL: z.url().optional(),
     TRANSCRIPTION_API_KEY: z.string().min(16).optional(),
@@ -185,6 +198,20 @@ const workerSchema = z
     JUDGE_API_KEY: z.string().min(16).optional(),
     JUDGE_MODEL: z.string().trim().min(1).max(100).optional(),
     JUDGE_FALLBACK_MODEL: z.string().trim().min(1).max(100).optional(),
+    JUDGE_TRANSPORT_FALLBACK_BASE_URL: z.url().optional(),
+    JUDGE_TRANSPORT_FALLBACK_API_KEY: z.string().min(16).optional(),
+    JUDGE_TRANSPORT_FALLBACK_MODEL: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .optional(),
+    JUDGE_TRANSPORT_FALLBACK_VISION_MODEL: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .optional(),
     WORKER_HOST: z.string().trim().min(1).default("127.0.0.1"),
     WORKER_PORT: z.coerce.number().int().min(1).max(65_535).default(4001),
     FFMPEG_PATH: z.string().min(1).default("ffmpeg"),
@@ -217,15 +244,21 @@ const workerSchema = z
     requireValue(context, value.GITHUB_ADAPTER === "octokit", [
       "GITHUB_ADAPTER",
     ]);
-    requireValue(context, value.GENERATION_PROVIDER === "hetzner", [
-      "GENERATION_PROVIDER",
-    ]);
+    requireValue(
+      context,
+      value.GENERATION_PROVIDER === "hetzner" ||
+        value.GENERATION_PROVIDER === "openrouter",
+      ["GENERATION_PROVIDER"],
+    );
     requireValue(context, value.TRANSCRIPTION_PROVIDER === "openrouter", [
       "TRANSCRIPTION_PROVIDER",
     ]);
-    requireValue(context, value.MULTIMODAL_JUDGE_PROVIDER === "hetzner", [
-      "MULTIMODAL_JUDGE_PROVIDER",
-    ]);
+    requireValue(
+      context,
+      value.MULTIMODAL_JUDGE_PROVIDER === "hetzner" ||
+        value.MULTIMODAL_JUDGE_PROVIDER === "openrouter",
+      ["MULTIMODAL_JUDGE_PROVIDER"],
+    );
     requireProductionS3Identity(context, value);
     requireSafeSecret(
       context,
@@ -388,11 +421,29 @@ function refineKeyWrapping(
   requireValue(context, Boolean(value.KMS_KEY_ID), ["KMS_KEY_ID"]);
 }
 
+const generationFallbackFields = [
+  "GENERATION_FALLBACK_BASE_URL",
+  "GENERATION_FALLBACK_API_KEY",
+  "LEARNING_FALLBACK_MODEL",
+  "PRACTICE_FALLBACK_MODEL",
+  "PROOF_QUESTION_FALLBACK_MODEL",
+] as const;
+
+const judgeTransportFallbackFields = [
+  "JUDGE_TRANSPORT_FALLBACK_BASE_URL",
+  "JUDGE_TRANSPORT_FALLBACK_API_KEY",
+  "JUDGE_TRANSPORT_FALLBACK_MODEL",
+  "JUDGE_TRANSPORT_FALLBACK_VISION_MODEL",
+] as const;
+
 function refineGenerationProvider(
   value: z.output<typeof workerSchema>,
   context: z.RefinementCtx,
 ): void {
-  if (value.GENERATION_PROVIDER === "fake") return;
+  if (value.GENERATION_PROVIDER === "fake") {
+    rejectPresentFields(context, value, generationFallbackFields);
+    return;
+  }
   requireProviderEndpoint(
     context,
     value.GENERATION_BASE_URL,
@@ -410,6 +461,16 @@ function refineGenerationProvider(
   ] as const) {
     requireValue(context, Boolean(value[field]), [field]);
   }
+  if (value.GENERATION_PROVIDER !== "openrouter") {
+    rejectPresentFields(context, value, generationFallbackFields);
+    return;
+  }
+  refineTransportFallbackFields(
+    context,
+    value,
+    generationFallbackFields,
+    isProduction(value),
+  );
 }
 
 function refineTranscriptionProvider(
@@ -436,13 +497,71 @@ function refineJudgeProvider(
   value: z.output<typeof workerSchema>,
   context: z.RefinementCtx,
 ): void {
-  if (value.MULTIMODAL_JUDGE_PROVIDER === "fake") return;
+  if (value.MULTIMODAL_JUDGE_PROVIDER === "fake") {
+    rejectPresentFields(context, value, judgeTransportFallbackFields);
+    return;
+  }
   requireProviderEndpoint(context, value.JUDGE_BASE_URL, "JUDGE_BASE_URL");
   requireProviderSecret(context, value.JUDGE_API_KEY, "JUDGE_API_KEY");
   requireValue(context, Boolean(value.JUDGE_MODEL), ["JUDGE_MODEL"]);
   requireValue(context, Boolean(value.JUDGE_FALLBACK_MODEL), [
     "JUDGE_FALLBACK_MODEL",
   ]);
+  if (value.MULTIMODAL_JUDGE_PROVIDER !== "openrouter") {
+    rejectPresentFields(context, value, judgeTransportFallbackFields);
+    return;
+  }
+  refineTransportFallbackFields(
+    context,
+    value,
+    judgeTransportFallbackFields,
+    isProduction(value),
+  );
+}
+
+function refineTransportFallbackFields(
+  context: z.RefinementCtx,
+  value: z.output<typeof workerSchema>,
+  fields: readonly (keyof z.output<typeof workerSchema>)[],
+  required: boolean,
+): void {
+  const present = fields.filter((field) => Boolean(value[field]));
+  if (!required && present.length === 0) return;
+  for (const field of fields) {
+    const fieldName = String(field);
+    const fieldValue = value[field];
+    if (fieldName.endsWith("BASE_URL")) {
+      requireProviderEndpoint(
+        context,
+        typeof fieldValue === "string" ? fieldValue : undefined,
+        fieldName,
+      );
+      continue;
+    }
+    if (fieldName.endsWith("API_KEY")) {
+      requireProviderSecret(
+        context,
+        typeof fieldValue === "string" ? fieldValue : undefined,
+        fieldName,
+      );
+      continue;
+    }
+    requireValue(
+      context,
+      typeof fieldValue === "string" && fieldValue.length > 0,
+      [fieldName],
+    );
+  }
+}
+
+function rejectPresentFields(
+  context: z.RefinementCtx,
+  value: z.output<typeof workerSchema>,
+  fields: readonly (keyof z.output<typeof workerSchema>)[],
+): void {
+  for (const field of fields) {
+    if (Boolean(value[field])) requireValue(context, false, [field]);
+  }
 }
 
 function isProduction(value: { DEPLOYMENT_PROFILE: string }): boolean {
@@ -717,7 +836,9 @@ const baseForbiddenProductionFields = [
   "WORKER_INTERNAL_SECRET",
   "PROVIDER_PAYLOAD_KEY_BASE64",
   "GENERATION_API_KEY",
+  "GENERATION_FALLBACK_API_KEY",
   "JUDGE_API_KEY",
+  "JUDGE_TRANSPORT_FALLBACK_API_KEY",
   "TRANSCRIPTION_API_KEY",
   "GITHUB_WEBHOOK_SECRET",
   "GITHUB_CLIENT_SECRET",
@@ -731,7 +852,9 @@ const webForbiddenProductionFields = [
   ...forbiddenEverywhereInProduction,
   "PROVIDER_PAYLOAD_KEY_BASE64",
   "GENERATION_API_KEY",
+  "GENERATION_FALLBACK_API_KEY",
   "JUDGE_API_KEY",
+  "JUDGE_TRANSPORT_FALLBACK_API_KEY",
   "TRANSCRIPTION_API_KEY",
   "KEY_WRAPPING_PRIVATE_KEY_PATH",
   "KEY_WRAPPING_PRIVATE_KEY_CONTAINER_PATH",
@@ -760,7 +883,9 @@ const githubControlForbiddenProductionFields = [
   "WORKER_INTERNAL_SECRET",
   "PROVIDER_PAYLOAD_KEY_BASE64",
   "GENERATION_API_KEY",
+  "GENERATION_FALLBACK_API_KEY",
   "JUDGE_API_KEY",
+  "JUDGE_TRANSPORT_FALLBACK_API_KEY",
   "TRANSCRIPTION_API_KEY",
   "GITHUB_WEBHOOK_SECRET",
   "GITHUB_CLIENT_ID",
@@ -816,11 +941,20 @@ const workerEnvironmentFileFields = [
   "LEARNING_MODEL",
   "PRACTICE_MODEL",
   "PROOF_QUESTION_MODEL",
+  "GENERATION_FALLBACK_BASE_URL",
+  "GENERATION_FALLBACK_API_KEY",
+  "LEARNING_FALLBACK_MODEL",
+  "PRACTICE_FALLBACK_MODEL",
+  "PROOF_QUESTION_FALLBACK_MODEL",
   "MULTIMODAL_JUDGE_PROVIDER",
   "JUDGE_BASE_URL",
   "JUDGE_API_KEY",
   "JUDGE_MODEL",
   "JUDGE_FALLBACK_MODEL",
+  "JUDGE_TRANSPORT_FALLBACK_BASE_URL",
+  "JUDGE_TRANSPORT_FALLBACK_API_KEY",
+  "JUDGE_TRANSPORT_FALLBACK_MODEL",
+  "JUDGE_TRANSPORT_FALLBACK_VISION_MODEL",
   "TRANSCRIPTION_PROVIDER",
   "TRANSCRIPTION_BASE_URL",
   "TRANSCRIPTION_API_KEY",

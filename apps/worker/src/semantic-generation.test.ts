@@ -81,6 +81,32 @@ describe("Gate 4 worker-only semantic generation", () => {
     expect(providerInput?.inputVersion).toBe("learning-material-input-v1");
     expect(JSON.stringify(providerInput)).not.toContain(context.revisionId);
     expect(JSON.stringify(providerInput)).not.toContain(context.headSha);
+    expect(first.providerMetadata.provider).toBe("local-contract-test");
+  });
+
+  it("persists the provider that actually answered after a transport hop", async () => {
+    const context = contextFixture();
+    const provider = new StubSemanticProvider({
+      initial: () => ({
+        ...response(deterministicLearningFallbackV1(context, 3)),
+        answeredBy: {
+          provider: "hetzner-inference",
+          model: "hetzner-learning",
+        },
+      }),
+      repair: () => {
+        throw new Error("repair must not run for valid output");
+      },
+    });
+
+    const result = await serviceWith(provider).generateLearningBundle(
+      learningRequest(context, 3),
+    );
+
+    expect(result.providerMetadata.outcome).toBe("generated");
+    expect(result.providerMetadata.provider).toBe("hetzner-inference");
+    expect(result.providerMetadata.model).toBe("hetzner-learning");
+    expect(provider.descriptor.provider).toBe("local-contract-test");
   });
 
   it("repairs invalid Proof output once and freezes exactly the analyzer budget", async () => {

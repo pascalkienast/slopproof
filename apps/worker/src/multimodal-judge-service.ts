@@ -124,7 +124,12 @@ export async function runMultimodalJudgeEvaluation(
             dependencies.provider.evaluate(providerInput, context.data),
           ),
           providerInput,
-          dependencies.provider.descriptor,
+          [
+            dependencies.provider.descriptor,
+            ...(dependencies.provider.transportFallbackDescriptor === undefined
+              ? []
+              : [dependencies.provider.transportFallbackDescriptor]),
+          ],
         );
         assertProviderCompletionBounds(
           providerResult.metadata.completedAt,

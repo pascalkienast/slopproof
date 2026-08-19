@@ -2,6 +2,7 @@ import type { WorkerConfig } from "@slopproof/config";
 import {
   HetznerMultimodalJudgeProvider,
   LocalFakeInlineMultimodalJudgeProvider,
+  TransportFallbackMultimodalJudgeProvider,
   type HetznerMultimodalJudgeDependencies,
   type InlineMultimodalJudgeProvider,
 } from "@slopproof/providers";
@@ -19,6 +20,10 @@ export function createMultimodalJudgeProvider(
     | "JUDGE_API_KEY"
     | "JUDGE_MODEL"
     | "JUDGE_FALLBACK_MODEL"
+    | "JUDGE_TRANSPORT_FALLBACK_BASE_URL"
+    | "JUDGE_TRANSPORT_FALLBACK_API_KEY"
+    | "JUDGE_TRANSPORT_FALLBACK_MODEL"
+    | "JUDGE_TRANSPORT_FALLBACK_VISION_MODEL"
   >,
   dependencies: MultimodalProviderFactoryDependencies = {},
 ): InlineMultimodalJudgeProvider {
@@ -27,14 +32,37 @@ export function createMultimodalJudgeProvider(
       dependencies.clock ?? { now: () => new Date() },
     );
   }
-  return new HetznerMultimodalJudgeProvider(
+  const primary = new HetznerMultimodalJudgeProvider(
     {
+      provider:
+        config.MULTIMODAL_JUDGE_PROVIDER === "openrouter"
+          ? "openrouter"
+          : "hetzner-inference",
       baseUrl: required(config.JUDGE_BASE_URL),
       apiKey: required(config.JUDGE_API_KEY),
       model: required(config.JUDGE_MODEL),
       visionModel: required(config.JUDGE_FALLBACK_MODEL),
     },
     dependencies.hetzner,
+  );
+  if (
+    config.MULTIMODAL_JUDGE_PROVIDER !== "openrouter" ||
+    config.JUDGE_TRANSPORT_FALLBACK_BASE_URL === undefined
+  ) {
+    return primary;
+  }
+  return new TransportFallbackMultimodalJudgeProvider(
+    primary,
+    new HetznerMultimodalJudgeProvider(
+      {
+        provider: "hetzner-inference",
+        baseUrl: required(config.JUDGE_TRANSPORT_FALLBACK_BASE_URL),
+        apiKey: required(config.JUDGE_TRANSPORT_FALLBACK_API_KEY),
+        model: required(config.JUDGE_TRANSPORT_FALLBACK_MODEL),
+        visionModel: required(config.JUDGE_TRANSPORT_FALLBACK_VISION_MODEL),
+      },
+      dependencies.hetzner,
+    ),
   );
 }
 

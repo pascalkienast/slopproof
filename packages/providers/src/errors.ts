@@ -56,3 +56,33 @@ export class ProviderError extends Error {
     this.telemetry = options?.telemetry;
   }
 }
+
+const TRANSPORT_FAILURE_KINDS = new Set<ProviderFailureKind>([
+  "deadline_exceeded",
+  "network",
+  "rate_limited",
+  "timeout",
+  "upstream_unavailable",
+]);
+
+/**
+ * Cross-provider hops are allowed only after a transport failure. Schema
+ * rejects, invalid model output, and terminal 4xx request rejections stay on
+ * the provider that produced them.
+ */
+export function isTransportFailure(error: unknown): boolean {
+  if (!(error instanceof ProviderError)) return false;
+  if (
+    error.code === "INVALID_OUTPUT" ||
+    error.code === "INVALID_INPUT" ||
+    error.disposition === "terminal" ||
+    error.disposition === "review"
+  ) {
+    return false;
+  }
+  const kind = error.telemetry?.lastFailureKind;
+  if (kind !== undefined && !TRANSPORT_FAILURE_KINDS.has(kind)) return false;
+  return (
+    error.code === "DEADLINE_EXCEEDED" || error.code === "PROVIDER_UNAVAILABLE"
+  );
+}

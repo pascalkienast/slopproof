@@ -43,8 +43,18 @@ const MAX_SSE_EVENT_BYTES = 256 * 1_024;
 const MAX_SSE_EVENT_COUNT = 20_000;
 const timeoutMarker = Symbol("hetzner-semantic-timeout");
 
+export const CompatibleChatProviderNameSchema = z.enum([
+  "hetzner-inference",
+  "openrouter",
+]);
+
+export type CompatibleChatProviderName = z.infer<
+  typeof CompatibleChatProviderNameSchema
+>;
+
 export const HetznerSemanticProviderConfigV1Schema = z
   .object({
+    provider: CompatibleChatProviderNameSchema.default("hetzner-inference"),
     baseUrl: z.url().refine(isSafeProviderBaseUrl),
     apiKey: z
       .string()
@@ -60,7 +70,7 @@ export const HetznerSemanticProviderConfigV1Schema = z
   })
   .strict();
 
-export type HetznerSemanticProviderConfigV1 = z.infer<
+export type HetznerSemanticProviderConfigV1 = z.input<
   typeof HetznerSemanticProviderConfigV1Schema
 >;
 
@@ -226,6 +236,7 @@ const PROOF_SPECIFICATION = Object.freeze({
 
 class HetznerSemanticHttpClient<TInput> {
   readonly descriptor: SemanticProviderDescriptorV1;
+  private readonly providerName: CompatibleChatProviderName;
   private readonly endpoint: string;
   private readonly apiKey: string;
   private readonly fetchImpl: typeof fetch;
@@ -238,10 +249,11 @@ class HetznerSemanticHttpClient<TInput> {
     dependencies: HetznerSemanticProviderDependencies = {},
   ) {
     const config = parseConfig(rawConfig);
+    this.providerName = config.provider;
     this.endpoint = chatCompletionsEndpoint(config.baseUrl);
     this.apiKey = config.apiKey;
     this.descriptor = SemanticProviderDescriptorV1Schema.parse({
-      provider: "hetzner-inference",
+      provider: config.provider,
       model: config.model,
     });
     this.fetchImpl = dependencies.fetchImpl ?? globalThis.fetch;
@@ -301,6 +313,7 @@ class HetznerSemanticHttpClient<TInput> {
     repairInstruction?: SemanticProviderRepairInstructionV1,
   ): Promise<SemanticProviderRawResponseV1> {
     const requestBody = buildChatRequest(
+      this.providerName,
       this.descriptor.model,
       input,
       this.specification,
@@ -338,6 +351,7 @@ class HetznerSemanticHttpClient<TInput> {
       output,
       tokenUsage: request.usage,
       transportAttemptCount: request.transportAttemptCount,
+      answeredBy: this.descriptor,
     });
   }
 }
@@ -442,6 +456,7 @@ export class HetznerProofQuestionProvider implements ProofQuestionProvider {
 }
 
 function buildChatRequest<TInput>(
+  provider: CompatibleChatProviderName,
   model: string,
   input: TInput,
   specification: SemanticPurposeSpecification,
@@ -452,7 +467,9 @@ function buildChatRequest<TInput>(
     store: false,
     temperature: 0,
     stream: true,
-    chat_template_kwargs: { thinking: false },
+    ...(provider === "hetzner-inference"
+      ? { chat_template_kwargs: { thinking: false } }
+      : {}),
     max_tokens: specification.maximumOutputTokens,
     response_format: {
       type: "json_schema",
@@ -871,7 +888,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parseConfig(
   rawConfig: HetznerSemanticProviderConfigV1,
-): HetznerSemanticProviderConfigV1 {
+): z.output<typeof HetznerSemanticProviderConfigV1Schema> {
   const result = HetznerSemanticProviderConfigV1Schema.safeParse(rawConfig);
   if (!result.success) {
     throw safeProviderError(

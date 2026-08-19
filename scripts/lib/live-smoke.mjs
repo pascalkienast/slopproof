@@ -1,5 +1,18 @@
 const DEFAULT_MAX_RESPONSE_BYTES = 128 * 1024;
+const DEFAULT_MAX_SSE_EVENTS = 256;
+const DEFAULT_MAX_SSE_EVENT_BYTES = 16 * 1024;
+const MAX_SSE_EVENTS = 20_000;
+const MAX_SSE_EVENT_BYTES = 256 * 1_024;
+const MAX_MODEL_CONTENT_BYTES = 64 * 1_024;
 const MAX_ATTEMPTS = 3;
+const OPENROUTER_MIMO_CAPABILITY_SCHEMA = Object.freeze({
+  type: "object",
+  properties: Object.freeze({
+    ok: Object.freeze({ type: "boolean", const: true }),
+  }),
+  required: Object.freeze(["ok"]),
+  additionalProperties: false,
+});
 
 export class LiveSmokeError extends Error {
   constructor(code, fields = []) {
@@ -115,6 +128,199 @@ async function readBoundedJsonResponse(
   }
 }
 
+export async function readBoundedSseChatContent(
+  response,
+  {
+    maxBytes = DEFAULT_MAX_RESPONSE_BYTES,
+    maxEvents = DEFAULT_MAX_SSE_EVENTS,
+    maxEventBytes = DEFAULT_MAX_SSE_EVENT_BYTES,
+  } = {},
+) {
+  if (
+    !Number.isInteger(maxBytes) ||
+    maxBytes < 1 ||
+    maxBytes > 1024 * 1024 ||
+    !Number.isInteger(maxEvents) ||
+    maxEvents < 1 ||
+    maxEvents > MAX_SSE_EVENTS ||
+    !Number.isInteger(maxEventBytes) ||
+    maxEventBytes < 1 ||
+    maxEventBytes > MAX_SSE_EVENT_BYTES
+  ) {
+    throw new LiveSmokeError("invalid_request");
+  }
+
+  const contentType = response.headers
+    .get("content-type")
+    ?.split(";", 1)[0]
+    ?.trim()
+    .toLowerCase();
+  if (contentType !== "text/event-stream") {
+    try {
+      await response.body?.cancel();
+    } catch {
+      // Wrong content-type is already a protocol failure.
+    }
+    throw new LiveSmokeError("malformed_response");
+  }
+
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    try {
+      await response.body?.cancel();
+    } catch {
+      // The response is already being rejected; cancellation is best effort.
+    }
+    throw new LiveSmokeError("response_too_large");
+  }
+  if (!response.body) {
+    throw new LiveSmokeError("malformed_response");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let bytesRead = 0;
+  let pending = "";
+  let eventData = [];
+  let eventBytes = 0;
+  let eventCount = 0;
+  let doneSeen = false;
+  let content = "";
+  let contentBytes = 0;
+  let finishReason = null;
+
+  const commitEvent = () => {
+    if (eventData.length === 0) return;
+    const data = eventData.join("\n");
+    eventData = [];
+    eventBytes = 0;
+    if (data === "[DONE]") {
+      doneSeen = true;
+      return;
+    }
+    if (doneSeen || (eventCount += 1) > maxEvents) {
+      throw new LiveSmokeError("malformed_response");
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(data.replace(/^\uFEFF/u, ""));
+    } catch {
+      throw new LiveSmokeError("malformed_response");
+    }
+    const chunk = parseSseChatChunk(parsed);
+    if (chunk.content !== undefined) {
+      const deltaBytes = Buffer.byteLength(chunk.content, "utf8");
+      if (contentBytes + deltaBytes > MAX_MODEL_CONTENT_BYTES) {
+        throw new LiveSmokeError("response_too_large");
+      }
+      content += chunk.content;
+      contentBytes += deltaBytes;
+    }
+    if (chunk.finishReason !== undefined) {
+      if (finishReason !== null && finishReason !== chunk.finishReason) {
+        throw new LiveSmokeError("malformed_response");
+      }
+      finishReason = chunk.finishReason;
+    }
+  };
+
+  const acceptLine = (rawLine) => {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    if (line.length === 0) {
+      commitEvent();
+      return;
+    }
+    if (line.startsWith(":")) return;
+    const separator = line.indexOf(":");
+    const field = separator === -1 ? line : line.slice(0, separator);
+    if (field !== "data") return;
+    let value = separator === -1 ? "" : line.slice(separator + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+    const valueBytes = Buffer.byteLength(value, "utf8");
+    if (eventBytes + valueBytes > maxEventBytes) {
+      throw new LiveSmokeError("response_too_large");
+    }
+    eventData.push(value);
+    eventBytes += valueBytes;
+  };
+
+  const acceptText = (value) => {
+    pending += value;
+    let newline = pending.indexOf("\n");
+    while (newline !== -1) {
+      acceptLine(pending.slice(0, newline));
+      pending = pending.slice(newline + 1);
+      newline = pending.indexOf("\n");
+    }
+    if (Buffer.byteLength(pending, "utf8") > maxEventBytes) {
+      throw new LiveSmokeError("response_too_large");
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.byteLength;
+      if (bytesRead > maxBytes) {
+        await reader.cancel();
+        throw new LiveSmokeError("response_too_large");
+      }
+      acceptText(decoder.decode(value, { stream: true }));
+    }
+    acceptText(decoder.decode());
+    if (pending.length > 0) {
+      acceptLine(pending);
+      pending = "";
+    }
+    commitEvent();
+    if (!doneSeen || finishReason !== "stop" || content.length === 0) {
+      throw new LiveSmokeError("malformed_response");
+    }
+    return content;
+  } catch (error) {
+    if (error instanceof LiveSmokeError) throw error;
+    throw new LiveSmokeError("response_stream_failed");
+  }
+}
+
+function parseSseChatChunk(parsed) {
+  if (
+    !isRecord(parsed) ||
+    !Array.isArray(parsed.choices) ||
+    parsed.choices.length > 8
+  ) {
+    throw new LiveSmokeError("malformed_response");
+  }
+  if (parsed.choices.length === 0) {
+    return {};
+  }
+  const choice = parsed.choices[0];
+  if (!isRecord(choice) || !isRecord(choice.delta)) {
+    throw new LiveSmokeError("malformed_response");
+  }
+  const content = choice.delta.content;
+  if (
+    content !== undefined &&
+    content !== null &&
+    typeof content !== "string"
+  ) {
+    throw new LiveSmokeError("malformed_response");
+  }
+  const finishReason = choice.finish_reason;
+  if (
+    finishReason !== undefined &&
+    finishReason !== null &&
+    typeof finishReason !== "string"
+  ) {
+    throw new LiveSmokeError("malformed_response");
+  }
+  return {
+    ...(typeof content === "string" ? { content } : {}),
+    ...(typeof finishReason === "string" ? { finishReason } : {}),
+  };
+}
+
 function backoffMilliseconds(attempt, random) {
   const base = Math.min(120 * 2 ** (attempt - 1), 600);
   return Math.round(base * (0.75 + random() * 0.5));
@@ -156,9 +362,80 @@ function validateRetryOptions({
   }
 }
 
-export async function requestJsonWithRetry({
+export async function requestJsonWithRetry(options) {
+  return runRequestWithRetry({
+    ...options,
+    readOkResponse: (response, maxResponseBytes) =>
+      readBoundedJsonResponse(response, maxResponseBytes),
+  });
+}
+
+export async function requestSseChatWithRetry({
+  maxSseEvents = DEFAULT_MAX_SSE_EVENTS,
+  maxSseEventBytes = DEFAULT_MAX_SSE_EVENT_BYTES,
+  ...options
+} = {}) {
+  if (
+    !Number.isInteger(maxSseEvents) ||
+    maxSseEvents < 1 ||
+    maxSseEvents > MAX_SSE_EVENTS ||
+    !Number.isInteger(maxSseEventBytes) ||
+    maxSseEventBytes < 1 ||
+    maxSseEventBytes > MAX_SSE_EVENT_BYTES
+  ) {
+    throw new LiveSmokeError("invalid_request");
+  }
+  return runRequestWithRetry({
+    ...options,
+    readOkResponse: (response, maxResponseBytes) =>
+      readBoundedSseChatContent(response, {
+        maxBytes: maxResponseBytes,
+        maxEvents: maxSseEvents,
+        maxEventBytes: maxSseEventBytes,
+      }),
+  });
+}
+
+export function buildOpenRouterMimoCapabilityBody(model) {
+  if (
+    typeof model !== "string" ||
+    model.trim().length === 0 ||
+    /[\0\r\n]/u.test(model)
+  ) {
+    throw new LiveSmokeError("invalid_environment", ["LEARNING_MODEL"]);
+  }
+  return {
+    model,
+    store: false,
+    temperature: 0,
+    stream: true,
+    max_tokens: 64,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "slopproof_openrouter_mimo_capability",
+        strict: true,
+        schema: OPENROUTER_MIMO_CAPABILITY_SCHEMA,
+      },
+    },
+    messages: [
+      {
+        role: "system",
+        content:
+          "This is a fixed capability check. Do not call tools. Return only the requested JSON object.",
+      },
+      {
+        role: "user",
+        content: 'Return the JSON object {"ok":true}. Do not use Markdown.',
+      },
+    ],
+  };
+}
+
+async function runRequestWithRetry({
   url,
   makeInit,
+  readOkResponse,
   fetchImpl = globalThis.fetch,
   maxAttempts = MAX_ATTEMPTS,
   deadlineMs = 25_000,
@@ -178,6 +455,7 @@ export async function requestJsonWithRetry({
   if (
     typeof fetchImpl !== "function" ||
     typeof makeInit !== "function" ||
+    typeof readOkResponse !== "function" ||
     typeof now !== "function" ||
     typeof random !== "function" ||
     typeof sleep !== "function"
@@ -219,7 +497,7 @@ export async function requestJsonWithRetry({
       if (response) {
         if (response.ok) {
           try {
-            return await readBoundedJsonResponse(response, maxResponseBytes);
+            return await readOkResponse(response, maxResponseBytes);
           } catch (error) {
             if (controller.signal.aborted) {
               failureCode = "provider_timeout";

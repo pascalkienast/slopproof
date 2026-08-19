@@ -93,6 +93,7 @@ describe("Hetzner semantic provider adapters", () => {
     );
     expect(serialized).toContain("untrusted quoted data");
     expect(serialized).toContain("Brevity is mandatory");
+    expect(learning.descriptor.provider).toBe("hetzner-inference");
 
     const learningSchema = responseSchemaFromBody(bodies[0]);
     expect(schemaAt(learningSchema, ["result", "changedAreas"])).toMatchObject({
@@ -108,6 +109,41 @@ describe("Hetzner semantic provider adapters", () => {
     expect(
       schemaAt(learningSchema, ["result", "patchIntent", "patchReferences"]),
     ).toMatchObject({ minItems: 1, maxItems: 1 });
+  });
+
+  it("omits Hetzner-only request fields when the same client speaks OpenRouter", async () => {
+    const bodies: unknown[] = [];
+    const fetchImpl = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)) as unknown);
+        return completionResponse({ ok: true });
+      },
+    );
+    const provider = new HetznerLearningMaterialProvider(
+      {
+        provider: "openrouter",
+        baseUrl: "https://openrouter.example.test/api/v1",
+        apiKey: API_KEY,
+        model: "xiaomi/mimo-v2.5",
+      },
+      testDependencies(fetchImpl),
+    );
+
+    expect(provider.descriptor).toEqual({
+      provider: "openrouter",
+      model: "xiaomi/mimo-v2.5",
+    });
+    const result = await provider.generate(
+      learningInput(),
+      context("learning_material"),
+    );
+    expect(result.answeredBy).toEqual(provider.descriptor);
+    expect(bodies[0]).toMatchObject({
+      model: "xiaomi/mimo-v2.5",
+      store: false,
+      stream: true,
+    });
+    expect(bodies[0]).not.toHaveProperty("chat_template_kwargs");
   });
 
   it("extracts the validated result envelope even when the model adds metadata", async () => {
@@ -361,6 +397,7 @@ describe("Hetzner semantic provider adapters", () => {
       output: { malformedSemanticOutput: true },
       tokenUsage: { inputTokens: 20, outputTokens: 6_000 },
       transportAttemptCount: 1,
+      answeredBy: { provider: "hetzner-inference", model: "proof-model" },
     });
   });
 
@@ -431,6 +468,7 @@ describe("Hetzner semantic provider adapters", () => {
         output: { malformedSemanticOutput: true },
         tokenUsage: null,
         transportAttemptCount: 1,
+        answeredBy: { provider: "hetzner-inference", model: "proof-model" },
       },
     );
     await expect(

@@ -378,6 +378,7 @@ async function invokeWithOneRepair<
   let repairEligible = false;
   let knownTransportAttemptCount: number | null = null;
   let failure: SemanticProviderFailureV1 | undefined;
+  let answeredBy = descriptor.success ? descriptor.data : undefined;
 
   if (
     descriptor.success &&
@@ -401,8 +402,12 @@ async function invokeWithOneRepair<
         );
       }
       rejectedOutput = response.success ? response.data.output : rawResponse;
-      if (response.success)
+      if (response.success) {
         tokenUsage = addUsage(tokenUsage, response.data.tokenUsage);
+        if (response.data.answeredBy !== undefined) {
+          answeredBy = response.data.answeredBy;
+        }
+      }
       if (!response.success) {
         throw new SemanticContentValidationError("schema_invalid");
       }
@@ -447,8 +452,12 @@ async function invokeWithOneRepair<
             repair.data.transportAttemptCount,
           );
         }
-        if (repair.success)
+        if (repair.success) {
           tokenUsage = addUsage(tokenUsage, repair.data.tokenUsage);
+          if (repair.data.answeredBy !== undefined) {
+            answeredBy = repair.data.answeredBy;
+          }
+        }
         if (!repair.success) {
           throw new SemanticContentValidationError("schema_invalid");
         }
@@ -492,9 +501,15 @@ async function invokeWithOneRepair<
         : semanticValidationFailure(knownTransportAttemptCount);
   }
   const completedAt = input.clock.now();
-  const safeDescriptor = descriptor.success
-    ? descriptor.data
-    : { provider: "unavailable", model: "unavailable" };
+  const safeDescriptor =
+    outcome === "fallback"
+      ? descriptor.success
+        ? descriptor.data
+        : { provider: "unavailable", model: "unavailable" }
+      : (answeredBy ??
+        (descriptor.success
+          ? descriptor.data
+          : { provider: "unavailable", model: "unavailable" }));
   const metadata = SemanticProviderInvocationMetadataV1Schema.parse({
     schemaVersion: "1",
     metadataVersion: "semantic-provider-metadata-v1",

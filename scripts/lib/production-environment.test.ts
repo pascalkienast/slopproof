@@ -72,6 +72,57 @@ const sourceEnvironment = {
 } as const;
 
 describe("production environment compiler", () => {
+  it("compiles OpenRouter-primary generation and judge with Hetzner transport fallback", () => {
+    const compiled = compileProductionEnvironment({
+      ...sourceEnvironment,
+      GENERATION_PROVIDER: "openrouter",
+      GENERATION_BASE_URL: "https://openrouter.ai/api/v1",
+      LEARNING_MODEL: "xiaomi/mimo-v2.5",
+      PRACTICE_MODEL: "xiaomi/mimo-v2.5",
+      PROOF_QUESTION_MODEL: "xiaomi/mimo-v2.5",
+      GENERATION_FALLBACK_BASE_URL: "https://inference.example/api/v1",
+      GENERATION_FALLBACK_API_KEY: "h".repeat(48),
+      LEARNING_FALLBACK_MODEL: "hetzner-learning",
+      PRACTICE_FALLBACK_MODEL: "hetzner-practice",
+      PROOF_QUESTION_FALLBACK_MODEL: "hetzner-proof",
+      MULTIMODAL_JUDGE_PROVIDER: "openrouter",
+      JUDGE_BASE_URL: "https://openrouter.ai/api/v1",
+      JUDGE_MODEL: "xiaomi/mimo-v2.5",
+      JUDGE_FALLBACK_MODEL: "xiaomi/mimo-v2.5",
+      JUDGE_TRANSPORT_FALLBACK_BASE_URL: "https://inference.example/api/v1",
+      JUDGE_TRANSPORT_FALLBACK_API_KEY: "k".repeat(48),
+      JUDGE_TRANSPORT_FALLBACK_MODEL: "hetzner-judge",
+      JUDGE_TRANSPORT_FALLBACK_VISION_MODEL: "hetzner-vision",
+    });
+
+    expect(compiled.GENERATION_PROVIDER).toBe("openrouter");
+    expect(compiled.MULTIMODAL_JUDGE_PROVIDER).toBe("openrouter");
+    expect(compiled.LEARNING_MODEL).toBe("xiaomi/mimo-v2.5");
+    expect(compiled.GENERATION_FALLBACK_BASE_URL).toBe(
+      "https://inference.example/api/v1",
+    );
+    expect(compiled.JUDGE_TRANSPORT_FALLBACK_MODEL).toBe("hetzner-judge");
+    expect(
+      partitionProductionEnvironment(compiled).worker
+        .GENERATION_FALLBACK_API_KEY,
+    ).toBe("h".repeat(48));
+    expect(
+      partitionProductionEnvironment(
+        compileProductionEnvironment(sourceEnvironment),
+      ).worker,
+    ).not.toHaveProperty("GENERATION_FALLBACK_API_KEY");
+  });
+
+  it("rejects OpenRouter production generation without a Hetzner fallback URL", () => {
+    expect(() =>
+      compileProductionEnvironment({
+        ...sourceEnvironment,
+        GENERATION_PROVIDER: "openrouter",
+        GENERATION_BASE_URL: "https://openrouter.ai/api/v1",
+      }),
+    ).toThrowError(ProductionEnvironmentError);
+  });
+
   it("maps canonical S3 runtime names without provider-specific aliases", () => {
     const compiled = compileProductionEnvironment(sourceEnvironment);
 

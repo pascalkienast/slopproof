@@ -61,6 +61,16 @@ function requiredExact(
   return value;
 }
 
+function requiredOneOf(
+  environment: Environment,
+  name: string,
+  expected: readonly string[],
+): string {
+  const value = required(environment, name);
+  if (!expected.includes(value)) throw new ProductionEnvironmentError([name]);
+  return value;
+}
+
 function containerPath(
   environment: Environment,
   name: string,
@@ -79,8 +89,15 @@ export function compileProductionEnvironment(
   requiredExact(environment, "NODE_ENV", "production");
   requiredExact(environment, "DEMO_MODE", "false");
   requiredExact(environment, "GITHUB_ADAPTER", "octokit");
-  requiredExact(environment, "GENERATION_PROVIDER", "hetzner");
-  requiredExact(environment, "MULTIMODAL_JUDGE_PROVIDER", "hetzner");
+  const generationProvider = requiredOneOf(environment, "GENERATION_PROVIDER", [
+    "hetzner",
+    "openrouter",
+  ]);
+  const judgeProvider = requiredOneOf(
+    environment,
+    "MULTIMODAL_JUDGE_PROVIDER",
+    ["hetzner", "openrouter"],
+  );
   requiredExact(environment, "TRANSCRIPTION_PROVIDER", "openrouter");
   requiredExact(environment, "EVIDENCE_STORAGE_PROVIDER", "s3");
 
@@ -126,18 +143,62 @@ export function compileProductionEnvironment(
     OAUTH_TRUSTED_PROXY_SECRET:
       deriveOAuthTrustedProxySecret(workerInternalSecret),
 
-    GENERATION_PROVIDER: "hetzner",
+    GENERATION_PROVIDER: generationProvider,
     GENERATION_BASE_URL: required(environment, "GENERATION_BASE_URL"),
     GENERATION_API_KEY: required(environment, "GENERATION_API_KEY"),
     LEARNING_MODEL: required(environment, "LEARNING_MODEL"),
     PRACTICE_MODEL: required(environment, "PRACTICE_MODEL"),
     PROOF_QUESTION_MODEL: required(environment, "PROOF_QUESTION_MODEL"),
+    ...(generationProvider === "openrouter"
+      ? {
+          GENERATION_FALLBACK_BASE_URL: required(
+            environment,
+            "GENERATION_FALLBACK_BASE_URL",
+          ),
+          GENERATION_FALLBACK_API_KEY: required(
+            environment,
+            "GENERATION_FALLBACK_API_KEY",
+          ),
+          LEARNING_FALLBACK_MODEL: required(
+            environment,
+            "LEARNING_FALLBACK_MODEL",
+          ),
+          PRACTICE_FALLBACK_MODEL: required(
+            environment,
+            "PRACTICE_FALLBACK_MODEL",
+          ),
+          PROOF_QUESTION_FALLBACK_MODEL: required(
+            environment,
+            "PROOF_QUESTION_FALLBACK_MODEL",
+          ),
+        }
+      : {}),
 
-    MULTIMODAL_JUDGE_PROVIDER: "hetzner",
+    MULTIMODAL_JUDGE_PROVIDER: judgeProvider,
     JUDGE_BASE_URL: required(environment, "JUDGE_BASE_URL"),
     JUDGE_API_KEY: required(environment, "JUDGE_API_KEY"),
     JUDGE_MODEL: required(environment, "JUDGE_MODEL"),
     JUDGE_FALLBACK_MODEL: required(environment, "JUDGE_FALLBACK_MODEL"),
+    ...(judgeProvider === "openrouter"
+      ? {
+          JUDGE_TRANSPORT_FALLBACK_BASE_URL: required(
+            environment,
+            "JUDGE_TRANSPORT_FALLBACK_BASE_URL",
+          ),
+          JUDGE_TRANSPORT_FALLBACK_API_KEY: required(
+            environment,
+            "JUDGE_TRANSPORT_FALLBACK_API_KEY",
+          ),
+          JUDGE_TRANSPORT_FALLBACK_MODEL: required(
+            environment,
+            "JUDGE_TRANSPORT_FALLBACK_MODEL",
+          ),
+          JUDGE_TRANSPORT_FALLBACK_VISION_MODEL: required(
+            environment,
+            "JUDGE_TRANSPORT_FALLBACK_VISION_MODEL",
+          ),
+        }
+      : {}),
 
     TRANSCRIPTION_PROVIDER: "openrouter",
     TRANSCRIPTION_BASE_URL: required(environment, "TRANSCRIPTION_BASE_URL"),
@@ -299,11 +360,20 @@ const workerEnvironmentNames = [
   "LEARNING_MODEL",
   "PRACTICE_MODEL",
   "PROOF_QUESTION_MODEL",
+  "GENERATION_FALLBACK_BASE_URL",
+  "GENERATION_FALLBACK_API_KEY",
+  "LEARNING_FALLBACK_MODEL",
+  "PRACTICE_FALLBACK_MODEL",
+  "PROOF_QUESTION_FALLBACK_MODEL",
   "MULTIMODAL_JUDGE_PROVIDER",
   "JUDGE_BASE_URL",
   "JUDGE_API_KEY",
   "JUDGE_MODEL",
   "JUDGE_FALLBACK_MODEL",
+  "JUDGE_TRANSPORT_FALLBACK_BASE_URL",
+  "JUDGE_TRANSPORT_FALLBACK_API_KEY",
+  "JUDGE_TRANSPORT_FALLBACK_MODEL",
+  "JUDGE_TRANSPORT_FALLBACK_VISION_MODEL",
   "TRANSCRIPTION_PROVIDER",
   "TRANSCRIPTION_BASE_URL",
   "TRANSCRIPTION_API_KEY",
@@ -348,7 +418,11 @@ function selectEnvironment(
   names: readonly string[],
 ): Readonly<Record<string, string>> {
   return Object.freeze(
-    Object.fromEntries(names.map((name) => [name, environment[name] ?? ""])),
+    Object.fromEntries(
+      names
+        .filter((name) => environment[name] !== undefined)
+        .map((name) => [name, environment[name] ?? ""]),
+    ),
   );
 }
 
