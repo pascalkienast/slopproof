@@ -12,6 +12,7 @@ import {
   loadActiveMaintainerRepository,
   type ActiveMaintainerRepositoryV1,
 } from "../../lib/github-oauth-production";
+import { formatAuthorLabel, isGithubHandle } from "../../lib/review-page-model";
 import { DemoMaintainerLogin } from "./demo-maintainer-login";
 import { z } from "zod";
 
@@ -99,7 +100,9 @@ export default async function ReviewQueuePage({
                     {item.questionCount} question
                     {item.questionCount === 1 ? "" : "s"}
                   </strong>
-                  <span>Author {item.authorId}</span>
+                  <span>
+                    {authorQueueLabel(item.authorId, item.authorLogin)}
+                  </span>
                 </div>
                 <div className="review-row-facts">
                   <code>{item.headSha}</code>
@@ -356,6 +359,14 @@ function ReviewShell({
       {children}
     </main>
   );
+}
+
+function authorQueueLabel(
+  authorId: string,
+  authorLogin: string | null,
+): string {
+  const label = formatAuthorLabel({ authorId, authorLogin });
+  return isGithubHandle(label) ? `@${label}` : label;
 }
 
 function formatAge(value: Date): string {
