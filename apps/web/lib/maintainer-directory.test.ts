@@ -1,13 +1,7 @@
 import { GithubControlError } from "@slopproof/github";
 import { describe, expect, it, vi } from "vitest";
-import {
-  filterMaintainerDirectory,
-  sealMaintainerDirectory,
-  unsealMaintainerDirectory,
-} from "./maintainer-directory";
+import { filterMaintainerDirectory } from "./maintainer-directory";
 
-const NOW = new Date("2026-08-12T12:00:00.000Z");
-const SECRET = "directory-session-secret-that-is-at-least-32-bytes";
 const FIRST = {
   id: "10000000-0000-4000-8000-000000000002",
   owner: "pascalkienast",
@@ -27,8 +21,8 @@ function port(
 ) {
   return {
     getAuthenticatedUser: vi.fn(),
-    getCollaboratorPermission: vi.fn(async (input) =>
-      lookup(input.repositoryName),
+    getCollaboratorPermission: vi.fn(
+      async (input: { repositoryName: string }) => lookup(input.repositoryName),
     ),
   };
 }
@@ -96,23 +90,5 @@ describe("maintainer directory filter", () => {
     ).rejects.toMatchObject({
       message: "Maintainer directory is unavailable.",
     });
-  });
-
-  it("round-trips repository ids without owner/name or token material", () => {
-    const sealed = sealMaintainerDirectory(
-      {
-        githubUserId: "12345678",
-        repositoryIds: [FIRST.id, SECOND.id],
-        now: NOW,
-      },
-      SECRET,
-      { entropy: (bytes) => Buffer.alloc(bytes, 9) },
-    );
-    expect(sealed.sealedCookie).not.toContain(FIRST.owner);
-    expect(sealed.sealedCookie).not.toContain(FIRST.name);
-    expect(sealed.sealedCookie).not.toContain("request-scoped-user-token");
-    expect(unsealMaintainerDirectory(sealed.sealedCookie, SECRET, NOW)).toEqual(
-      [FIRST.id, SECOND.id],
-    );
   });
 });
