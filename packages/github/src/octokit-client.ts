@@ -61,6 +61,15 @@ export type ListCheckRunsForRefRequest = {
   perPage: number;
 };
 
+/** GitHub treats a present `conclusion` as completed; omit it while pending. */
+export function octokitCheckConclusionFields(
+  conclusion: CheckRunRequest["conclusion"],
+):
+  | { conclusion: NonNullable<CheckRunRequest["conclusion"]> }
+  | Record<string, never> {
+  return conclusion === null ? {} : { conclusion };
+}
+
 export type CollaboratorPermissionRequest = {
   owner: string;
   repositoryName: string;
@@ -242,7 +251,7 @@ export class OctokitGithubRestClient implements GithubRestClient {
       details_url: input.detailsUrl,
       external_id: input.externalId,
       status: input.status,
-      ...(input.conclusion === null ? {} : { conclusion: input.conclusion }),
+      ...octokitCheckConclusionFields(input.conclusion),
       output: {
         title: input.name,
         summary: input.summary,
@@ -263,7 +272,7 @@ export class OctokitGithubRestClient implements GithubRestClient {
       details_url: input.detailsUrl,
       external_id: input.externalId,
       status: input.status,
-      ...(input.conclusion === null ? {} : { conclusion: input.conclusion }),
+      ...octokitCheckConclusionFields(input.conclusion),
       output: {
         title: input.name,
         summary: input.summary,

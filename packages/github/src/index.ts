@@ -1,4 +1,5 @@
 export * from "./app-auth";
+export * from "./check-gate";
 export * from "./check-run";
 export * from "./git-tree-metadata";
 export * from "./ingest";

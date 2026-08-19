@@ -4,6 +4,10 @@ import {
   type DatabaseConnection,
   type JobPayload,
 } from "@slopproof/db";
+import {
+  REVIEW_REQUIRED_GITHUB_CHECK,
+  TECHNICAL_RETRY_GITHUB_CHECK,
+} from "@slopproof/github";
 import { FinalizeRecordingSchema } from "@slopproof/media";
 import type { RepositoryPolicyV1 } from "@slopproof/policy";
 import type {
@@ -1189,8 +1193,7 @@ export class PostgresProviderPipelineRepository implements ProviderPipelineRepos
       await this.checkIntents.write(client, {
         revisionId: row.revision_id,
         headSha: row.head_sha,
-        status: "in_progress",
-        conclusion: null,
+        ...REVIEW_REQUIRED_GITHUB_CHECK,
         summary: `maintainer review required for head ${row.head_sha}`,
         reason: "review_required",
         idempotencyKey: input.idempotencyKey,
@@ -1282,8 +1285,7 @@ export class PostgresProviderPipelineRepository implements ProviderPipelineRepos
       await this.checkIntents.write(client, {
         revisionId: row.revision_id,
         headSha: row.head_sha,
-        status: "completed",
-        conclusion: "neutral",
+        ...TECHNICAL_RETRY_GITHUB_CHECK,
         summary: `technical retry required for head ${row.head_sha}`,
         reason: "technical_retry",
         idempotencyKey: input.idempotencyKey,
