@@ -71,16 +71,10 @@ export default async function ReviewQueuePage({
               Protected queue · {queue.authorization.owner}/
               {queue.authorization.name}
             </p>
-            <h1 className="flow-title">
-              Human review, bound to the current SHA.
-            </h1>
+            <h1 className="flow-title">Review queue</h1>
           </div>
           <span className="status-pill">{queue.items.length} open</span>
         </div>
-        <p className="lede">
-          Model output is context, never the decision. Every detail view,
-          evidence stream and maintainer action is authorized again and audited.
-        </p>
         {queue.items.length === 0 ? (
           <section className="notice-card review-empty">
             <h2>Nothing waiting.</h2>

@@ -9,10 +9,7 @@ import {
   hasPrivateReviewContextMetadata,
   loadPrivateReviewContext,
 } from "../../../lib/private-review-context";
-import {
-  buildMaintainerReviewView,
-  JUDGE_DID_NOT_FINISH,
-} from "../../../lib/review-page-model";
+import { buildMaintainerReviewView } from "../../../lib/review-page-model";
 import { ReviewAttemptIdSchema } from "../../../lib/review-http";
 import { getWebRuntime } from "../../../lib/runtime";
 import { WebRequestRateLimitExceededError } from "../../../lib/request-rate-limit";
@@ -118,7 +115,7 @@ export default async function ReviewDetailPage({
           <p className="eyebrow">
             {detail.repository} · PR #{detail.pullRequestNumber}
           </p>
-          <h1 className="flow-title">Review the proof, not a score.</h1>
+          <h1 className="flow-title">Proof</h1>
         </div>
         <span className="status-pill">{humanStatus(detail.status)}</span>
       </div>
@@ -151,9 +148,7 @@ export default async function ReviewDetailPage({
         <QuestionReviewList questions={review.questions} />
 
         <div className="review-video-column">
-          {review.judgeUnavailable ? (
-            <section className="notice-card">{JUDGE_DID_NOT_FINISH}</section>
-          ) : review.recommendationLabel ? (
+          {review.recommendationLabel ? (
             <section className="model-context-card">
               <p className="eyebrow">Judge</p>
               <h2>Recommendation</h2>

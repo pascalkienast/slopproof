@@ -68,8 +68,8 @@ describe("maintainer review copy", () => {
       authorId: "500004",
       authorLogin: "octocat",
       recommendation: "review_required",
-      evaluationModel: "judge-model",
-      evaluationProvider: "hetzner-inference",
+      evaluationModel: "manual-review-projection-v1",
+      evaluationProvider: "multimodal-compatibility-v1",
       questions: [
         {
           id: QUESTION_ID,
@@ -117,21 +117,49 @@ describe("maintainer review copy", () => {
     );
   });
 
-  it("does not present a fallback or compatibility projection as a model opinion", () => {
+  it("shows a generated sidecar even when evaluations is the persistPair stub", () => {
+    const view = buildMaintainerReviewView({
+      authorId: "99",
+      authorLogin: "octocat",
+      recommendation: "review_required",
+      evaluationModel: "manual-review-projection-v1",
+      evaluationProvider: "multimodal-compatibility-v1",
+      questions: [questionFixture()],
+      privateContext: persistPairGeneratedContext(),
+    });
+    expect(
+      isAutomatedJudgeUnavailable({
+        evaluationModel: "manual-review-projection-v1",
+        evaluationProvider: "multimodal-compatibility-v1",
+        privateContext: persistPairGeneratedContext(),
+      }),
+    ).toBe(false);
+    expect(view.judgeUnavailable).toBe(false);
+    expect(view.recommendationLabel).toBe("Needs a look");
+    expect(view.questions[0]?.judgeFinished).toBe(true);
+    expect(view.questions[0]?.judgeOpinion).toBe(
+      "The judge thinks the spoken answer missed required points. The spoken answer conflicts with the patch.",
+    );
+    expect(JSON.stringify(view)).not.toContain("Judge did not finish");
+  });
+
+  it("treats a fallback or missing sidecar as an unfinished judge", () => {
     const fallback = buildMaintainerReviewView({
       authorId: "99",
       authorLogin: null,
       recommendation: "review_required",
-      evaluationModel: "judge-model",
-      evaluationProvider: "hetzner-inference",
+      evaluationModel: "manual-review-projection-v1",
+      evaluationProvider: "multimodal-compatibility-v1",
       questions: [questionFixture()],
       privateContext: fallbackContext(),
     });
+    expect(JUDGE_DID_NOT_FINISH).toBe("Judge did not finish.");
     expect(fallback.judgeUnavailable).toBe(true);
     expect(fallback.recommendationLabel).toBeNull();
     expect(fallback.questions[0]?.judgeOpinion).toBe(JUDGE_DID_NOT_FINISH);
     expect(fallback.questions[0]?.judgeFinished).toBe(false);
     expect(JSON.stringify(fallback)).not.toContain("not_evaluable");
+    expect(JSON.stringify(fallback)).not.toContain("not a model opinion");
 
     const projection = buildMaintainerReviewView({
       authorId: "99",
@@ -157,9 +185,9 @@ describe("maintainer review copy", () => {
     const view = buildMaintainerReviewView({
       authorId: "99",
       authorLogin: "octocat",
-      recommendation: "pass",
-      evaluationModel: "judge-model",
-      evaluationProvider: "hetzner-inference",
+      recommendation: "review_required",
+      evaluationModel: "manual-review-projection-v1",
+      evaluationProvider: "multimodal-compatibility-v1",
       questions: [questionFixture()],
       privateContext: passingContext(),
     });
@@ -171,6 +199,10 @@ describe("maintainer review copy", () => {
   });
 
   it("keeps the maintainer page as question, answer, required points, opinion, video", () => {
+    const queue = readFileSync(
+      new URL("../app/review/page.tsx", import.meta.url),
+      "utf8",
+    );
     const page = readFileSync(
       new URL("../app/review/[attemptId]/page.tsx", import.meta.url),
       "utf8",
@@ -183,6 +215,20 @@ describe("maintainer review copy", () => {
       new URL("../app/review/[attemptId]/evidence-player.tsx", import.meta.url),
       "utf8",
     );
+    const decision = readFileSync(
+      new URL(
+        "../app/review/[attemptId]/review-decision-form.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(queue).toContain("Review queue");
+    expect(queue).not.toContain("Human review");
+    expect(queue).not.toContain("never the decision");
+    expect(page).toContain(">Proof<");
+    expect(page).not.toContain("not a score");
+    expect(page).not.toContain("JUDGE_DID_NOT_FINISH");
+    expect(page).toContain("recommendationLabel");
     expect(questions).toContain("Spoken answer");
     expect(questions).toContain("Needed in the answer");
     expect(questions).toContain("Judge opinion");
@@ -194,6 +240,9 @@ describe("maintainer review copy", () => {
     expect(page).not.toContain("Transcript-aligned frames");
     expect(player).toContain("Watch the proof");
     expect(player).not.toContain("Selected frame");
+    expect(decision).toContain("Decide for this SHA");
+    expect(decision).not.toContain("Human decision only");
+    expect(decision).not.toContain("The model cannot");
   });
 
   it("keeps missing transcript honest and does not invent an answer", () => {
@@ -208,14 +257,32 @@ describe("maintainer review copy", () => {
     });
     expect(view.questions[0]?.spokenAnswer).toBe(SPOKEN_ANSWER_UNAVAILABLE);
     expect(view.questions[0]?.judgeOpinion).toBe(JUDGE_OPINION_UNAVAILABLE);
+    expect(view.judgeUnavailable).toBe(true);
+    expect(view.recommendationLabel).toBeNull();
     expect(view.videoMarkers).toEqual([]);
+
+    const stubWithoutContext = buildMaintainerReviewView({
+      authorId: "99",
+      authorLogin: "octocat",
+      recommendation: "review_required",
+      evaluationModel: "manual-review-projection-v1",
+      evaluationProvider: "multimodal-compatibility-v1",
+      questions: [questionFixture()],
+      privateContext: null,
+    });
+    expect(stubWithoutContext.judgeUnavailable).toBe(true);
+    expect(stubWithoutContext.recommendationLabel).toBeNull();
+    expect(stubWithoutContext.questions[0]?.judgeOpinion).toBe(
+      JUDGE_OPINION_UNAVAILABLE,
+    );
+    expect(stubWithoutContext.questions[0]?.judgeFinished).toBe(false);
 
     const unbound = buildMaintainerReviewView({
       authorId: "99",
       authorLogin: "octocat",
-      recommendation: "pass",
-      evaluationModel: "judge-model",
-      evaluationProvider: "hetzner-inference",
+      recommendation: "review_required",
+      evaluationModel: "manual-review-projection-v1",
+      evaluationProvider: "multimodal-compatibility-v1",
       questions: [questionFixture()],
       privateContext: scoredContext({ bindTranscript: false }),
     });
@@ -243,6 +310,29 @@ function scoredContext(
     fallback: false,
     bindTranscript: options.bindTranscript ?? true,
   });
+}
+
+function persistPairGeneratedContext(): PrivateReviewContext {
+  const context = scoredContext();
+  if (
+    context.schemaVersion !== "2" ||
+    context.authoritativeEvaluation === null
+  ) {
+    throw new Error("expected generated V2 sidecar");
+  }
+  return {
+    ...context,
+    authoritativeEvaluation: {
+      ...context.authoritativeEvaluation,
+      invocationMetadata: {
+        ...context.authoritativeEvaluation.invocationMetadata,
+        provider: "openrouter",
+        model: "xiaomi/mimo-v2.5",
+        outcome: "generated",
+        degraded: false,
+      },
+    },
+  };
 }
 
 function passingContext(): PrivateReviewContext {
