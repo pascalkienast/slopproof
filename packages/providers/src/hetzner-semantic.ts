@@ -19,6 +19,9 @@ import {
 } from "./learning-proof";
 import {
   ProviderError,
+  httpStatusClassFor,
+  isTransientUpstreamHttpStatus,
+  safeHttpStatus,
   type ProviderFailureTelemetry,
   type ProviderHttpStatusClass,
 } from "./errors";
@@ -108,6 +111,7 @@ type ResolvedRequestPolicy = {
 type RetryableFailure = {
   kind: "network" | "timeout" | "rate_limited" | "unavailable";
   httpStatusClass: ProviderHttpStatusClass | null;
+  httpStatus?: number;
   retryAfterMs?: number;
 };
 
@@ -596,10 +600,12 @@ async function requestStreamWithRetry(input: {
         } catch {
           // Rejected response bodies are intentionally neither consumed nor logged.
         }
+        const httpStatus = safeHttpStatus(error.status);
         if (error.status === 429) {
           lastFailure = {
             kind: "rate_limited",
             httpStatusClass: "4xx",
+            ...(httpStatus === undefined ? {} : { httpStatus }),
             ...(response === undefined
               ? {}
               : {
@@ -609,8 +615,12 @@ async function requestStreamWithRetry(input: {
                   ),
                 }),
           };
-        } else if (error.status >= 500 && error.status <= 599) {
-          lastFailure = { kind: "unavailable", httpStatusClass: "5xx" };
+        } else if (isTransientUpstreamHttpStatus(error.status)) {
+          lastFailure = {
+            kind: "unavailable",
+            httpStatusClass: httpStatusClassFor(error.status) ?? "5xx",
+            ...(httpStatus === undefined ? {} : { httpStatus }),
+          };
         } else {
           throw safeProviderError(
             "PROVIDER_UNAVAILABLE",
@@ -620,6 +630,7 @@ async function requestStreamWithRetry(input: {
               lastFailureKind: "request_rejected",
               httpStatusClass: "4xx",
               transportAttemptCount: attempt,
+              ...(httpStatus === undefined ? {} : { httpStatus }),
             },
           );
         }
@@ -1096,6 +1107,7 @@ function retryableFailureTelemetry(
   failure: RetryableFailure | undefined,
   transportAttemptCount: number,
 ): ProviderFailureTelemetry {
+  const httpStatus = safeHttpStatus(failure?.httpStatus);
   return {
     lastFailureKind:
       failure?.kind === "unavailable"
@@ -1103,5 +1115,6 @@ function retryableFailureTelemetry(
         : (failure?.kind ?? "deadline_exceeded"),
     httpStatusClass: failure?.httpStatusClass ?? null,
     transportAttemptCount,
+    ...(httpStatus === undefined ? {} : { httpStatus }),
   };
 }

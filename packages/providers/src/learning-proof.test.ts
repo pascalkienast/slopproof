@@ -202,6 +202,35 @@ describe("Gate 4 semantic provider ports", () => {
     } as const;
     expect(SemanticProviderFailureV1Schema.parse(failure)).toEqual(failure);
     expect(
+      SemanticProviderFailureV1Schema.parse({
+        ...failure,
+        lastFailureKind: "upstream_unavailable",
+        httpStatusClass: "4xx",
+        httpStatus: 404,
+      }),
+    ).toMatchObject({ httpStatus: 404, httpStatusClass: "4xx" });
+    expect(
+      SemanticProviderFailureV1Schema.safeParse({
+        ...failure,
+        lastFailureKind: "request_rejected",
+        httpStatusClass: "4xx",
+        httpStatus: 403,
+      }).success,
+    ).toBe(true);
+    expect(
+      SemanticProviderFailureV1Schema.safeParse({
+        ...failure,
+        lastFailureKind: "request_rejected",
+        httpStatusClass: "5xx",
+      }).success,
+    ).toBe(false);
+    expect(
+      SemanticProviderFailureV1Schema.safeParse({
+        ...failure,
+        httpStatus: 404,
+      }).success,
+    ).toBe(false);
+    expect(
       SemanticProviderFailureV1Schema.safeParse({
         ...failure,
         providerMessage: "private upstream response",
