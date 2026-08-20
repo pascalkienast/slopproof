@@ -28,9 +28,11 @@ are the product.
    and private coaching. Practice is optional and never affects the proof.
 3. **Proof** hands the session to a phone by a one-time QR link. The
    contributor answers a risk-adjusted set of patch questions in one continuous
-   recording. The tab must stay in focus. Switching away — another app, a
-   second screen — aborts the take (`visibility_lost`). Leaving the tab is
-   leaving the take.
+   recording. During the live proof the recording tab must stay in the
+   foreground. Switching away — another app, a second screen, the lock
+   screen, or a different tab — aborts the take (`visibility_lost`). That is
+   the help/no-help guarantee: you cannot read notes on a second screen while
+   the take is running.
 4. The browser encrypts each recording chunk before upload. The object store
    receives ciphertext only.
 5. A worker produces a bounded transcript and frame selection. A multimodal

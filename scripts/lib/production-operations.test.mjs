@@ -72,6 +72,7 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.doesNotMatch(landing, /Open-source MVP|Open-source product concept/u);
   assert.doesNotMatch(landing, /15 sec|90 sec|open-proof|proof-dialog/u);
   assert.doesNotMatch(landing, /Preview mobile preflight/u);
+  assert.doesNotMatch(landing, /visibility_lost/u);
   assert.doesNotMatch(behavior, /#open-proof|#proof-dialog|#demo-start/u);
   assert.doesNotMatch(landing, /fonts\.(?:googleapis|gstatic)\.com/u);
   assert.match(landing, /rel="icon" href="data:image\/svg\+xml/u);
@@ -87,6 +88,14 @@ test("public product copy does not call the live product an MVP", () => {
     /The MVP does not|Open the local MVP/u,
   );
   assert.match(read("README.md"), /visibility_lost/u);
+  assert.match(
+    read("README.md"),
+    /help\/no-help guarantee: you cannot read notes on a second screen/u,
+  );
+  assert.match(
+    read("docs/operations/self-hosting.md"),
+    /aborts the take as\n`visibility_lost`/u,
+  );
   assert.doesNotMatch(read("docs/operations/self-hosting.md"), /\bMVP\b/u);
   assert.doesNotMatch(
     read("docs/operations/production-deployment.md"),
