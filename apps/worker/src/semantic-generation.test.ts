@@ -248,6 +248,42 @@ describe("Gate 4 worker-only semantic generation", () => {
     expect(provider.repairCalls).toBe(0);
   });
 
+  it("persists the numeric HTTP status on fallback without provider bodies", async () => {
+    const context = contextFixture();
+    const provider = new StubSemanticProvider({
+      initial: () => {
+        throw new ProviderError(
+          "PROVIDER_UNAVAILABLE",
+          "retryable",
+          "private provider failure body",
+          {
+            telemetry: {
+              lastFailureKind: "upstream_unavailable",
+              httpStatusClass: "4xx",
+              transportAttemptCount: 3,
+              httpStatus: 404,
+            },
+          },
+        );
+      },
+      repair: () => response({ shouldNotRun: true }),
+    });
+    const result = await serviceWith(provider).generateLearningBundle(
+      learningRequest(context, 3),
+    );
+
+    expect(result.providerMetadata.outcome).toBe("fallback");
+    expect(result.providerFailure).toEqual({
+      schemaVersion: "semantic-provider-failure-v1",
+      failureCode: "PROVIDER_UNAVAILABLE",
+      lastFailureKind: "upstream_unavailable",
+      httpStatusClass: "4xx",
+      httpStatus: 404,
+      transportAttemptCount: 3,
+    });
+    expect(JSON.stringify(result)).not.toContain("private provider failure");
+  });
+
   it("repairs a Learning collision once without exposing frozen Proof to the provider", async () => {
     const context = contextFixture();
     const valid = deterministicLearningFallbackV1(context, 3);

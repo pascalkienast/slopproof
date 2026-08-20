@@ -49,6 +49,16 @@ const PracticeSessionSchema = z
     deleteAfter: z.date(),
     questions: z.array(PracticeQuestionV2Schema).min(3).max(5),
     pendingQuestionIds: z.array(z.string().uuid()).max(5),
+    answersByQuestionId: z.record(
+      z.string().uuid(),
+      z
+        .string()
+        .min(1)
+        .max(4_000)
+        .refine(
+          (value) => Buffer.byteLength(value, "utf8") <= MAX_ANSWER_BYTES,
+        ),
+    ),
     feedbackByQuestionId: z.record(z.string().uuid(), PracticeFeedbackV1Schema),
   })
   .strict()
@@ -62,7 +72,8 @@ const PracticeSessionSchema = z
       session.pendingQuestionIds.some(
         (questionId) =>
           !questionIds.has(questionId) ||
-          session.feedbackByQuestionId[questionId] !== undefined,
+          session.feedbackByQuestionId[questionId] !== undefined ||
+          session.answersByQuestionId[questionId] === undefined,
       )
     ) {
       context.addIssue({
@@ -71,12 +82,22 @@ const PracticeSessionSchema = z
         message: "Pending practice questions are outside the session",
       });
     }
+    for (const questionId of Object.keys(session.answersByQuestionId)) {
+      if (!questionIds.has(questionId)) {
+        context.addIssue({
+          code: "custom",
+          path: ["answersByQuestionId", questionId],
+          message: "Practice answer is outside the session",
+        });
+      }
+    }
     for (const [questionId, feedback] of Object.entries(
       session.feedbackByQuestionId,
     )) {
       if (
         !questionIds.has(questionId) ||
-        feedback.practiceQuestionId !== questionId
+        feedback.practiceQuestionId !== questionId ||
+        session.answersByQuestionId[questionId] === undefined
       ) {
         context.addIssue({
           code: "custom",

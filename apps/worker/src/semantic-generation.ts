@@ -10,6 +10,7 @@ import {
   PracticeCoachProviderInputV1Schema,
   ProviderError,
   ProofQuestionProviderInputV1Schema,
+  safeHttpStatus,
   SemanticProviderCallContextV1Schema,
   SemanticProviderDescriptorV1Schema,
   SemanticProviderInvocationMetadataV1Schema,
@@ -582,6 +583,7 @@ function providerErrorFailure(
   error: ProviderError,
   transportAttemptCount: number | null,
 ): SemanticProviderFailureV1 {
+  const httpStatus = safeHttpStatus(error.telemetry?.httpStatus);
   return {
     schemaVersion: "semantic-provider-failure-v1",
     failureCode: error.code,
@@ -594,6 +596,7 @@ function providerErrorFailure(
           : "unknown"),
     httpStatusClass: error.telemetry?.httpStatusClass ?? null,
     transportAttemptCount,
+    ...(httpStatus === undefined ? {} : { httpStatus }),
   };
 }
 

@@ -11,7 +11,11 @@ import {
   type LearningBundleCandidateV1,
 } from "@slopproof/questions";
 import { z } from "zod";
-import { PROVIDER_ERROR_CODES, PROVIDER_FAILURE_KINDS } from "./errors";
+import {
+  PROVIDER_ERROR_CODES,
+  PROVIDER_FAILURE_KINDS,
+  httpStatusClassFor,
+} from "./errors";
 
 export const SemanticProviderPurposeV1Schema = z.enum([
   "learning_material",
@@ -179,22 +183,31 @@ export const SemanticProviderFailureV1Schema = z
       "unknown",
     ]),
     httpStatusClass: z.enum(["4xx", "5xx"]).nullable(),
+    httpStatus: z.number().int().min(100).max(599).optional(),
     transportAttemptCount: z.number().int().min(0).max(6).nullable(),
   })
   .strict()
   .superRefine((failure, context) => {
-    const expectedClass =
-      failure.lastFailureKind === "rate_limited" ||
-      failure.lastFailureKind === "request_rejected"
-        ? "4xx"
-        : failure.lastFailureKind === "upstream_unavailable"
-          ? "5xx"
-          : null;
-    if (failure.httpStatusClass !== expectedClass) {
+    if (
+      !httpStatusClassAgreesWithKind(
+        failure.lastFailureKind,
+        failure.httpStatusClass,
+      )
+    ) {
       context.addIssue({
         code: "custom",
         path: ["httpStatusClass"],
         message: "HTTP status class does not match the safe failure kind",
+      });
+    }
+    if (
+      failure.httpStatus !== undefined &&
+      httpStatusClassFor(failure.httpStatus) !== failure.httpStatusClass
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["httpStatus"],
+        message: "Numeric HTTP status does not match the safe status class",
       });
     }
   });
@@ -202,6 +215,19 @@ export const SemanticProviderFailureV1Schema = z
 export type SemanticProviderFailureV1 = z.infer<
   typeof SemanticProviderFailureV1Schema
 >;
+
+function httpStatusClassAgreesWithKind(
+  kind: SemanticProviderFailureV1["lastFailureKind"],
+  statusClass: SemanticProviderFailureV1["httpStatusClass"],
+): boolean {
+  if (kind === "rate_limited" || kind === "request_rejected") {
+    return statusClass === "4xx";
+  }
+  if (kind === "upstream_unavailable") {
+    return statusClass === "4xx" || statusClass === "5xx";
+  }
+  return statusClass === null;
+}
 
 export const SemanticProviderInvocationMetadataV1Schema = z
   .object({

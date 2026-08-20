@@ -137,6 +137,99 @@ describe("TransportFallbackSemanticProvider", () => {
     expect(fallback.generate).not.toHaveBeenCalled();
   });
 
+  it.each([402, 404, 408])(
+    "hops after a retryable HTTP %s transport failure",
+    async (httpStatus) => {
+      const primary = stubSemanticProvider(
+        { provider: "openrouter", model: "xiaomi/mimo-v2.5" },
+        {
+          generate: () => {
+            throw new ProviderError(
+              "PROVIDER_UNAVAILABLE",
+              "retryable",
+              "Semantic provider is temporarily unavailable",
+              {
+                telemetry: {
+                  lastFailureKind: "upstream_unavailable",
+                  httpStatusClass: "4xx",
+                  transportAttemptCount: 3,
+                  httpStatus,
+                },
+              },
+            );
+          },
+          repair: () => {
+            throw new Error("repair must not run");
+          },
+        },
+      );
+      const fallback = stubSemanticProvider(
+        { provider: "hetzner-inference", model: "hetzner-learning" },
+        {
+          generate: () => semanticResponse("fallback-output"),
+          repair: () => {
+            throw new Error("repair must not run");
+          },
+        },
+      );
+
+      const result = await new TransportFallbackSemanticProvider(
+        primary,
+        fallback,
+      ).generate({ task: "learning" }, CONTEXT);
+
+      expect(fallback.generate).toHaveBeenCalledTimes(1);
+      expect(result.answeredBy).toEqual({
+        provider: "hetzner-inference",
+        model: "hetzner-learning",
+      });
+    },
+  );
+
+  it.each([401, 403])(
+    "does not hop after terminal HTTP %s",
+    async (httpStatus) => {
+      const fallback = stubSemanticProvider(
+        { provider: "hetzner-inference", model: "hetzner-learning" },
+        {
+          generate: () => semanticResponse("must-not-run"),
+          repair: () => semanticResponse("must-not-run"),
+        },
+      );
+
+      await expect(
+        new TransportFallbackSemanticProvider(
+          stubSemanticProvider(
+            { provider: "openrouter", model: "xiaomi/mimo-v2.5" },
+            {
+              generate: () => {
+                throw new ProviderError(
+                  "PROVIDER_UNAVAILABLE",
+                  "terminal",
+                  "Semantic provider rejected the bounded request",
+                  {
+                    telemetry: {
+                      lastFailureKind: "request_rejected",
+                      httpStatusClass: "4xx",
+                      transportAttemptCount: 1,
+                      httpStatus,
+                    },
+                  },
+                );
+              },
+              repair: () => semanticResponse("must-not-run"),
+            },
+          ),
+          fallback,
+        ).generate({ task: "learning" }, CONTEXT),
+      ).rejects.toMatchObject({
+        disposition: "terminal",
+        telemetry: { httpStatus },
+      });
+      expect(fallback.generate).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps a successful primary answer on OpenRouter", async () => {
     const primary = stubSemanticProvider(
       { provider: "openrouter", model: "xiaomi/mimo-v2.5" },

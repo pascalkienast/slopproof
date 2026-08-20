@@ -1411,22 +1411,18 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
         FOR SHARE`,
         [boundSession.id],
       );
-      const pending = await client.query<{
+      const storedAnswers = await client.query<{
+        id: string;
         practice_question_id: string;
+        encrypted_payload: string;
       }>(
-        `SELECT answer.practice_question_id
-         FROM semantic_practice_answers answer
-        WHERE answer.practice_session_id = $1
-          AND answer.deleted_at IS NULL
-          AND answer.delete_after > clock_timestamp()
-          AND NOT EXISTS (
-            SELECT 1 FROM semantic_practice_feedback feedback
-             WHERE feedback.practice_session_id = answer.practice_session_id
-               AND feedback.practice_question_id = answer.practice_question_id
-               AND feedback.deleted_at IS NULL
-          )
-        ORDER BY answer.created_at, answer.id
-        FOR SHARE OF answer`,
+        `SELECT id, practice_question_id, encrypted_payload
+         FROM semantic_practice_answers
+        WHERE practice_session_id = $1
+          AND deleted_at IS NULL
+          AND delete_after > clock_timestamp()
+        ORDER BY created_at, id
+        FOR SHARE`,
         [boundSession.id],
       );
       const feedbackByQuestionId: Record<string, PracticeFeedbackV1> = {};
@@ -1449,13 +1445,26 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
       const knownQuestionIds = new Set(
         learning.practiceQuestions.map((question) => question.id),
       );
-      const pendingQuestionIds = [
-        ...new Set(
-          pending.rows
-            .map((item) => item.practice_question_id)
-            .filter((questionId) => knownQuestionIds.has(questionId)),
-        ),
-      ];
+      const answersByQuestionId: Record<string, string> = {};
+      for (const stored of storedAnswers.rows) {
+        if (!knownQuestionIds.has(stored.practice_question_id)) continue;
+        const answer = this.cipher.decryptJson(
+          JSON.parse(stored.encrypted_payload),
+          semanticPrivateAad({
+            kind: "practice_answer",
+            repositoryId: input.repositoryId,
+            revisionId: input.revisionId,
+            sessionId: boundSession.id,
+            questionId: stored.practice_question_id,
+            artifactId: stored.id,
+          }),
+          ContributorPracticeAnswerV1Schema,
+        );
+        answersByQuestionId[stored.practice_question_id] = answer.content;
+      }
+      const pendingQuestionIds = Object.keys(answersByQuestionId).filter(
+        (questionId) => feedbackByQuestionId[questionId] === undefined,
+      );
       await client.query("COMMIT");
       return {
         state: "ready",
@@ -1468,6 +1477,7 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
           deleteAfter: boundSession.delete_after,
           questions: learning.practiceQuestions,
           pendingQuestionIds,
+          answersByQuestionId,
           feedbackByQuestionId,
         },
       };

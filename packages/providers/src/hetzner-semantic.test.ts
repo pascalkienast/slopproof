@@ -13,6 +13,7 @@ import type {
   ProofQuestionProviderInputV1,
   SemanticProviderCallContextV1,
 } from "./learning-proof";
+import { TransportFallbackSemanticProvider } from "./transport-fallback";
 
 const NOW = new Date("2026-08-13T00:00:00.000Z");
 const DEADLINE = new Date(NOW.getTime() + 30_000);
@@ -71,7 +72,7 @@ describe("Hetzner semantic provider adapters", () => {
         temperature: 0,
         stream: true,
         chat_template_kwargs: { thinking: false },
-        max_tokens: [6_000, 2_000, 6_000][index],
+        max_tokens: [6_000, 6_000, 6_000][index],
         response_format: {
           type: "json_schema",
           json_schema: {
@@ -170,6 +171,18 @@ describe("Hetzner semantic provider adapters", () => {
       first: () => new Response(null, { status: 429 }),
     },
     {
+      name: "402",
+      first: () => new Response(null, { status: 402 }),
+    },
+    {
+      name: "404",
+      first: () => new Response(null, { status: 404 }),
+    },
+    {
+      name: "408",
+      first: () => new Response(null, { status: 408 }),
+    },
+    {
       name: "5xx",
       first: () => new Response(null, { status: 503 }),
     },
@@ -216,6 +229,7 @@ describe("Hetzner semantic provider adapters", () => {
         lastFailureKind: "rate_limited",
         httpStatusClass: "4xx",
         transportAttemptCount: 1,
+        httpStatus: 429,
       },
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -247,6 +261,7 @@ describe("Hetzner semantic provider adapters", () => {
           lastFailureKind: "request_rejected",
           httpStatusClass: "4xx",
           transportAttemptCount: 1,
+          httpStatus: status,
         },
       });
       expect(String(failure)).not.toContain(API_KEY);
@@ -447,9 +462,231 @@ describe("Hetzner semantic provider adapters", () => {
         lastFailureKind: "upstream_unavailable",
         httpStatusClass: "5xx",
         transportAttemptCount: 3,
+        httpStatus: 503,
       },
     });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([402, 404, 408])(
+    "retries HTTP %s then hops to the Hetzner semantic fallback",
+    async (status) => {
+      const primaryFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(`private-body-${status}-${API_KEY}`, { status }),
+        );
+      const fallbackFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(completionResponse({ hopped: true }));
+      const provider = new TransportFallbackSemanticProvider(
+        new HetznerLearningMaterialProvider(
+          {
+            provider: "openrouter",
+            baseUrl: "https://openrouter.example.test/api/v1",
+            apiKey: API_KEY,
+            model: "xiaomi/mimo-v2.5",
+          },
+          testDependencies(primaryFetch, { sleep: async () => undefined }),
+        ),
+        new HetznerLearningMaterialProvider(
+          configuration("hetzner-learning"),
+          testDependencies(fallbackFetch),
+        ),
+      );
+
+      const result = await provider.generate(
+        learningInput(),
+        context("learning_material"),
+      );
+
+      expect(primaryFetch).toHaveBeenCalledTimes(3);
+      expect(fallbackFetch).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({
+        output: { hopped: true },
+        answeredBy: {
+          provider: "hetzner-inference",
+          model: "hetzner-learning",
+        },
+      });
+      expect(JSON.stringify(result)).not.toContain(API_KEY);
+      expect(JSON.stringify(result)).not.toContain("private-body");
+    },
+  );
+
+  it.each([402, 404, 408])(
+    "reports exhausted HTTP %s as retryable upstream_unavailable with the numeric status",
+    async (status) => {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(`private-body-${status}-${API_KEY}`, { status }),
+        );
+      const provider = new HetznerLearningMaterialProvider(
+        {
+          provider: "openrouter",
+          baseUrl: "https://openrouter.example.test/api/v1",
+          apiKey: API_KEY,
+          model: "xiaomi/mimo-v2.5",
+        },
+        testDependencies(fetchImpl, { sleep: async () => undefined }),
+      );
+      let failure: unknown;
+      try {
+        await provider.generate(learningInput(), context("learning_material"));
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        disposition: "retryable",
+        telemetry: {
+          lastFailureKind: "upstream_unavailable",
+          httpStatusClass: "4xx",
+          transportAttemptCount: 3,
+          httpStatus: status,
+        },
+      });
+      expect(String(failure)).not.toContain(API_KEY);
+      expect(String(failure)).not.toContain("private-body");
+      expect(fetchImpl).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it.each([401, 403, 400])(
+    "does not hop after terminal HTTP %s",
+    async (status) => {
+      const primaryFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(`private-body-${status}-${API_KEY}`, { status }),
+        );
+      const fallbackFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(completionResponse({ hopped: true }));
+      const provider = new TransportFallbackSemanticProvider(
+        new HetznerLearningMaterialProvider(
+          {
+            provider: "openrouter",
+            baseUrl: "https://openrouter.example.test/api/v1",
+            apiKey: API_KEY,
+            model: "xiaomi/mimo-v2.5",
+          },
+          testDependencies(primaryFetch),
+        ),
+        new HetznerLearningMaterialProvider(
+          configuration("hetzner-learning"),
+          testDependencies(fallbackFetch),
+        ),
+      );
+
+      await expect(
+        provider.generate(learningInput(), context("learning_material")),
+      ).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        disposition: "terminal",
+        telemetry: {
+          lastFailureKind: "request_rejected",
+          httpStatusClass: "4xx",
+          transportAttemptCount: 1,
+          httpStatus: status,
+        },
+      });
+      expect(primaryFetch).toHaveBeenCalledTimes(1);
+      expect(fallbackFetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([429, 503])(
+    "still retries HTTP %s and hops after the primary budget is exhausted",
+    async (status) => {
+      const primaryFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(null, { status }));
+      const fallbackFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(completionResponse({ hopped: true }));
+      const provider = new TransportFallbackSemanticProvider(
+        new HetznerLearningMaterialProvider(
+          {
+            provider: "openrouter",
+            baseUrl: "https://openrouter.example.test/api/v1",
+            apiKey: API_KEY,
+            model: "xiaomi/mimo-v2.5",
+          },
+          testDependencies(primaryFetch, { sleep: async () => undefined }),
+        ),
+        new HetznerLearningMaterialProvider(
+          configuration("hetzner-learning"),
+          testDependencies(fallbackFetch),
+        ),
+      );
+
+      await expect(
+        provider.generate(learningInput(), context("learning_material")),
+      ).resolves.toMatchObject({
+        output: { hopped: true },
+        answeredBy: { provider: "hetzner-inference" },
+      });
+      expect(primaryFetch).toHaveBeenCalledTimes(3);
+      expect(fallbackFetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("does not hop when empty content or a non-stop finish becomes a malformed marker", async () => {
+    const emptyStop = vi.fn<typeof fetch>().mockResolvedValue(
+      sseResponse([
+        {
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+        },
+      ]),
+    );
+    const truncated = vi.fn<typeof fetch>().mockResolvedValue(
+      sseResponse([
+        {
+          choices: [
+            {
+              index: 0,
+              delta: { content: '{"result":{"truncated":' },
+              finish_reason: "length",
+            },
+          ],
+        },
+        {
+          choices: [],
+          usage: { prompt_tokens: 20, completion_tokens: 6_000 },
+        },
+      ]),
+    );
+    const fallbackFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(completionResponse({ hopped: true }));
+
+    for (const primaryFetch of [emptyStop, truncated]) {
+      const result = await new TransportFallbackSemanticProvider(
+        new HetznerLearningMaterialProvider(
+          {
+            provider: "openrouter",
+            baseUrl: "https://openrouter.example.test/api/v1",
+            apiKey: API_KEY,
+            model: "xiaomi/mimo-v2.5",
+          },
+          testDependencies(primaryFetch),
+        ),
+        new HetznerLearningMaterialProvider(
+          configuration("hetzner-learning"),
+          testDependencies(fallbackFetch),
+        ),
+      ).generate(learningInput(), context("learning_material"));
+
+      expect(result).toMatchObject({
+        output: { malformedSemanticOutput: true },
+        answeredBy: { provider: "openrouter", model: "xiaomi/mimo-v2.5" },
+      });
+    }
+    expect(emptyStop).toHaveBeenCalledTimes(1);
+    expect(truncated).toHaveBeenCalledTimes(1);
+    expect(fallbackFetch).not.toHaveBeenCalled();
   });
 
   it("returns a content-free marker for malformed model text so the worker can repair once", async () => {
