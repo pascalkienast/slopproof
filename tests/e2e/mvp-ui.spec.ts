@@ -247,10 +247,10 @@ test("requires a repository-bound maintainer session for review", async ({
   ).toBeVisible();
   await page.getByRole("button", { name: "Enter as demo maintainer" }).click();
   await expect(
-    page.getByRole("heading", {
-      name: "Human review, bound to the current SHA.",
-    }),
+    page.getByRole("heading", { name: "Review queue" }),
   ).toBeVisible();
+  await expect(page.getByText(/never the decision/i)).toHaveCount(0);
+  await expect(page.getByText(/Human review/i)).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Nothing waiting." }),
   ).toBeVisible();

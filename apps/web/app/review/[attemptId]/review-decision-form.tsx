@@ -79,14 +79,14 @@ export function ReviewDecisionForm({
       className="review-decision-card"
       aria-labelledby="decision-heading"
     >
-      <p className="eyebrow">Human decision only</p>
-      <h2 id="decision-heading">Decide for this exact SHA.</h2>
+      <p className="eyebrow">Decision</p>
+      <h2 id="decision-heading">Decide for this SHA</h2>
       <label htmlFor="review-explanation">Reason or reviewer note</label>
       <textarea
         id="review-explanation"
         maxLength={2_000}
         onChange={(event) => setExplanation(event.target.value)}
-        placeholder="Optional, private and audit-bound"
+        placeholder="Optional reviewer note"
         rows={5}
         value={explanation}
       />
@@ -118,8 +118,7 @@ export function ReviewDecisionForm({
       </div>
       <p className="review-help">
         Approve passes the current SHA. Reject requests a new contributor proof.
-        Technical retry records a neutral system retry. The model cannot trigger
-        any of these actions.
+        Technical retry records a neutral system retry.
       </p>
       <div aria-live="polite">
         {state.kind === "submitting" ? (

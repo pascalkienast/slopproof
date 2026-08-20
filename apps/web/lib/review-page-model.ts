@@ -5,10 +5,8 @@ import type {
   TranscriptV1,
 } from "@slopproof/providers";
 
-export const JUDGE_DID_NOT_FINISH =
-  "Judge did not finish; this is not a model opinion.";
-export const GITHUB_CHECK_NOTICE =
-  "This recommendation cannot update the GitHub check.";
+export const JUDGE_DID_NOT_FINISH = "Judge did not finish.";
+export const GITHUB_CHECK_NOTICE = "Does not update the GitHub check.";
 export const SPOKEN_ANSWER_UNAVAILABLE = "Spoken answer is not available.";
 export const SPOKEN_ANSWER_UNBOUND =
   "No spoken answer was bound to this question.";
@@ -105,14 +103,17 @@ export function isAutomatedJudgeUnavailable(input: {
   evaluationProvider?: string | null;
   privateContext: PrivateReviewContext | null;
 }): boolean {
-  if (isCompatibilityOnlyProjection(input)) return true;
-  if (input.privateContext === null) return false;
-  if (input.privateContext.schemaVersion === "1") {
+  // persistPair always writes evaluations.provider/model as the conservative
+  // compatibility stub. Those columns are not evidence the judge failed.
+  // Availability comes from the decrypted sidecar / private review context.
+  const context = input.privateContext;
+  if (context === null) return true;
+  if (context.schemaVersion === "1") {
     return isCompatibilityOnlyProjection({
-      evaluation: input.privateContext.evaluation,
+      evaluation: context.evaluation,
     });
   }
-  const evaluation = input.privateContext.authoritativeEvaluation;
+  const evaluation = context.authoritativeEvaluation;
   if (evaluation === null) return true;
   return isAuthoritativeFallback(evaluation);
 }
@@ -193,8 +194,8 @@ function judgeOpinionForQuestion(input: {
   judgeUnavailable: boolean;
   privateContext: PrivateReviewContext | null;
 }): string {
-  if (input.judgeUnavailable) return JUDGE_DID_NOT_FINISH;
   if (input.privateContext === null) return JUDGE_OPINION_UNAVAILABLE;
+  if (input.judgeUnavailable) return JUDGE_DID_NOT_FINISH;
   if (input.privateContext.schemaVersion === "1") {
     return legacyJudgeOpinion(
       input.privateContext.evaluation.questionEvaluations.find(
