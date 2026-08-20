@@ -10,6 +10,7 @@ import {
   type MultimodalJudgeProviderInputV1,
 } from "./hetzner-multimodal";
 import type { ProviderContextV1 } from "./contracts";
+import { TransportFallbackMultimodalJudgeProvider } from "./transport-fallback";
 
 const NOW = new Date("2026-08-13T01:00:00.000Z");
 const DEADLINE = new Date(NOW.getTime() + 30_000);
@@ -102,29 +103,32 @@ describe("HetznerMultimodalJudgeProvider", () => {
     expect(JSON.stringify(body)).not.toContain("data:image");
   });
 
-  it("uses the configured vision model only after an explicit primary capability rejection", async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response(null, { status: 415 }))
-      .mockResolvedValueOnce(completionResponse(validCandidate()));
-    const result = await providerWith(fetchImpl).evaluate(
-      inputFixture(),
-      contextFixture(),
-    );
+  it.each([400, 404, 415, 422])(
+    "uses the configured vision model after HTTP %s capability rejection",
+    async (status) => {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response(null, { status }))
+        .mockResolvedValueOnce(completionResponse(validCandidate()));
+      const result = await providerWith(fetchImpl).evaluate(
+        inputFixture(),
+        contextFixture(),
+      );
 
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)).model).toBe(
-      "text-model",
-    );
-    expect(JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body)).model).toBe(
-      "vision-model",
-    );
-    expect(result.metadata).toMatchObject({
-      model: "vision-model",
-      invocationCount: 2,
-      outcome: "repaired",
-    });
-  });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)).model).toBe(
+        "text-model",
+      );
+      expect(JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body)).model).toBe(
+        "vision-model",
+      );
+      expect(result.metadata).toMatchObject({
+        model: "vision-model",
+        invocationCount: 2,
+        outcome: "repaired",
+      });
+    },
+  );
 
   it("repairs malformed bounded model content exactly once without resending it", async () => {
     const fetchImpl = vi
@@ -301,6 +305,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
   });
 
   it.each([
+    { name: "402", first: () => new Response(null, { status: 402 }) },
     { name: "408", first: () => new Response(null, { status: 408 }) },
     { name: "429", first: () => new Response(null, { status: 429 }) },
     { name: "503", first: () => new Response(null, { status: 503 }) },
@@ -321,7 +326,32 @@ describe("HetznerMultimodalJudgeProvider", () => {
     expect(result.candidate.recommendation).toBe("pass");
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(sleep).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)).model).toBe(
+      "text-model",
+    );
+    expect(JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body)).model).toBe(
+      "text-model",
+    );
   });
+
+  it.each([402, 404, 408])(
+    "retries transient HTTP %s on the text model when no frame is available",
+    async (status) => {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response(null, { status }))
+        .mockResolvedValueOnce(completionResponse(validCandidate()));
+      const sleep = vi.fn(async () => undefined);
+      const result = await providerWith(fetchImpl, { sleep }).evaluate(
+        { ...inputFixture(), frames: [] },
+        contextFixture(),
+      );
+      expect(result.candidate.recommendation).toBe("pass");
+      expect(result.metadata.model).toBe("text-model");
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(sleep).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it.each([400, 401, 403, 415, 422])(
     "does not retry terminal HTTP %s without a multimodal capability fallback",
@@ -349,6 +379,197 @@ describe("HetznerMultimodalJudgeProvider", () => {
       expect(fetchImpl).toHaveBeenCalledTimes(1);
     },
   );
+
+  it.each([401, 403])(
+    "keeps HTTP %s terminal even when frames would allow a vision hop",
+    async (status) => {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(`private-${API_KEY}-${status}`, { status }),
+        );
+      let failure: unknown;
+      try {
+        await providerWith(fetchImpl).evaluate(
+          inputFixture(),
+          contextFixture(),
+        );
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        disposition: "terminal",
+      });
+      expect(String(failure)).not.toContain(API_KEY);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([402, 404, 408])(
+    "reports exhausted HTTP %s as retryable so the transport hop can run",
+    async (status) => {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(`private-body-${status}-${API_KEY}`, { status }),
+        );
+      const sleep = vi.fn(async () => undefined);
+      let failure: unknown;
+      try {
+        await providerWith(fetchImpl, { sleep }).evaluate(
+          { ...inputFixture(), frames: [] },
+          contextFixture(),
+        );
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        disposition: "retryable",
+      });
+      expect(String(failure)).not.toContain(API_KEY);
+      expect(String(failure)).not.toContain("private-body");
+      expect(fetchImpl).toHaveBeenCalledTimes(3);
+      expect(sleep).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each([402, 404, 408])(
+    "retries HTTP %s then hops to the Hetzner judge fallback",
+    async (status) => {
+      const primaryFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(`private-body-${status}-${API_KEY}`, { status }),
+        );
+      const fallbackFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(completionResponse(validCandidate()));
+      const provider = new TransportFallbackMultimodalJudgeProvider(
+        new HetznerMultimodalJudgeProvider(
+          {
+            provider: "openrouter",
+            baseUrl: "https://openrouter.example.test/api/v1",
+            apiKey: API_KEY,
+            model: "xiaomi/mimo-v2.5",
+            visionModel: "xiaomi/mimo-v2.5",
+          },
+          {
+            fetchImpl: primaryFetch,
+            policy: {
+              maxAttempts: 3,
+              attemptTimeoutMs: 100,
+              now: () => NOW.getTime(),
+              random: () => 0,
+              sleep: async () => undefined,
+            },
+          },
+        ),
+        new HetznerMultimodalJudgeProvider(
+          {
+            provider: "hetzner-inference",
+            baseUrl: "https://inference.example.test/api/v1",
+            apiKey: API_KEY,
+            model: "hetzner-judge",
+            visionModel: "hetzner-vision",
+          },
+          {
+            fetchImpl: fallbackFetch,
+            policy: {
+              maxAttempts: 3,
+              attemptTimeoutMs: 100,
+              now: () => NOW.getTime(),
+              random: () => 0,
+              sleep: async () => undefined,
+            },
+          },
+        ),
+      );
+
+      const result = await provider.evaluate(
+        { ...inputFixture(), frames: [] },
+        contextFixture(),
+      );
+
+      expect(primaryFetch).toHaveBeenCalledTimes(3);
+      expect(fallbackFetch).toHaveBeenCalledTimes(1);
+      expect(result.metadata).toMatchObject({
+        provider: "hetzner-inference",
+        model: "hetzner-judge",
+        outcome: "generated",
+      });
+      expect(JSON.stringify(result)).not.toContain(API_KEY);
+      expect(JSON.stringify(result)).not.toContain("private-body");
+    },
+  );
+
+  it("after the transport hop, HTTP 404 on the hop text model uses the hop vision model", async () => {
+    const primaryFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 408 }));
+    const fallbackFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(completionResponse(validCandidate()));
+    const provider = new TransportFallbackMultimodalJudgeProvider(
+      new HetznerMultimodalJudgeProvider(
+        {
+          provider: "openrouter",
+          baseUrl: "https://openrouter.example.test/api/v1",
+          apiKey: API_KEY,
+          model: "xiaomi/mimo-v2.5",
+          visionModel: "xiaomi/mimo-v2.5",
+        },
+        {
+          fetchImpl: primaryFetch,
+          policy: {
+            maxAttempts: 3,
+            attemptTimeoutMs: 100,
+            now: () => NOW.getTime(),
+            random: () => 0,
+            sleep: async () => undefined,
+          },
+        },
+      ),
+      new HetznerMultimodalJudgeProvider(
+        {
+          provider: "hetzner-inference",
+          baseUrl: "https://inference.example.test/api/v1",
+          apiKey: API_KEY,
+          model: "hetzner-judge",
+          visionModel: "hetzner-vision",
+        },
+        {
+          fetchImpl: fallbackFetch,
+          policy: {
+            maxAttempts: 3,
+            attemptTimeoutMs: 100,
+            now: () => NOW.getTime(),
+            random: () => 0,
+            sleep: async () => undefined,
+          },
+        },
+      ),
+    );
+
+    const result = await provider.evaluate(inputFixture(), contextFixture());
+
+    expect(primaryFetch).toHaveBeenCalledTimes(3);
+    expect(fallbackFetch).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(String(fallbackFetch.mock.calls[0]?.[1]?.body)).model,
+    ).toBe("hetzner-judge");
+    expect(
+      JSON.parse(String(fallbackFetch.mock.calls[1]?.[1]?.body)).model,
+    ).toBe("hetzner-vision");
+    expect(result.metadata).toMatchObject({
+      provider: "hetzner-inference",
+      model: "hetzner-vision",
+      invocationCount: 2,
+      outcome: "repaired",
+    });
+  });
 
   it("hard-times out a fetch that ignores AbortSignal", async () => {
     const fetchImpl = vi.fn<typeof fetch>(
