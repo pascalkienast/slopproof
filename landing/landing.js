@@ -61,4 +61,3 @@ document.querySelectorAll(".hotspot").forEach((button) => {
     document.querySelector("#coach-note").textContent = button.dataset.note;
   });
 });
-

@@ -64,10 +64,7 @@ test("landing interactions obey the strict script policy and default to Proof", 
     landing,
     /href="https:\/\/github\.com\/pascalkienast\/slopproof"[^>]*>Open source · Live on GitHub · 2026<\/a>/u,
   );
-  assert.match(
-    landing,
-    /One continuous take — the tab must stay in focus/u,
-  );
+  assert.match(landing, /One continuous take — the tab must stay in focus/u);
   assert.match(
     landing,
     /Switching away \(second screen, another app\) aborts the proof/u,
@@ -85,7 +82,10 @@ test("landing interactions obey the strict script policy and default to Proof", 
 test("public product copy does not call the live product an MVP", () => {
   assert.match(read("apps/web/app/page.tsx"), /Open the local demo/u);
   assert.doesNotMatch(read("apps/web/app/page.tsx"), /Open the local MVP/u);
-  assert.doesNotMatch(read("README.md"), /The MVP does not|Open the local MVP/u);
+  assert.doesNotMatch(
+    read("README.md"),
+    /The MVP does not|Open the local MVP/u,
+  );
   assert.match(read("README.md"), /visibility_lost/u);
   assert.doesNotMatch(read("docs/operations/self-hosting.md"), /\bMVP\b/u);
   assert.doesNotMatch(
