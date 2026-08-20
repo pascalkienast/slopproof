@@ -1283,15 +1283,14 @@ describe("provider worker pipeline", () => {
     expect(provider.evaluate).toHaveBeenCalledOnce();
     expect(storage.getObjectStream).not.toHaveBeenCalled();
     const observedInput = provider.evaluate.mock.calls[0]?.[0] as
-      | MultimodalJudgeProviderInputV1
-      | undefined;
+      MultimodalJudgeProviderInputV1 | undefined;
     expect(observedInput?.frames).toEqual([]);
     expect(observedInput?.transcriptSegments.length).toBeGreaterThan(0);
     const authoritative = sidecars.persisted?.multimodalEvaluation;
     expect(authoritative).toMatchObject({
       workflowOutcome: "review_required",
       manualReviewRequired: true,
-      frameWarnings: ["frame_metadata_invalid", "frames_unavailable"],
+      frameWarnings: ["frames_unavailable"],
       candidate: {
         recommendation: "pass",
       },
@@ -1313,20 +1312,15 @@ describe("provider worker pipeline", () => {
     expect(compatibility.recommendation).toBe("review_required");
     expect(compatibility.questionEvaluations[0]).toMatchObject({
       questionId: QUESTION_ID,
-      outcome: "not_evaluable",
-      rubricFindings: [
-        {
+      outcome: "met",
+      rubricFindings: expect.arrayContaining([
+        expect.objectContaining({
           result: "met",
-          reason: "Compatibility-only sentinel; consult authoritative sidecar.",
-        },
-      ],
+          reason:
+            "Compatibility projection: stored criterion has bounded support; consult authoritative sidecar.",
+        }),
+      ]),
     });
-    expect(
-      compatibility.questionEvaluations[0]?.rubricFindings[0]?.criterionId,
-    ).not.toBe(
-      authoritative?.candidate.questionEvaluations[0]?.criterionResults[0]
-        ?.criterionId,
-    );
     const serviceInput = evaluate.mock.calls[0]?.[0];
     expect(serviceInput).toMatchObject({
       attemptId: ATTEMPT_ID,

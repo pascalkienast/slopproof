@@ -86,8 +86,7 @@ describe("multimodal judge service", () => {
     );
     expect(provider.evaluate).toHaveBeenCalledOnce();
     const observedInput = provider.evaluate.mock.calls[0]?.[0] as
-      | MultimodalJudgeProviderInputV1
-      | undefined;
+      MultimodalJudgeProviderInputV1 | undefined;
     expect(observedInput?.frames).toEqual([]);
     expect(observedInput?.transcriptSegments).toHaveLength(1);
     expect(observedInput?.transcriptSegments[0]?.questionId).toBe(QUESTION_ID);
