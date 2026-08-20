@@ -6,20 +6,19 @@
 
 **Prove you know what you ship.**
 
-SlopProof is a self-hosted GitHub App for pull-request accountability. It asks
-the contributor to explain the current patch before a maintainer merges it.
-SlopProof does not attempt to detect AI-generated code or infer how a patch was
-written.
+SlopProof is a self-hosted GitHub App for pull-request accountability. A
+contributor explains the current patch on live video before a maintainer
+merges it. SlopProof does not attempt to detect AI-generated code or infer how
+a patch was written.
 
 [![CI](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml)
 [![Supply chain](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml)
-[![License: AGPL v3+](https://img.shields.io/badge/license-AGPL--3.0--or--later-663399.svg)](LICENSE)
+[![License: AGPL v3+](https://img.shields.io/badge/license-AGPL--3.0--or-later-663399.svg)](LICENSE)
 
-> SlopProof is pre-1.0 software. The complete hosted flow has been exercised
-> against a real pull request, including Practice, encrypted mobile recording,
-> provider processing, maintainer review, check completion, retention, backup
-> and restart. Configuration and migration contracts may still change before
-> the first stable release.
+The hosted reference lives at
+[slopproof.paskie.me](https://slopproof.paskie.me). Exact `GET /` is the static
+marketing page. Application routes (`/demo`, `/revisions`, `/m`, `/review`)
+are the product.
 
 ## How it works
 
@@ -27,8 +26,11 @@ written.
    head SHA.
 2. The contributor may open **Practice** to study patch-bound learning goals
    and private coaching. Practice is optional and never affects the proof.
-3. **Proof** hands the session to a phone by QR code. The contributor answers a
-   risk-adjusted set of patch questions in one continuous recording.
+3. **Proof** hands the session to a phone by a one-time QR link. The
+   contributor answers a risk-adjusted set of patch questions in one continuous
+   recording. The tab must stay in focus. Switching away — another app, a
+   second screen — aborts the take (`visibility_lost`). Leaving the tab is
+   leaving the take.
 4. The browser encrypts each recording chunk before upload. The object store
    receives ciphertext only.
 5. A worker produces a bounded transcript and frame selection. A multimodal
@@ -38,9 +40,16 @@ written.
 7. A new push invalidates the attempt. Evidence expires after at most 24 hours
    and may be deleted as soon as the maintainer accepts it.
 
-The MVP does not execute pull-request code. It does not perform face
+SlopProof does not execute pull-request code. It does not perform face
 recognition, gaze tracking, room scanning, identity verification or persistent
 contributor scoring.
+
+## Product surface
+
+- Marketing landing: static `GET /` from `landing/index.html`
+- Local demo: <http://localhost:3000/demo> after `docker compose up --build`
+- Screenshot slots (empty until real Ubuntu captures land):
+  [docs/assets/](docs/assets/README.md)
 
 ## Local demo
 
@@ -77,7 +86,7 @@ A production deployment needs:
 - PostgreSQL 18 with `pg-boss` in the same database;
 - private S3-compatible object storage with browser CORS and a lifecycle
   backstop;
-- an HTTPS reverse proxy;
+- an HTTPS reverse proxy that serves the static `landing/` payload at `/`;
 - a transcription provider and a multimodal model provider;
 - a local RSA wrapping key pair or a compatible KMS adapter;
 - separate Web, Worker, GitHub Control and migration processes.
@@ -87,6 +96,12 @@ endpoints, placeholder secrets and incomplete provider configuration. The
 checked-in production automation under `scripts/production-*` documents the
 maintainer's current hardened deployment. It is a reference profile, not a
 portable one-command installer.
+
+SlopProof is pre-1.0. The complete hosted flow has been exercised against a
+real pull request, including Practice, encrypted mobile recording, provider
+processing, maintainer review, check completion, retention, backup and
+restart. Configuration and migration contracts may still change before the
+first stable release.
 
 ## Security and privacy
 
@@ -106,6 +121,8 @@ do not prove a third party's retention or training policy.
 
 ## Repository map
 
+- `landing/`: static marketing page served at `GET /` (`index.html` plus
+  `landing.js`);
 - `apps/web`: contributor, mobile and maintainer interfaces plus HTTP routes;
 - `apps/worker`: queues, private media processing, providers and retention;
 - `apps/github-control`: installation-token and GitHub reconciliation process;

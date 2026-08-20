@@ -15,7 +15,7 @@ export default function HomePage() {
       </p>
       <div className="actions">
         <a className="button primary" href="/demo">
-          Open the local MVP
+          Open the local demo
         </a>
         <a className="button" href="#security">
           Video security

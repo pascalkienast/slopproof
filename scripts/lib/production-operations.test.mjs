@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
+import {
+  LANDING_PUBLISH,
+  LANDING_SOURCE,
+  prepareLanding,
+} from "../prepare-landing.mjs";
+
 function read(relativePath) {
   return readFileSync(
     new URL(`../../${relativePath}`, import.meta.url),
@@ -33,9 +39,14 @@ test("Caddy keeps the landing root exact and proxies only named app paths", () =
 });
 
 test("landing interactions obey the strict script policy and default to Proof", () => {
-  const landing = read("slopproof-brand-ui-concept-v3.html");
-  const behavior = read("landing.js");
+  prepareLanding();
+  const landing = read(LANDING_SOURCE.html);
+  const published = read(LANDING_PUBLISH.html);
+  const behavior = read(LANDING_SOURCE.script);
+  const publishedBehavior = read(LANDING_PUBLISH.script);
 
+  assert.equal(landing, published);
+  assert.equal(behavior, publishedBehavior);
   assert.match(landing, /<script src="\/landing\.js" defer><\/script>/u);
   assert.doesNotMatch(landing, /<script(?:\s|>)(?![^>]*\bsrc=)/u);
   assert.match(
@@ -51,13 +62,36 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.match(landing, /Optional: practice the patch/u);
   assert.match(
     landing,
-    /href="https:\/\/github\.com\/pascalkienast\/slopproof"[^>]*>Open-source MVP · Live on GitHub · 2026<\/a>/u,
+    /href="https:\/\/github\.com\/pascalkienast\/slopproof"[^>]*>Open source · Live on GitHub · 2026<\/a>/u,
   );
-  assert.doesNotMatch(landing, /Open-source product concept/u);
+  assert.match(
+    landing,
+    /One continuous take — the tab must stay in focus/u,
+  );
+  assert.match(
+    landing,
+    /Switching away \(second screen, another app\) aborts the proof/u,
+  );
+  assert.doesNotMatch(landing, /Open-source MVP|Open-source product concept/u);
+  assert.doesNotMatch(landing, /15 sec|90 sec|open-proof|proof-dialog/u);
+  assert.doesNotMatch(landing, /Preview mobile preflight/u);
+  assert.doesNotMatch(behavior, /#open-proof|#proof-dialog|#demo-start/u);
   assert.doesNotMatch(landing, /fonts\.(?:googleapis|gstatic)\.com/u);
   assert.match(landing, /rel="icon" href="data:image\/svg\+xml/u);
   assert.match(behavior, /panel\.hidden = !selected/u);
   assert.match(behavior, /\[data-open-mode\]/u);
+});
+
+test("public product copy does not call the live product an MVP", () => {
+  assert.match(read("apps/web/app/page.tsx"), /Open the local demo/u);
+  assert.doesNotMatch(read("apps/web/app/page.tsx"), /Open the local MVP/u);
+  assert.doesNotMatch(read("README.md"), /The MVP does not|Open the local MVP/u);
+  assert.match(read("README.md"), /visibility_lost/u);
+  assert.doesNotMatch(read("docs/operations/self-hosting.md"), /\bMVP\b/u);
+  assert.doesNotMatch(
+    read("docs/operations/production-deployment.md"),
+    /\bMVP\b/u,
+  );
 });
 
 test("production review chrome does not expose the local demo", () => {

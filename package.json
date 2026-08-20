@@ -13,6 +13,7 @@
     "dev:web": "pnpm --filter @slopproof/web dev",
     "dev:worker": "pnpm --filter @slopproof/worker dev",
     "dev:keys": "node scripts/generate-dev-keys.mjs",
+    "prepare:landing": "node scripts/prepare-landing.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate-db.ts",
     "db:seed": "tsx scripts/seed-demo.ts",
