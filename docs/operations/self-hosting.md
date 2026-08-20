@@ -113,6 +113,10 @@ set the OAuth proxy-authenticator headers described in
 [production-configuration.md](production-configuration.md), reject direct Web
 access and preserve the camera/microphone policy for the mobile route.
 
+Serve exact `GET|HEAD /` from the static `landing/` payload (`index.html` and
+`landing.js`). That directory is the marketing page. Do not point `/` at the
+Next.js app shell in `apps/web/app/page.tsx`.
+
 ## 6. Verify before inviting contributors
 
 1. Confirm `/api/health/live` and `/api/health/ready` return `200`.
