@@ -345,6 +345,55 @@ describe("TransportFallbackMultimodalJudgeProvider", () => {
     );
   });
 
+  it.each([402, 404, 408])(
+    "hops the judge after a retryable HTTP %s transport failure",
+    async (httpStatus) => {
+      const primary = stubJudgeProvider(
+        {
+          provider: "openrouter",
+          model: "xiaomi/mimo-v2.5",
+          visionModel: "xiaomi/mimo-v2.5",
+        },
+        () => {
+          throw new ProviderError(
+            "PROVIDER_UNAVAILABLE",
+            "retryable",
+            "Multimodal provider is temporarily unavailable",
+            {
+              telemetry: {
+                lastFailureKind: "upstream_unavailable",
+                httpStatusClass: "4xx",
+                transportAttemptCount: 3,
+                httpStatus,
+              },
+            },
+          );
+        },
+      );
+      const fallback = stubJudgeProvider(
+        {
+          provider: "hetzner-inference",
+          model: "hetzner-judge",
+          visionModel: "hetzner-vision",
+        },
+        () =>
+          judgeResult({
+            provider: "hetzner-inference",
+            model: "hetzner-judge",
+          }),
+      );
+
+      const result = await new TransportFallbackMultimodalJudgeProvider(
+        primary,
+        fallback,
+      ).evaluate({} as MultimodalJudgeProviderInputV1, judgeContext());
+
+      expect(primary.evaluate).toHaveBeenCalledTimes(1);
+      expect(fallback.evaluate).toHaveBeenCalledTimes(1);
+      expect(result.metadata.model).toBe("hetzner-judge");
+    },
+  );
+
   it("does not hop the judge after INVALID_OUTPUT", async () => {
     const primary = stubJudgeProvider(
       {

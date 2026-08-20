@@ -70,7 +70,7 @@ describe("multimodal judge service", () => {
     expect(frameBytes).toEqual(new Uint8Array(4));
   });
 
-  it("does not invoke the provider when no normalized frame is available", async () => {
+  it("invokes the provider with the transcript when no normalized frame is available", async () => {
     const provider = successfulProvider();
     const result = await runMultimodalJudgeEvaluation(
       inputFixture(),
@@ -84,27 +84,28 @@ describe("multimodal judge service", () => {
         now: () => NOW,
       },
     );
-    expect(provider.evaluate).not.toHaveBeenCalled();
+    expect(provider.evaluate).toHaveBeenCalledOnce();
+    const observedInput = provider.evaluate.mock.calls[0]?.[0] as
+      MultimodalJudgeProviderInputV1 | undefined;
+    expect(observedInput?.frames).toEqual([]);
+    expect(observedInput?.transcriptSegments).toHaveLength(1);
+    expect(observedInput?.transcriptSegments[0]?.questionId).toBe(QUESTION_ID);
     expect(result.frameWarnings).toEqual([
       "frame_ciphertext_unavailable",
       "frames_unavailable",
     ]);
-    expect(result.candidate.recommendation).toBe("review_required");
-    expect(
-      result.candidate.questionEvaluations[0]?.criterionResults[0],
-    ).toMatchObject({
-      criterionId: CRITERION_ID,
-      result: "not_evaluable",
-      supportedPatchAnchorIds: [],
-    });
+    expect(result.candidate.recommendation).toBe("pass");
     expect(result.invocationMetadata).toMatchObject({
-      outcome: "fallback",
-      invocationCount: 0,
-      degraded: true,
+      outcome: "generated",
+      invocationCount: 1,
+      degraded: false,
+      model: "judge-text",
     });
+    expect(result.workflowOutcome).toBe("review_required");
+    expect(result.manualReviewRequired).toBe(true);
   });
 
-  it("converts frame-loader failures into a manual-review-safe fallback", async () => {
+  it("invokes the provider after a non-deadline frame-loader failure", async () => {
     const provider = successfulProvider();
     const result = await runMultimodalJudgeEvaluation(
       inputFixture(),
@@ -117,9 +118,52 @@ describe("multimodal judge service", () => {
         now: () => NOW,
       },
     );
-    expect(provider.evaluate).not.toHaveBeenCalled();
+    expect(provider.evaluate).toHaveBeenCalledOnce();
+    expect(provider.evaluate.mock.calls[0]?.[0]?.frames).toEqual([]);
     expect(result.frameWarnings).toEqual(["frames_unavailable"]);
+    expect(result.candidate.recommendation).toBe("pass");
+    expect(result.invocationMetadata.outcome).toBe("generated");
     expect(JSON.stringify(result)).not.toContain("private frame storage");
+  });
+
+  it("keeps evaluate-throw fallback when no normalized frame is available", async () => {
+    const provider: InlineMultimodalJudgeProvider = {
+      descriptor: descriptorFixture(),
+      evaluate: vi.fn(async () => {
+        throw new Error("private raw provider payload and API key");
+      }),
+    };
+    const result = await runMultimodalJudgeEvaluation(
+      inputFixture(),
+      contextFixture(),
+      {
+        provider,
+        loadFrames: vi.fn(async () => ({
+          frames: [],
+          warnings: ["frame_ciphertext_unavailable" as const],
+        })),
+        now: () => NOW,
+      },
+    );
+    expect(provider.evaluate).toHaveBeenCalledOnce();
+    expect(result.frameWarnings).toEqual([
+      "frame_ciphertext_unavailable",
+      "frames_unavailable",
+    ]);
+    expect(result.candidate).toMatchObject({
+      recommendation: "review_required",
+      warnings: [
+        "frame_ciphertext_unavailable",
+        "frames_unavailable",
+        "provider_evaluation_unavailable",
+      ],
+    });
+    expect(result.invocationMetadata).toMatchObject({
+      outcome: "fallback",
+      invocationCount: 0,
+      degraded: true,
+    });
+    expect(JSON.stringify(result)).not.toContain("private raw provider");
   });
 
   it("aborts before provider access and wipes loaded frames when frame work crosses the deadline", async () => {
@@ -330,7 +374,8 @@ describe("multimodal judge service", () => {
         now: () => NOW,
       },
     );
-    expect(result.candidate.recommendation).toBe("review_required");
+    expect(result.candidate.recommendation).toBe("pass");
+    expect(result.frameWarnings).toEqual(["frames_unavailable"]);
     expect([...jpegBytes].every((byte) => byte === 0)).toBe(true);
   });
 

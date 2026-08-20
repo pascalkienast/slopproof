@@ -519,6 +519,58 @@ function gate6InlineFrameFixture() {
   };
 }
 
+function successfulInlineProvider(): InlineMultimodalJudgeProvider & {
+  evaluate: ReturnType<typeof vi.fn>;
+} {
+  const descriptor = {
+    provider: "hetzner-inference",
+    model: "judge-text",
+    visionModel: "judge-vision",
+  };
+  return {
+    descriptor,
+    evaluate: vi.fn(async (input: MultimodalJudgeProviderInputV1) => {
+      const candidate: MultimodalJudgeCandidateV1 = {
+        schemaVersion: "1",
+        candidateVersion: "multimodal-judge-candidate-v1",
+        recommendation: "pass",
+        questionEvaluations: input.questions.map((question) => ({
+          questionId: question.id,
+          criterionResults: question.criteria.map((criterion) => ({
+            criterionId: criterion.id,
+            result: "met" as const,
+            supportedPatchAnchorIds: question.patchAnchorIds,
+            reason: "patch_evidence_supports_criterion" as const,
+          })),
+          contradictions: [],
+          uncertainty: [],
+        })),
+        privateReason: "all_stored_criteria_supported",
+        warnings: [],
+      };
+      return {
+        candidate,
+        metadata: {
+          schemaVersion: "1" as const,
+          provider: descriptor.provider,
+          model:
+            input.frames.length > 0 ? descriptor.visionModel : descriptor.model,
+          promptVersion: "proof-judge-system-v2" as const,
+          outputSchemaVersion: "multimodal-judge-candidate-v1" as const,
+          inputHash: multimodalJudgeProviderInputHashV1(input),
+          outputHash: multimodalJudgeCandidateHashV1(candidate),
+          tokenUsage: { inputTokens: 100, outputTokens: 50 },
+          latencyMs: 20,
+          invocationCount: 1 as const,
+          outcome: "generated" as const,
+          degraded: false,
+          completedAt: NOW,
+        },
+      };
+    }),
+  };
+}
+
 function unknownIdInlineProvider(): InlineMultimodalJudgeProvider & {
   evaluate: ReturnType<typeof vi.fn>;
 } {
@@ -1194,19 +1246,12 @@ describe("provider worker pipeline", () => {
     expect(base.repository.transitions).toEqual(["PROVIDER_UNAVAILABLE"]);
   });
 
-  it("runs the frozen Gate 6 service once and persists missing frames as authoritative not_evaluable review", async () => {
+  it("runs the frozen Gate 6 service once and still judges from the transcript when frames fail to load", async () => {
     const base = fixture();
     await base.handlers.extractTranscript(extractJob);
     base.dispatcher.jobs.length = 0;
     const sidecars = new InMemoryMultimodalEvaluationRepository();
-    const provider: InlineMultimodalJudgeProvider = {
-      descriptor: {
-        provider: "hetzner-inference",
-        model: "judge-text",
-        visionModel: "judge-vision",
-      },
-      evaluate: vi.fn(),
-    };
+    const provider = successfulInlineProvider();
     const storage = { getObjectStream: vi.fn() };
     const evaluate = vi.fn(runMultimodalJudgeEvaluation);
     const handlers = createProviderPipelineHandlers({
@@ -1235,24 +1280,24 @@ describe("provider worker pipeline", () => {
 
     expect(outcome.outcome).toBe("completed");
     expect(evaluate).toHaveBeenCalledOnce();
-    expect(provider.evaluate).not.toHaveBeenCalled();
+    expect(provider.evaluate).toHaveBeenCalledOnce();
     expect(storage.getObjectStream).not.toHaveBeenCalled();
+    const observedInput = provider.evaluate.mock.calls[0]?.[0] as
+      MultimodalJudgeProviderInputV1 | undefined;
+    expect(observedInput?.frames).toEqual([]);
+    expect(observedInput?.transcriptSegments.length).toBeGreaterThan(0);
     const authoritative = sidecars.persisted?.multimodalEvaluation;
     expect(authoritative).toMatchObject({
       workflowOutcome: "review_required",
       manualReviewRequired: true,
+      frameWarnings: ["frames_unavailable"],
       candidate: {
-        recommendation: "review_required",
-        questionEvaluations: [
-          {
-            criterionResults: expect.arrayContaining([
-              expect.objectContaining({
-                criterionId: expect.any(String),
-                result: "not_evaluable",
-              }),
-            ]),
-          },
-        ],
+        recommendation: "pass",
+      },
+      invocationMetadata: {
+        outcome: "generated",
+        invocationCount: 1,
+        model: "judge-text",
       },
     });
     expect(sidecars.persisted?.evaluationInputHash).toBe(
@@ -1267,20 +1312,15 @@ describe("provider worker pipeline", () => {
     expect(compatibility.recommendation).toBe("review_required");
     expect(compatibility.questionEvaluations[0]).toMatchObject({
       questionId: QUESTION_ID,
-      outcome: "not_evaluable",
-      rubricFindings: [
-        {
+      outcome: "met",
+      rubricFindings: expect.arrayContaining([
+        expect.objectContaining({
           result: "met",
-          reason: "Compatibility-only sentinel; consult authoritative sidecar.",
-        },
-      ],
+          reason:
+            "Compatibility projection: stored criterion has bounded support; consult authoritative sidecar.",
+        }),
+      ]),
     });
-    expect(
-      compatibility.questionEvaluations[0]?.rubricFindings[0]?.criterionId,
-    ).not.toBe(
-      authoritative?.candidate.questionEvaluations[0]?.criterionResults[0]
-        ?.criterionId,
-    );
     const serviceInput = evaluate.mock.calls[0]?.[0];
     expect(serviceInput).toMatchObject({
       attemptId: ATTEMPT_ID,

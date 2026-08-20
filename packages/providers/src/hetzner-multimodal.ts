@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { GitShaSchema, Sha256Schema, UuidSchema } from "@slopproof/domain";
 import { z } from "zod";
-import { ProviderError } from "./errors";
+import { ProviderError, isTransientUpstreamHttpStatus } from "./errors";
 import { ProviderContextV1Schema, type ProviderContextV1 } from "./contracts";
 
 const MAX_TRANSPORT_ATTEMPTS = 3;
@@ -12,6 +12,7 @@ const MAX_REQUEST_BYTES = 4 * 1_024 * 1_024;
 const MAX_MODEL_TEXT_BYTES = 512 * 1_024;
 const MAX_INLINE_FRAME_BYTES = 512 * 1_024;
 const MAX_INLINE_FRAME_TOTAL_BYTES = 2 * 1_024 * 1_024;
+const VISION_CAPABILITY_REJECTED_STATUSES = new Set([400, 404, 415, 422]);
 const timeoutMarker = Symbol("hetzner-multimodal-timeout");
 
 const SafeUntrustedTextV1Schema = z
@@ -992,11 +993,9 @@ async function requestJsonWithRetry(input: {
         }
         if (
           input.allowVisionCapabilityFallback &&
-          (error.status === 400 || error.status === 415 || error.status === 422)
+          VISION_CAPABILITY_REJECTED_STATUSES.has(error.status)
         ) {
           throw new VisionCapabilityRejectedError();
-        } else if (error.status === 408) {
-          lastFailure = { kind: "timeout" };
         } else if (error.status === 429) {
           lastFailure = {
             kind: "rate_limited",
@@ -1009,7 +1008,7 @@ async function requestJsonWithRetry(input: {
                   ),
                 }),
           };
-        } else if (error.status >= 500 && error.status <= 599) {
+        } else if (isTransientUpstreamHttpStatus(error.status)) {
           lastFailure = { kind: "unavailable" };
         } else {
           throw new ProviderError(

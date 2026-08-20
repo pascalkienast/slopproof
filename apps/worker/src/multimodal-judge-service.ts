@@ -110,42 +110,33 @@ export async function runMultimodalJudgeEvaluation(
       loadedFrames.frames,
     );
     let providerResult;
-    if (providerInput.frames.length === 0) {
+    try {
+      providerResult = validateMultimodalJudgeProviderResultV1(
+        await runUntilMultimodalDeadline(context.data, now(), () =>
+          dependencies.provider.evaluate(providerInput, context.data),
+        ),
+        providerInput,
+        [
+          dependencies.provider.descriptor,
+          ...(dependencies.provider.transportFallbackDescriptor === undefined
+            ? []
+            : [dependencies.provider.transportFallbackDescriptor]),
+        ],
+      );
+      assertProviderCompletionBounds(
+        providerResult.metadata.completedAt,
+        requestStartedAt,
+        now(),
+        context.data.deadlineAt,
+      );
+    } catch (error) {
+      if (isMultimodalDeadlineError(error)) throw multimodalDeadlineError();
       providerResult = manualReviewFallbackMultimodalJudgeResultV1(
         providerInput,
         dependencies.provider.descriptor,
-        frameWarnings,
+        [...frameWarnings, "provider_evaluation_unavailable"],
         now(),
       );
-    } else {
-      try {
-        providerResult = validateMultimodalJudgeProviderResultV1(
-          await runUntilMultimodalDeadline(context.data, now(), () =>
-            dependencies.provider.evaluate(providerInput, context.data),
-          ),
-          providerInput,
-          [
-            dependencies.provider.descriptor,
-            ...(dependencies.provider.transportFallbackDescriptor === undefined
-              ? []
-              : [dependencies.provider.transportFallbackDescriptor]),
-          ],
-        );
-        assertProviderCompletionBounds(
-          providerResult.metadata.completedAt,
-          requestStartedAt,
-          now(),
-          context.data.deadlineAt,
-        );
-      } catch (error) {
-        if (isMultimodalDeadlineError(error)) throw multimodalDeadlineError();
-        providerResult = manualReviewFallbackMultimodalJudgeResultV1(
-          providerInput,
-          dependencies.provider.descriptor,
-          [...frameWarnings, "provider_evaluation_unavailable"],
-          now(),
-        );
-      }
     }
     const completedAt = now();
     assertBeforeMultimodalDeadline(context.data, completedAt);
