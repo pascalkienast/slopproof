@@ -83,6 +83,7 @@ type PracticeView =
         deleteAfter: string;
         questions: PracticeQuestion[];
         pendingQuestionIds: string[];
+        answersByQuestionId: Record<string, string>;
         feedbackByQuestionId: Record<string, PracticeFeedback>;
       };
     };
@@ -111,13 +112,17 @@ export function PracticeClient({
   );
   const [pollAttempts, setPollAttempts] = useState(0);
 
-  const applyView = useCallback((next: PracticeView) => {
-    setView(next);
-    setError(null);
-    if (next.state === "ready" && next.practiceSession) {
-      setPendingQuestionIds(new Set(next.practiceSession.pendingQuestionIds));
-    }
-  }, []);
+  const applyView = useCallback(
+    (next: PracticeView) => {
+      setView(next);
+      setError(null);
+      if (next.state === "ready" && next.practiceSession) {
+        rememberPracticeSessionId(revisionId, next.practiceSession.id);
+        setPendingQuestionIds(new Set(next.practiceSession.pendingQuestionIds));
+      }
+    },
+    [revisionId],
+  );
 
   const refresh = useCallback(async () => {
     const sessionId =
@@ -138,8 +143,19 @@ export function PracticeClient({
           });
           if (!login.ok) throw new Error("demo_session_failed");
         }
-        const initial = await requestPractice(revisionId, "GET");
-        if (active) applyView(initial);
+        const storedSessionId = readStoredPracticeSessionId(revisionId);
+        const initial = await requestPractice(
+          revisionId,
+          "GET",
+          storedSessionId,
+        );
+        if (initial.state === "unavailable" && storedSessionId !== undefined) {
+          forgetPracticeSessionId(revisionId);
+          const retry = await requestPractice(revisionId, "GET");
+          if (active) applyView(retry);
+        } else if (active) {
+          applyView(initial);
+        }
       } catch {
         if (active) {
           setError(
@@ -391,6 +407,12 @@ function PracticeWorkspace({
               <PracticeQuestionCard
                 key={activeQuestion.id}
                 question={activeQuestion}
+                {...(practiceSession.answersByQuestionId[activeQuestion.id]
+                  ? {
+                      submittedAnswer:
+                        practiceSession.answersByQuestionId[activeQuestion.id],
+                    }
+                  : {})}
                 {...(practiceSession.feedbackByQuestionId[activeQuestion.id]
                   ? {
                       feedback:
@@ -511,12 +533,14 @@ function DiffEvidence({ evidence }: { evidence: string }) {
 
 function PracticeQuestionCard({
   question,
+  submittedAnswer,
   feedback,
   pending,
   disabled,
   onSubmit,
 }: {
   question: PracticeQuestion;
+  submittedAnswer?: string;
   feedback?: PracticeFeedback;
   pending: boolean;
   disabled: boolean;
@@ -525,7 +549,14 @@ function PracticeQuestionCard({
   const [answer, setAnswer] = useState("");
   const byteLength = new TextEncoder().encode(answer.trim()).byteLength;
   const canSubmit =
-    !feedback && !pending && !disabled && byteLength > 0 && byteLength <= 4_000;
+    !feedback &&
+    !pending &&
+    submittedAnswer === undefined &&
+    !disabled &&
+    byteLength > 0 &&
+    byteLength <= 4_000;
+  const showComposer =
+    feedback === undefined && submittedAnswer === undefined && !pending;
 
   return (
     <article className="choice-card practice-question-card">
@@ -535,6 +566,12 @@ function PracticeQuestionCard({
       </div>
       <h3>{question.prompt}</h3>
       <References references={question.patchReferences} />
+      {submittedAnswer ? (
+        <section className="practice-submitted-answer">
+          <p className="eyebrow">Your explanation</p>
+          <p>{submittedAnswer}</p>
+        </section>
+      ) : null}
       {feedback ? (
         <div className="practice-feedback" aria-live="polite">
           <FeedbackBlock
@@ -547,7 +584,7 @@ function PracticeQuestionCard({
           />
           <FeedbackBlock title="Hint for another pass" value={feedback.hint} />
         </div>
-      ) : (
+      ) : showComposer ? (
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -575,13 +612,12 @@ function PracticeQuestionCard({
               {pending ? "Preparing private feedback…" : "Get a concrete hint"}
             </button>
           </div>
-          {pending ? (
-            <p className="practice-muted" aria-live="polite">
-              Feedback is queued. It does not delay or affect your proof.
-            </p>
-          ) : null}
         </form>
-      )}
+      ) : pending ? (
+        <p className="practice-muted" aria-live="polite">
+          Feedback is queued. It does not delay or affect your proof.
+        </p>
+      ) : null}
     </article>
   );
 }
@@ -677,6 +713,38 @@ class PracticeRequestFailure extends Error {
   ) {
     super("practice_request_failed");
     this.name = "PracticeRequestFailure";
+  }
+}
+
+function practiceSessionStorageKey(revisionId: string): string {
+  return `slopproof:practice-session:${revisionId}`;
+}
+
+function readStoredPracticeSessionId(revisionId: string): string | undefined {
+  try {
+    const raw = sessionStorage.getItem(practiceSessionStorageKey(revisionId));
+    return raw !== null && /^[0-9a-f-]{36}$/iu.test(raw) ? raw : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function rememberPracticeSessionId(
+  revisionId: string,
+  sessionId: string,
+): void {
+  try {
+    sessionStorage.setItem(practiceSessionStorageKey(revisionId), sessionId);
+  } catch {
+    // Restoring the private session after reload is best-effort.
+  }
+}
+
+function forgetPracticeSessionId(revisionId: string): void {
+  try {
+    sessionStorage.removeItem(practiceSessionStorageKey(revisionId));
+  } catch {
+    // Ignoring storage failures keeps practice usable.
   }
 }
 

@@ -39,8 +39,10 @@ export const WORKER_EVIDENCE_RESPONSE_HEADERS = [
  *
  * GET  /internal/practice/:revisionId reads the author's private view.
  * POST /internal/practice/:revisionId starts a session or submits one answer.
- * Neither response contains answers, provider payloads, invocation metadata,
- * proof questions, rubrics, scores, or object-store references.
+ * The owner view may include that author's submitted answers
+ * (`answersByQuestionId`). Responses never include provider payloads,
+ * invocation metadata, proof questions, rubrics, scores, or object-store
+ * references, and answer text is never written to GitHub checks.
  */
 export const WORKER_PRACTICE_PATH = "/internal/practice" as const;
 export const WORKER_PRACTICE_MAX_REQUEST_BYTES = 8 * 1024;
@@ -111,6 +113,17 @@ const PracticeSessionWireSchema = z
     deleteAfter: IsoInstantSchema,
     questions: z.array(PracticeQuestionV2Schema).min(3).max(5),
     pendingQuestionIds: z.array(z.string().uuid()).max(5),
+    answersByQuestionId: z.record(
+      z.string().uuid(),
+      z
+        .string()
+        .min(1)
+        .max(4_000)
+        .refine(
+          (value) =>
+            Buffer.byteLength(value, "utf8") <= PRACTICE_ANSWER_MAX_UTF8_BYTES,
+        ),
+    ),
     feedbackByQuestionId: z.record(
       z.string().uuid(),
       PracticeFeedbackWireSchema,
@@ -127,7 +140,8 @@ const PracticeSessionWireSchema = z
       session.pendingQuestionIds.some(
         (questionId) =>
           !questionIds.has(questionId) ||
-          session.feedbackByQuestionId[questionId] !== undefined,
+          session.feedbackByQuestionId[questionId] !== undefined ||
+          session.answersByQuestionId[questionId] === undefined,
       )
     ) {
       context.addIssue({
@@ -136,12 +150,22 @@ const PracticeSessionWireSchema = z
         message: "Pending practice questions are not bound to this session",
       });
     }
+    for (const questionId of Object.keys(session.answersByQuestionId)) {
+      if (!questionIds.has(questionId)) {
+        context.addIssue({
+          code: "custom",
+          path: ["answersByQuestionId", questionId],
+          message: "Practice answer is not bound to a visible question",
+        });
+      }
+    }
     for (const [questionId, feedback] of Object.entries(
       session.feedbackByQuestionId,
     )) {
       if (
         !questionIds.has(questionId) ||
-        feedback.practiceQuestionId !== questionId
+        feedback.practiceQuestionId !== questionId ||
+        session.answersByQuestionId[questionId] === undefined
       ) {
         context.addIssue({
           code: "custom",

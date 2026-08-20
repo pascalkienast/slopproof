@@ -72,7 +72,7 @@ describe("Hetzner semantic provider adapters", () => {
         temperature: 0,
         stream: true,
         chat_template_kwargs: { thinking: false },
-        max_tokens: [6_000, 2_000, 6_000][index],
+        max_tokens: [6_000, 6_000, 6_000][index],
         response_format: {
           type: "json_schema",
           json_schema: {

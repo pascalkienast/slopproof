@@ -128,6 +128,7 @@ export type PracticeView =
         deleteAfter: Date;
         questions: PracticeQuestionV2[];
         pendingQuestionIds: string[];
+        answersByQuestionId: Record<string, string>;
         feedbackByQuestionId: Record<string, PracticeFeedbackV1>;
       };
     };

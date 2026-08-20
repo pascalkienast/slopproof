@@ -589,6 +589,10 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
       "SELECT encrypted_payload FROM semantic_practice_answers",
     );
     expect(answer.rows[0]?.encrypted_payload).not.toContain("cache-miss");
+    const audits = await database.pool.query(
+      "SELECT metadata FROM audit_events",
+    );
+    expect(JSON.stringify(audits.rows)).not.toContain("cache-miss");
     const pending = await repository.readPracticeView({
       repositoryId: IDS.repository,
       revisionId: IDS.revision,
@@ -600,6 +604,9 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
       throw new Error("Pending Practice view not ready");
     }
     expect(pending.practiceSession.pendingQuestionIds).toEqual([question.id]);
+    expect(pending.practiceSession.answersByQuestionId).toEqual({
+      [question.id]: "I compare the removed and added cache-miss behavior.",
+    });
 
     await handlers["semantic.generate-practice-feedback"]({
       schemaVersion: "1",
@@ -626,6 +633,9 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
       throw new Error("Feedback Practice view not ready");
     }
     expect(withFeedback.practiceSession.pendingQuestionIds).toEqual([]);
+    expect(withFeedback.practiceSession.answersByQuestionId[question.id]).toBe(
+      "I compare the removed and added cache-miss behavior.",
+    );
     expect(
       withFeedback.practiceSession.feedbackByQuestionId[question.id]?.createdAt,
     ).toBeInstanceOf(Date);

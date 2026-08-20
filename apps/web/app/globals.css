@@ -1353,6 +1353,19 @@ h2 {
   opacity: 0.58;
 }
 
+.practice-submitted-answer {
+  margin-top: 24px;
+  padding: 18px;
+  border: 1.5px solid var(--ink);
+  border-radius: 12px;
+  background: var(--sheet);
+}
+
+.practice-submitted-answer p {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
 .practice-feedback {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

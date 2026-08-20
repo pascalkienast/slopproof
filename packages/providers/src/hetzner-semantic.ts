@@ -218,7 +218,7 @@ const LEARNING_SPECIFICATION = Object.freeze({
 
 const PRACTICE_SPECIFICATION = Object.freeze({
   purpose: "practice_feedback",
-  maximumOutputTokens: 2_000,
+  maximumOutputTokens: 6_000,
   responseSchema: responseJsonSchema(CompactPracticeFeedbackResponseSchema),
   outputContract:
     "PracticeFeedbackCandidateV1: understood, missingPatchDetail and hint as anchored statements; scoreIncluded=false; modelAnswerIncluded=false. Feedback must stay within the supplied practice question anchors and must provide a hint, never a model answer.",
