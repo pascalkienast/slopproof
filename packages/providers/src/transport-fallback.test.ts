@@ -13,8 +13,10 @@ import type {
   SemanticProviderRepairInstructionV1,
 } from "./learning-proof";
 import {
+  SEMANTIC_TRANSPORT_FALLBACK_RESERVE_MS,
   TransportFallbackMultimodalJudgeProvider,
   TransportFallbackSemanticProvider,
+  reserveTransportFallbackDeadline,
 } from "./transport-fallback";
 
 const CONTEXT: SemanticProviderCallContextV1 = {
@@ -36,6 +38,67 @@ const REPAIR: SemanticProviderRepairInstructionV1 = {
 };
 
 describe("TransportFallbackSemanticProvider", () => {
+  it("reserves hop time so a primary deadline still invokes Qwen", async () => {
+    const start = Date.parse("2026-08-18T12:00:00.000Z");
+    const deadlineAt = new Date(start + 8 * 60_000);
+    const primary = stubSemanticProvider(
+      { provider: "openrouter", model: "xiaomi/mimo-v2.5" },
+      {
+        generate: () => {
+          throw new ProviderError(
+            "DEADLINE_EXCEEDED",
+            "retryable",
+            "Semantic provider deadline elapsed",
+            {
+              telemetry: {
+                lastFailureKind: "timeout",
+                httpStatusClass: null,
+                transportAttemptCount: 1,
+              },
+            },
+          );
+        },
+        repair: () => {
+          throw new Error("repair must not run");
+        },
+      },
+    );
+    const fallback = stubSemanticProvider(
+      { provider: "hetzner-inference", model: "hetzner-proof" },
+      {
+        generate: () => semanticResponse("hopped-proof"),
+        repair: () => {
+          throw new Error("repair must not run");
+        },
+      },
+    );
+
+    const result = await new TransportFallbackSemanticProvider(
+      primary,
+      fallback,
+      { now: () => start },
+    ).generate({ task: "proof" }, { ...CONTEXT, deadlineAt });
+
+    expect(primary.generate).toHaveBeenCalledTimes(1);
+    expect(primary.generate.mock.calls[0]?.[1]?.deadlineAt).toEqual(
+      new Date(deadlineAt.getTime() - SEMANTIC_TRANSPORT_FALLBACK_RESERVE_MS),
+    );
+    expect(fallback.generate).toHaveBeenCalledTimes(1);
+    expect(fallback.generate.mock.calls[0]?.[1]?.deadlineAt).toEqual(
+      deadlineAt,
+    );
+    expect(result).toMatchObject({
+      output: "hopped-proof",
+      answeredBy: {
+        provider: "hetzner-inference",
+        model: "hetzner-proof",
+      },
+    });
+    expect(reserveTransportFallbackDeadline(deadlineAt, start).getTime()).toBe(
+      deadlineAt.getTime() - SEMANTIC_TRANSPORT_FALLBACK_RESERVE_MS,
+    );
+  });
+
   it("records the Hetzner hop after a primary transport failure", async () => {
     const primary = stubSemanticProvider(
       { provider: "openrouter", model: "xiaomi/mimo-v2.5" },
@@ -552,8 +615,17 @@ function stubSemanticProvider(
 ) {
   return {
     descriptor,
-    generate: vi.fn(async () => behavior.generate()),
-    repair: vi.fn(async () => behavior.repair()),
+    generate: vi.fn(
+      async (_input: unknown, _context: SemanticProviderCallContextV1) =>
+        behavior.generate(),
+    ),
+    repair: vi.fn(
+      async (
+        _input: unknown,
+        _instruction: SemanticProviderRepairInstructionV1,
+        _context: SemanticProviderCallContextV1,
+      ) => behavior.repair(),
+    ),
   };
 }
 

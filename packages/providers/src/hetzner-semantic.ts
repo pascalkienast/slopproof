@@ -34,9 +34,9 @@ import {
 import { z } from "zod";
 
 const MAX_HTTP_ATTEMPTS = 3;
-// Streaming activity resets this timeout. The generation run's absolute
-// server deadline remains the hard upper bound for a continuously active
-// response.
+// Only output tokens, finish_reason, or usage reset this timeout.
+// SSE comments and empty keepalives must not consume the generation budget.
+// The run deadline remains the hard upper bound once tokens are flowing.
 const DEFAULT_ATTEMPT_TIMEOUT_MS = 120_000;
 const MAX_RESPONSE_BYTES = 1024 * 1_024;
 const DEFAULT_MAX_RESPONSE_BYTES = MAX_RESPONSE_BYTES;
@@ -670,7 +670,7 @@ async function requestStreamWithRetry(input: {
 async function readBoundedSseResponse(
   response: Response,
   maximumBytes: number,
-  registerActivity: () => void,
+  registerGenerationProgress: () => void,
 ): Promise<Omit<StreamRequestResult, "transportAttemptCount">> {
   const contentType = response.headers
     .get("content-type")
@@ -724,6 +724,7 @@ async function readBoundedSseResponse(
     const chunk = OpenAiStreamChunkSchema.safeParse(parsed);
     if (!chunk.success) throw new SafeProtocolError("malformed_response");
     const choice = chunk.data.choices[0];
+    let progressed = false;
     if (choice?.delta.content !== undefined && choice.delta.content !== null) {
       const deltaBytes = Buffer.byteLength(choice.delta.content, "utf8");
       if (contentBytes + deltaBytes > MAX_MODEL_CONTENT_BYTES) {
@@ -731,12 +732,14 @@ async function readBoundedSseResponse(
       }
       content += choice.delta.content;
       contentBytes += deltaBytes;
+      if (choice.delta.content.length > 0) progressed = true;
     }
     if (choice?.finish_reason !== undefined && choice.finish_reason !== null) {
       if (finishReason !== null && finishReason !== choice.finish_reason) {
         throw new SafeProtocolError("malformed_response");
       }
       finishReason = choice.finish_reason;
+      progressed = true;
     }
     if (chunk.data.usage !== undefined) {
       const parsedUsage = OpenAiUsageSchema.safeParse(chunk.data.usage);
@@ -747,7 +750,9 @@ async function readBoundedSseResponse(
         inputTokens: parsedUsage.data.prompt_tokens,
         outputTokens: parsedUsage.data.completion_tokens,
       };
+      progressed = true;
     }
+    if (progressed) registerGenerationProgress();
   };
 
   const acceptLine = (rawLine: string): void => {
@@ -787,7 +792,6 @@ async function readBoundedSseResponse(
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      registerActivity();
       bytesRead += value.byteLength;
       if (bytesRead > maximumBytes) {
         await reader.cancel();

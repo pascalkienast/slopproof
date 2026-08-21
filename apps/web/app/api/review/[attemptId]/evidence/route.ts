@@ -4,9 +4,10 @@ import {
   verifyEvidenceCapability,
 } from "../../../../../lib/evidence-capability";
 import {
-  WORKER_EVIDENCE_RESPONSE_HEADERS,
-  WORKER_REVIEW_EVIDENCE_PATH,
-} from "../../../../../lib/evidence-worker-contract";
+  evidenceProxyResponseHeaders,
+  tapEvidenceProxyBody,
+} from "../../../../../lib/evidence-proxy";
+import { WORKER_REVIEW_EVIDENCE_PATH } from "../../../../../lib/evidence-worker-contract";
 import {
   requestCookieValue,
   requireSession,
@@ -26,6 +27,10 @@ import {
 } from "../../../../../lib/request-rate-limit";
 import { logWebEvidenceStream } from "../../../../../lib/evidence-stream-log";
 import { getWebRuntime } from "../../../../../lib/runtime";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export async function GET(
   request: Request,
@@ -101,6 +106,13 @@ export async function GET(
       app.config.WORKER_INTERNAL_URL,
     );
     const aborted = { value: false };
+    const bytesReceived = { value: 0 };
+    const bytesExpected = { value: null as number | null };
+    logWebEvidenceStream({
+      attemptId,
+      stage: "proxy",
+      aborted: false,
+    });
     request.signal.addEventListener(
       "abort",
       () => {
@@ -109,6 +121,8 @@ export async function GET(
           attemptId,
           stage: "proxy",
           aborted: true,
+          bytesExpected: bytesExpected.value,
+          bytesReceived: bytesReceived.value,
         });
       },
       { once: true },
@@ -148,28 +162,23 @@ export async function GET(
       return jsonError("evidence_unavailable", 503);
     }
 
-    const declaredLength = Number(upstream.headers.get("content-length"));
-    const headers = new Headers({
-      "cache-control": "private, no-store, max-age=0",
-      "content-disposition": "inline",
-      "x-content-type-options": "nosniff",
-    });
-    for (const name of WORKER_EVIDENCE_RESPONSE_HEADERS) {
-      const value = upstream.headers.get(name);
-      if (value !== null) headers.set(name, value);
-    }
+    const { headers, declaredLength } = evidenceProxyResponseHeaders(
+      upstream.headers,
+    );
+    bytesExpected.value = declaredLength ?? null;
     logWebEvidenceStream({
       attemptId,
       stage: "proxy",
       httpStatus: 200,
       contentTypePresent: true,
-      contentLengthPresent: Number.isSafeInteger(declaredLength),
-      bytesExpected: Number.isSafeInteger(declaredLength)
-        ? declaredLength
-        : null,
+      contentLengthPresent: declaredLength !== undefined,
+      bytesExpected: declaredLength ?? null,
       aborted: aborted.value,
     });
-    const response = new NextResponse(upstream.body, {
+    const body = tapEvidenceProxyBody(upstream.body, (received) => {
+      bytesReceived.value = received;
+    });
+    const response = new NextResponse(body, {
       status: 200,
       headers,
     });

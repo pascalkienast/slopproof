@@ -507,25 +507,48 @@ export class HetznerMultimodalJudgeProvider implements InlineMultimodalJudgeProv
     let usedModelFallback = false;
     let tokenUsage: TokenUsage = null;
     let initial: { output: unknown; tokenUsage: TokenUsage };
-    try {
-      initial = await this.invoke(
-        input.data,
-        context.data.deadlineAt,
-        actualModel,
-        undefined,
-        input.data.frames.length > 0 &&
-          this.descriptor.visionModel !== this.descriptor.model,
-      );
-    } catch (error) {
-      if (!(error instanceof VisionCapabilityRejectedError)) throw error;
-      actualModel = this.descriptor.visionModel;
-      invocationCount = 2;
-      usedModelFallback = true;
-      initial = await this.invoke(
-        input.data,
-        context.data.deadlineAt,
-        actualModel,
-      );
+    const hasFrames = input.data.frames.length > 0;
+    const distinctVision =
+      hasFrames && this.descriptor.visionModel !== this.descriptor.model;
+    if (this.descriptor.provider === "hetzner-inference" && distinctVision) {
+      try {
+        actualModel = this.descriptor.visionModel;
+        initial = await this.invoke(
+          input.data,
+          context.data.deadlineAt,
+          actualModel,
+        );
+      } catch (error) {
+        if (!isVisionStyleRequestRejected(error)) throw error;
+        actualModel = this.descriptor.model;
+        invocationCount = 2;
+        usedModelFallback = true;
+        initial = await this.invoke(
+          { ...input.data, frames: [] },
+          context.data.deadlineAt,
+          actualModel,
+        );
+      }
+    } else {
+      try {
+        initial = await this.invoke(
+          input.data,
+          context.data.deadlineAt,
+          actualModel,
+          undefined,
+          distinctVision,
+        );
+      } catch (error) {
+        if (!(error instanceof VisionCapabilityRejectedError)) throw error;
+        actualModel = this.descriptor.visionModel;
+        invocationCount = 2;
+        usedModelFallback = true;
+        initial = await this.invoke(
+          input.data,
+          context.data.deadlineAt,
+          actualModel,
+        );
+      }
     }
     tokenUsage = addTokenUsage(tokenUsage, initial.tokenUsage);
     let candidate: MultimodalJudgeCandidateV1;
@@ -598,7 +621,9 @@ export class HetznerMultimodalJudgeProvider implements InlineMultimodalJudgeProv
     },
     allowVisionCapabilityFallback = false,
   ): Promise<{ output: unknown; tokenUsage: TokenUsage }> {
-    const body = JSON.stringify(buildRequestBody(input, model, repair));
+    const body = JSON.stringify(
+      buildRequestBody(input, model, this.descriptor.provider, repair),
+    );
     if (Buffer.byteLength(body, "utf8") > MAX_REQUEST_BYTES) {
       throw invalidInputError();
     }
@@ -882,12 +907,14 @@ export const PROOF_JUDGE_SYSTEM_V2 = [
 function buildRequestBody(
   input: MultimodalJudgeProviderInputV1,
   model: string,
+  provider: string,
   repair?: {
     validationCode: CandidateValidationCode;
     invalidOutputHash: string;
     maximumAdditionalAttempts: 1;
   },
 ) {
+  const hetzner = provider === "hetzner-inference";
   const frameMetadata = input.frames.map((frame, index) => ({
     index,
     timestampMs: frame.timestampMs,
@@ -910,29 +937,34 @@ function buildRequestBody(
     { type: "text", text: JSON.stringify(providerData) },
   ];
   for (const frame of input.frames) {
+    const url = `data:image/jpeg;base64,${Buffer.from(frame.jpegBytes).toString("base64")}`;
     userContent.push({
       type: "image_url",
-      image_url: {
-        url: `data:image/jpeg;base64,${Buffer.from(frame.jpegBytes).toString("base64")}`,
-        detail: "low",
-      },
+      image_url: hetzner ? { url } : { url, detail: "low" },
     });
   }
+  const includeStructuredOutput = !hetzner || input.frames.length === 0;
   return {
     model,
     store: false,
-    tools: [],
     stream: false,
     temperature: 0,
     max_tokens: 6_000,
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "slopproof_multimodal_judge_v1",
-        strict: true,
-        schema: responseJsonSchema,
-      },
-    },
+    ...(hetzner
+      ? { chat_template_kwargs: { thinking: false } }
+      : { tools: [] }),
+    ...(includeStructuredOutput
+      ? {
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "slopproof_multimodal_judge_v1",
+              strict: true,
+              schema: responseJsonSchema,
+            },
+          },
+        }
+      : {}),
     messages: [
       {
         role: "system",
@@ -1352,6 +1384,17 @@ class VisionCapabilityRejectedError extends Error {
     super("Primary model rejected the bounded multimodal request shape");
     this.name = "VisionCapabilityRejectedError";
   }
+}
+
+function isVisionStyleRequestRejected(error: unknown): boolean {
+  if (error instanceof VisionCapabilityRejectedError) return true;
+  if (!(error instanceof ProviderError) || error.disposition !== "terminal") {
+    return false;
+  }
+  const status = error.telemetry?.httpStatus;
+  return (
+    status !== undefined && VISION_CAPABILITY_REJECTED_STATUSES.has(status)
+  );
 }
 
 type ResponseStatusMarker = { readonly marker: true; readonly status: number };

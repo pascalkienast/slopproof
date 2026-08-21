@@ -12,6 +12,7 @@ const ATTEMPT_ID = "53000000-0000-4000-8000-000000000001";
 describe("private review stream failures", () => {
   it("reports attemptId, stage, and error class without capability secrets", async () => {
     const failure = vi.fn<(value: ReviewStreamFailure) => void>();
+    const started = vi.fn();
     const output = responseFixture();
 
     await expect(
@@ -27,11 +28,18 @@ describe("private review stream failures", () => {
           storage: {} as S3EvidenceStore,
           privateKeyPath: "/run/secrets/wrapping-private.pem",
           capabilitySecret: "review-stream-test-secret-000000000000",
+          onEvent: started,
           onFailure: failure,
         },
       ),
     ).resolves.toBe(true);
 
+    expect(started).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptId: ATTEMPT_ID,
+        stage: "capability",
+      }),
+    );
     expect(failure).toHaveBeenCalledOnce();
     expect(failure).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -183,15 +183,25 @@ async function attemptEvidencePlayback(input: {
       bytesExpected: declaredLength ?? null,
       bytesReceived: blob.size,
     });
-    if (
-      blob.size <= 0 ||
-      blob.size > MAX_RECORDING_OBJECT_BYTES ||
-      (declaredLength !== undefined && blob.size !== declaredLength)
-    ) {
+    if (blob.size <= 0 || blob.size > MAX_RECORDING_OBJECT_BYTES) {
       throw new EvidencePlaybackError(
         "transfer_incomplete",
         "The recording transfer was interrupted. Request fresh access and try again.",
         true,
+      );
+    }
+    if (declaredLength !== undefined && blob.size < declaredLength) {
+      throw new EvidencePlaybackError(
+        "transfer_incomplete",
+        "The recording transfer was interrupted. Request fresh access and try again.",
+        true,
+      );
+    }
+    if (!(await looksLikeWebm(blob))) {
+      throw new EvidencePlaybackError(
+        "stream_rejected",
+        "The evidence stream was rejected.",
+        false,
       );
     }
     return {
@@ -216,6 +226,19 @@ function parseDeclaredLength(raw: string | null): number | undefined {
   if (raw === null || raw.trim() === "") return undefined;
   const value = Number(raw);
   return Number.isSafeInteger(value) ? value : undefined;
+}
+
+const WEBM_EBML = [0x1a, 0x45, 0xdf, 0xa3] as const;
+
+async function looksLikeWebm(blob: Blob): Promise<boolean> {
+  const prefix = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+  return (
+    prefix.byteLength >= 4 &&
+    prefix[0] === WEBM_EBML[0] &&
+    prefix[1] === WEBM_EBML[1] &&
+    prefix[2] === WEBM_EBML[2] &&
+    prefix[3] === WEBM_EBML[3]
+  );
 }
 
 function asPlaybackError(error: unknown): EvidencePlaybackError {

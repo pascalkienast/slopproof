@@ -179,5 +179,8 @@ export function loggerOptions(
 }
 
 export function createLogger(identity: LogIdentity, level = "info"): Logger {
-  return pino(loggerOptions(identity, level));
+  return pino(
+    loggerOptions(identity, level),
+    pino.destination({ dest: 1, sync: true, minLength: 0 }),
+  );
 }

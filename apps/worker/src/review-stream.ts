@@ -122,6 +122,7 @@ export async function handleReviewEvidenceRequest(
       dependencies.onFailure?.(payload);
     }
   };
+  emit();
   try {
     const capability = verifyWorkerEvidenceCapability(
       bearer,
