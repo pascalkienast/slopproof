@@ -1561,7 +1561,9 @@ describe("provider worker pipeline", () => {
       }),
       "worker.evaluation.run",
     );
-    expect(JSON.stringify(info.mock.calls)).not.toContain("private raw provider");
+    expect(JSON.stringify(info.mock.calls)).not.toContain(
+      "private raw provider",
+    );
     expect(JSON.stringify(info.mock.calls)).not.toContain("API key");
     expect(
       JSON.stringify(sidecars.persisted?.multimodalEvaluation),

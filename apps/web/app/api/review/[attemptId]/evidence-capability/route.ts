@@ -111,7 +111,9 @@ export async function POST(
         attemptId,
         stage: "capability",
         errorClass: error instanceof Error ? error.name : "UnknownError",
-        ...(error instanceof InvalidRequestBodyError ? { httpStatus: 400 } : {}),
+        ...(error instanceof InvalidRequestBodyError
+          ? { httpStatus: 400 }
+          : {}),
       });
     }
     if (error instanceof InvalidRequestBodyError) {

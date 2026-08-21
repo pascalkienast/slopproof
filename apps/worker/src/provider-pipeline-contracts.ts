@@ -201,7 +201,9 @@ export const ProviderPipelineStageResultV1Schema = z
         outcome: z.enum(["generated", "repaired", "fallback"]),
         hopUsed: JudgeHopUsedSchema.optional(),
         httpStatus: z.number().int().min(100).max(599).optional(),
-        errorClass: z.enum(["ProviderError", "Error", "UnknownError"]).optional(),
+        errorClass: z
+          .enum(["ProviderError", "Error", "UnknownError"])
+          .optional(),
         errorCode: z.enum(PROVIDER_ERROR_CODES).optional(),
         disposition: z.enum(["retryable", "terminal", "review"]).optional(),
         lastFailureKind: z.enum(PROVIDER_FAILURE_KINDS).optional(),

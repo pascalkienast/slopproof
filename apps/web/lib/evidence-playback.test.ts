@@ -15,14 +15,11 @@ describe("review evidence playback", () => {
 
   it("plays a valid WebM body when Content-Length is missing", async () => {
     const objectUrl = "blob:evidence-missing-length";
-    vi.stubGlobal(
-      "URL",
-      {
-        ...URL,
-        createObjectURL: vi.fn(() => objectUrl),
-        revokeObjectURL: vi.fn(),
-      } as unknown as typeof URL,
-    );
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => objectUrl),
+      revokeObjectURL: vi.fn(),
+    } as unknown as typeof URL);
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -53,14 +50,11 @@ describe("review evidence playback", () => {
 
   it("retries an aborted transfer with a fresh capability and then plays", async () => {
     const objectUrl = "blob:evidence-after-retry";
-    vi.stubGlobal(
-      "URL",
-      {
-        ...URL,
-        createObjectURL: vi.fn(() => objectUrl),
-        revokeObjectURL: vi.fn(),
-      } as unknown as typeof URL,
-    );
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => objectUrl),
+      revokeObjectURL: vi.fn(),
+    } as unknown as typeof URL);
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -123,23 +117,21 @@ describe("review evidence playback", () => {
           },
         }),
       );
-    fetchImpl
-      .mockReset()
-      .mockImplementation(async (url) => {
-        if (String(url).includes("evidence-capability")) {
-          return jsonResponse({
-            streamUrl: `/api/review/${ATTEMPT_ID}/evidence`,
-            expiresAt: "2026-08-21T14:30:00.000Z",
-          });
-        }
-        return new Response(WEBM, {
-          status: 200,
-          headers: {
-            "content-type": "video/webm",
-            "content-length": "11301489",
-          },
+    fetchImpl.mockReset().mockImplementation(async (url) => {
+      if (String(url).includes("evidence-capability")) {
+        return jsonResponse({
+          streamUrl: `/api/review/${ATTEMPT_ID}/evidence`,
+          expiresAt: "2026-08-21T14:30:00.000Z",
         });
+      }
+      return new Response(WEBM, {
+        status: 200,
+        headers: {
+          "content-type": "video/webm",
+          "content-length": "11301489",
+        },
       });
+    });
 
     await expect(
       loadReviewEvidencePlayback({
@@ -159,14 +151,11 @@ describe("review evidence playback", () => {
 
   it("keeps a matching Content-Length success path unchanged", async () => {
     const objectUrl = "blob:evidence-success";
-    vi.stubGlobal(
-      "URL",
-      {
-        ...URL,
-        createObjectURL: vi.fn(() => objectUrl),
-        revokeObjectURL: vi.fn(),
-      } as unknown as typeof URL,
-    );
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => objectUrl),
+      revokeObjectURL: vi.fn(),
+    } as unknown as typeof URL);
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(

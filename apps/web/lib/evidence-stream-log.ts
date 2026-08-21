@@ -26,8 +26,12 @@ export function logWebEvidenceStream(fields: {
         ? {}
         : { contentLengthPresent: fields.contentLengthPresent }),
       ...(fields.aborted === undefined ? {} : { aborted: fields.aborted }),
-      ...(fields.httpStatus === undefined ? {} : { httpStatus: fields.httpStatus }),
-      ...(fields.errorClass === undefined ? {} : { errorClass: fields.errorClass }),
+      ...(fields.httpStatus === undefined
+        ? {}
+        : { httpStatus: fields.httpStatus }),
+      ...(fields.errorClass === undefined
+        ? {}
+        : { errorClass: fields.errorClass }),
     },
     "web.evidence.stream",
   );

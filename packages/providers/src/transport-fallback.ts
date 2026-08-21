@@ -106,10 +106,7 @@ export class TransportFallbackMultimodalJudgeProvider implements InlineMultimoda
       try {
         return await this.fallback.evaluate(input, context);
       } catch (fallbackError) {
-        throw annotateProviderErrorHopUsed(
-          fallbackError,
-          "transport_fallback",
-        );
+        throw annotateProviderErrorHopUsed(fallbackError, "transport_fallback");
       }
     }
   }
