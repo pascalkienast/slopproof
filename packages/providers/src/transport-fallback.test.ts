@@ -428,6 +428,96 @@ describe("TransportFallbackMultimodalJudgeProvider", () => {
     ).rejects.toMatchObject({ code: "INVALID_OUTPUT" });
     expect(fallback.evaluate).not.toHaveBeenCalled();
   });
+
+  it("annotates hopUsed=primary when the judge does not hop", async () => {
+    const fallback = stubJudgeProvider(
+      {
+        provider: "hetzner-inference",
+        model: "hetzner-judge",
+        visionModel: "hetzner-vision",
+      },
+      () => {
+        throw new Error("fallback must not run");
+      },
+    );
+
+    await expect(
+      new TransportFallbackMultimodalJudgeProvider(
+        stubJudgeProvider(
+          {
+            provider: "openrouter",
+            model: "xiaomi/mimo-v2.5",
+            visionModel: "xiaomi/mimo-v2.5",
+          },
+          () => {
+            throw new ProviderError(
+              "INVALID_OUTPUT",
+              "review",
+              "Multimodal provider output is invalid",
+            );
+          },
+        ),
+        fallback,
+      ).evaluate({} as MultimodalJudgeProviderInputV1, judgeContext()),
+    ).rejects.toMatchObject({
+      code: "INVALID_OUTPUT",
+      hopUsed: "primary",
+    });
+    expect(fallback.evaluate).not.toHaveBeenCalled();
+  });
+
+  it("annotates hopUsed=transport_fallback after a hopped 404 then fallback failure", async () => {
+    await expect(
+      new TransportFallbackMultimodalJudgeProvider(
+        stubJudgeProvider(
+          {
+            provider: "openrouter",
+            model: "xiaomi/mimo-v2.5",
+            visionModel: "xiaomi/mimo-v2.5",
+          },
+          () => {
+            throw new ProviderError(
+              "PROVIDER_UNAVAILABLE",
+              "retryable",
+              "Multimodal provider is temporarily unavailable",
+              {
+                telemetry: {
+                  lastFailureKind: "upstream_unavailable",
+                  httpStatusClass: "4xx",
+                  transportAttemptCount: 3,
+                  httpStatus: 404,
+                },
+              },
+            );
+          },
+        ),
+        stubJudgeProvider(
+          {
+            provider: "hetzner-inference",
+            model: "hetzner-judge",
+            visionModel: "hetzner-vision",
+          },
+          () => {
+            throw new ProviderError(
+              "PROVIDER_UNAVAILABLE",
+              "retryable",
+              "Multimodal provider is temporarily unavailable",
+              {
+                telemetry: {
+                  lastFailureKind: "network",
+                  httpStatusClass: null,
+                  transportAttemptCount: 1,
+                },
+              },
+            );
+          },
+        ),
+      ).evaluate({} as MultimodalJudgeProviderInputV1, judgeContext()),
+    ).rejects.toMatchObject({
+      hopUsed: "transport_fallback",
+      telemetry: { lastFailureKind: "network" },
+    });
+  });
 });
 
 function transportUnavailable(): ProviderError {

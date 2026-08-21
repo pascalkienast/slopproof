@@ -1,8 +1,16 @@
 import { createHash } from "node:crypto";
 import { GitShaSchema, Sha256Schema, UuidSchema } from "@slopproof/domain";
 import { z } from "zod";
-import { ProviderError, isTransientUpstreamHttpStatus } from "./errors";
+import {
+  ProviderError,
+  httpStatusClassFor,
+  isTransientUpstreamHttpStatus,
+  safeHttpStatus,
+  type ProviderFailureTelemetry,
+  type ProviderHttpStatusClass,
+} from "./errors";
 import { ProviderContextV1Schema, type ProviderContextV1 } from "./contracts";
+import { JudgeEvaluateFailureDiagnosticsV1Schema } from "./judge-diagnostics";
 
 const MAX_TRANSPORT_ATTEMPTS = 3;
 const DEFAULT_ATTEMPT_TIMEOUT_MS = 20_000;
@@ -332,6 +340,7 @@ export const MultimodalJudgeInvocationMetadataV1Schema = z
     outcome: z.enum(["generated", "repaired", "fallback"]),
     degraded: z.boolean(),
     completedAt: z.date(),
+    failureDiagnostics: JudgeEvaluateFailureDiagnosticsV1Schema.optional(),
   })
   .strict();
 
@@ -417,6 +426,8 @@ type ResolvedRequestPolicy = {
 type RetryableFailure = {
   kind: "network" | "timeout" | "rate_limited" | "unavailable";
   retryAfterMs?: number;
+  httpStatus?: number;
+  httpStatusClass?: ProviderHttpStatusClass;
 };
 
 type CandidateValidationCode =
@@ -757,14 +768,20 @@ export function manualReviewFallbackMultimodalJudgeResultV1(
     "provider_evaluation_unavailable",
   ],
   completedAt: Date = new Date(),
+  diagnostics?: z.input<typeof JudgeEvaluateFailureDiagnosticsV1Schema>,
 ): MultimodalJudgeProviderResultV1 {
   const input = MultimodalJudgeProviderInputV1Schema.safeParse(rawInput);
   const descriptor =
     InlineMultimodalJudgeDescriptorV1Schema.safeParse(rawDescriptor);
+  const parsedDiagnostics =
+    diagnostics === undefined
+      ? undefined
+      : JudgeEvaluateFailureDiagnosticsV1Schema.safeParse(diagnostics);
   if (
     !input.success ||
     !descriptor.success ||
-    !Number.isFinite(completedAt.getTime())
+    !Number.isFinite(completedAt.getTime()) ||
+    (parsedDiagnostics !== undefined && !parsedDiagnostics.success)
   ) {
     throw invalidInputError();
   }
@@ -781,11 +798,14 @@ export function manualReviewFallbackMultimodalJudgeResultV1(
       inputHash: hashProviderInput(input.data),
       outputHash: hashUnknown(candidate),
       tokenUsage: null,
-      latencyMs: 0,
-      invocationCount: 0,
+      latencyMs: parsedDiagnostics?.data.latencyMs ?? 0,
+      invocationCount: parsedDiagnostics?.data.invocationCount ?? 0,
       outcome: "fallback",
       degraded: true,
       completedAt,
+      ...(parsedDiagnostics === undefined
+        ? {}
+        : { failureDiagnostics: parsedDiagnostics.data }),
     },
   });
 }
@@ -999,6 +1019,8 @@ async function requestJsonWithRetry(input: {
         } else if (error.status === 429) {
           lastFailure = {
             kind: "rate_limited",
+            httpStatusClass: "4xx",
+            httpStatus: error.status,
             ...(response === undefined
               ? {}
               : {
@@ -1009,12 +1031,25 @@ async function requestJsonWithRetry(input: {
                 }),
           };
         } else if (isTransientUpstreamHttpStatus(error.status)) {
-          lastFailure = { kind: "unavailable" };
+          lastFailure = {
+            kind: "unavailable",
+            httpStatusClass: httpStatusClassFor(error.status) ?? "5xx",
+            httpStatus: error.status,
+          };
         } else {
+          const httpStatus = safeHttpStatus(error.status);
           throw new ProviderError(
             "PROVIDER_UNAVAILABLE",
             "terminal",
             "Multimodal provider rejected the bounded request",
+            {
+              telemetry: {
+                lastFailureKind: "request_rejected",
+                httpStatusClass: httpStatusClassFor(error.status) ?? "4xx",
+                transportAttemptCount: attempt,
+                ...(httpStatus === undefined ? {} : { httpStatus }),
+              },
+            },
           );
         }
       } else {
@@ -1027,7 +1062,7 @@ async function requestJsonWithRetry(input: {
       if (timeout !== undefined) clearTimeout(timeout);
     }
     if (attempt === input.policy.maxAttempts) {
-      throw retryableProviderError(lastFailure);
+      throw retryableProviderError(lastFailure, attempt);
     }
     const delay = Math.max(
       jitteredBackoffMilliseconds(attempt, input.policy.random),
@@ -1038,7 +1073,7 @@ async function requestJsonWithRetry(input: {
     }
     await input.policy.sleep(delay);
   }
-  throw retryableProviderError(lastFailure);
+  throw retryableProviderError(lastFailure, input.policy.maxAttempts);
 }
 
 async function readBoundedResponseText(
@@ -1351,22 +1386,49 @@ function invalidOutputError(): ProviderError {
   );
 }
 
-function deadlineError(): ProviderError {
+function deadlineError(telemetry?: ProviderFailureTelemetry): ProviderError {
   return new ProviderError(
     "DEADLINE_EXCEEDED",
     "retryable",
     "Multimodal provider deadline elapsed",
+    {
+      telemetry: telemetry ?? {
+        lastFailureKind: "deadline_exceeded",
+        httpStatusClass: null,
+        transportAttemptCount: 0,
+      },
+    },
   );
 }
 
 function retryableProviderError(
   failure: RetryableFailure | undefined,
+  transportAttemptCount: number,
 ): ProviderError {
   return failure?.kind === "timeout"
-    ? deadlineError()
+    ? deadlineError(retryableFailureTelemetry(failure, transportAttemptCount))
     : new ProviderError(
         "PROVIDER_UNAVAILABLE",
         "retryable",
         "Multimodal provider is temporarily unavailable",
+        {
+          telemetry: retryableFailureTelemetry(failure, transportAttemptCount),
+        },
       );
+}
+
+function retryableFailureTelemetry(
+  failure: RetryableFailure | undefined,
+  transportAttemptCount: number,
+): ProviderFailureTelemetry {
+  const httpStatus = safeHttpStatus(failure?.httpStatus);
+  return {
+    lastFailureKind:
+      failure?.kind === "unavailable"
+        ? "upstream_unavailable"
+        : (failure?.kind ?? "deadline_exceeded"),
+    httpStatusClass: failure?.httpStatusClass ?? null,
+    transportAttemptCount,
+    ...(httpStatus === undefined ? {} : { httpStatus }),
+  };
 }

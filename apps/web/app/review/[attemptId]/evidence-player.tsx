@@ -1,7 +1,10 @@
 "use client";
 
-import { MAX_RECORDING_OBJECT_BYTES } from "@slopproof/media";
 import { useEffect, useRef, useState } from "react";
+import {
+  evidencePlaybackUserMessage,
+  loadReviewEvidencePlayback,
+} from "../../../lib/evidence-playback";
 
 type PlayerState =
   | { kind: "idle" }
@@ -27,58 +30,26 @@ export function EvidencePlayer({
   }, []);
 
   async function openEvidence(): Promise<void> {
-    const csrf = readCookie("slopproof_csrf");
-    if (!csrf) {
-      setState({ kind: "error", message: "The CSRF credential is missing." });
-      return;
-    }
     setState({ kind: "loading" });
     try {
-      const response = await fetch(
-        `/api/review/${attemptId}/evidence-capability`,
-        { method: "POST", headers: { "x-slopproof-csrf": csrf } },
-      );
-      const result = (await response.json().catch(() => null)) as {
-        streamUrl?: string;
-        expiresAt?: string;
-        error?: string;
-      } | null;
-      if (!response.ok || !result?.streamUrl || !result.expiresAt) {
-        throw new Error(result?.error ?? "Evidence access was rejected.");
-      }
-      const stream = await fetch(result.streamUrl, {
-        method: "GET",
-        cache: "no-store",
-        credentials: "same-origin",
+      const result = await loadReviewEvidencePlayback({
+        attemptId,
+        csrf: readCookie("slopproof_csrf"),
+        onEvent: (event) => {
+          console.info("slopproof.evidence.stream", event);
+        },
       });
-      const contentType = stream.headers.get("content-type")?.toLowerCase();
-      const contentLength = Number(stream.headers.get("content-length"));
-      if (
-        !stream.ok ||
-        !contentType?.startsWith("video/webm") ||
-        !Number.isSafeInteger(contentLength) ||
-        contentLength <= 0 ||
-        contentLength > MAX_RECORDING_OBJECT_BYTES
-      ) {
-        throw new Error("The evidence stream was rejected.");
-      }
-      const blob = await stream.blob();
-      if (blob.size !== contentLength) {
-        throw new Error("The evidence stream ended before its declared size.");
-      }
-      const objectUrl = URL.createObjectURL(blob);
       if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-      objectUrlRef.current = objectUrl;
+      objectUrlRef.current = result.objectUrl;
       setState({
         kind: "ready",
-        streamUrl: objectUrl,
+        streamUrl: result.objectUrl,
         expiresAt: result.expiresAt,
       });
-    } catch {
+    } catch (error) {
       setState({
         kind: "error",
-        message:
-          "The video is not available. Request fresh access and try again.",
+        message: evidencePlaybackUserMessage(error),
       });
     }
   }

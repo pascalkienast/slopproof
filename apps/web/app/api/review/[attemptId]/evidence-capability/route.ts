@@ -18,6 +18,7 @@ import {
   ReviewAttemptIdSchema,
   reviewRouteErrorResponse,
 } from "../../../../../lib/review-http";
+import { logWebEvidenceStream } from "../../../../../lib/evidence-stream-log";
 import { getWebRuntime } from "../../../../../lib/runtime";
 import {
   consumeWebRequestRateLimit,
@@ -83,6 +84,11 @@ export async function POST(
       client.release();
     }
 
+    logWebEvidenceStream({
+      attemptId,
+      stage: "capability",
+      httpStatus: 200,
+    });
     const streamUrl = `/api/review/${attemptId}/evidence`;
     const response = NextResponse.json(
       { streamUrl, expiresAt: issued.payload.expiresAt },
@@ -97,6 +103,17 @@ export async function POST(
     });
     return response;
   } catch (error) {
+    const attemptId = await context.params
+      .then((params) => ReviewAttemptIdSchema.safeParse(params.attemptId).data)
+      .catch(() => undefined);
+    if (attemptId) {
+      logWebEvidenceStream({
+        attemptId,
+        stage: "capability",
+        errorClass: error instanceof Error ? error.name : "UnknownError",
+        ...(error instanceof InvalidRequestBodyError ? { httpStatus: 400 } : {}),
+      });
+    }
     if (error instanceof InvalidRequestBodyError) {
       return jsonError("invalid_request", 400);
     }

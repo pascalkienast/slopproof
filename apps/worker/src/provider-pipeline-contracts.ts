@@ -16,6 +16,9 @@ import {
 } from "@slopproof/policy";
 import {
   FrameSelectionMetadataV1Schema,
+  JudgeHopUsedSchema,
+  PROVIDER_ERROR_CODES,
+  PROVIDER_FAILURE_KINDS,
   type ProviderErrorCode,
   type ProviderFailureTelemetry,
 } from "@slopproof/providers";
@@ -193,6 +196,26 @@ export const ProviderPipelineStageResultV1Schema = z
     ]),
     attemptId: UuidSchema,
     artifactId: UuidSchema.optional(),
+    judge: z
+      .object({
+        outcome: z.enum(["generated", "repaired", "fallback"]),
+        hopUsed: JudgeHopUsedSchema.optional(),
+        httpStatus: z.number().int().min(100).max(599).optional(),
+        errorClass: z.enum(["ProviderError", "Error", "UnknownError"]).optional(),
+        errorCode: z.enum(PROVIDER_ERROR_CODES).optional(),
+        disposition: z.enum(["retryable", "terminal", "review"]).optional(),
+        lastFailureKind: z.enum(PROVIDER_FAILURE_KINDS).optional(),
+        invocationCount: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+        latencyMs: z
+          .number()
+          .int()
+          .nonnegative()
+          .max(15 * 60_000),
+        frameCount: z.number().int().nonnegative().max(32),
+        frameWarnings: z.array(z.string().max(80)).max(10),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

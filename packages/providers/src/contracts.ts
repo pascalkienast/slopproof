@@ -1,5 +1,6 @@
 import { GitShaSchema, Sha256Schema, UuidSchema } from "@slopproof/domain";
 import { z } from "zod";
+import { JudgeEvaluateFailureDiagnosticsV1Schema } from "./judge-diagnostics";
 
 export const UntrustedDataSchema = z
   .object({
@@ -580,9 +581,11 @@ export const AuthoritativeMultimodalEvaluationV1Schema = z
         outcome: z.enum(["generated", "repaired", "fallback"]),
         degraded: z.boolean(),
         completedAt: ExactReviewDateSchema,
+        failureDiagnostics: JudgeEvaluateFailureDiagnosticsV1Schema.optional(),
       })
       .strict(),
     frameWarnings: z.array(AuthoritativeFrameWarningCodeV1Schema).max(10),
+    frameCount: z.number().int().nonnegative().max(32).optional(),
     workflowOutcome: z.literal("review_required"),
     manualReviewRequired: z.literal(true),
     createdAt: ExactReviewDateSchema,

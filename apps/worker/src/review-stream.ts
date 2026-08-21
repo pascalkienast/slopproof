@@ -34,14 +34,31 @@ export type ReviewStreamDependencies = {
   privateKeyPath: string;
   capabilitySecret: string;
   now?: () => Date;
+  onEvent?: (event: ReviewStreamEvent) => void;
   onFailure?: (failure: ReviewStreamFailure) => void;
 };
 
-export type ReviewStreamFailure = {
-  stage:
-    "capability" | "authorization" | "binding" | "key" | "storage" | "stream";
-  errorClass: string;
+export type ReviewStreamStage =
+  | "capability"
+  | "authorization"
+  | "binding"
+  | "key"
+  | "storage"
+  | "stream";
+
+export type ReviewStreamEvent = {
+  attemptId: string;
+  stage: ReviewStreamStage;
+  bytesExpected?: number | null;
+  bytesSent?: number;
+  contentTypePresent?: boolean;
+  contentLengthPresent?: boolean;
+  aborted?: boolean;
+  httpStatus?: number;
+  errorClass?: string;
 };
+
+export type ReviewStreamFailure = ReviewStreamEvent;
 
 type EvidenceStreamAuditAction =
   "evidence.stream.started" | "evidence.stream.completed";
@@ -89,14 +106,33 @@ export async function handleReviewEvidenceRequest(
   }
 
   const now = dependencies.now?.() ?? new Date();
-  let stage: ReviewStreamFailure["stage"] = "capability";
+  const attemptId = match[1] ?? "";
+  let stage: ReviewStreamStage = "capability";
+  let bytesExpected: number | null = null;
+  let bytesSent = 0;
+  let contentTypePresent = false;
+  let contentLengthPresent = false;
+  const emit = (event: Partial<ReviewStreamEvent> = {}): void => {
+    const payload: ReviewStreamEvent = {
+      attemptId,
+      stage,
+      bytesExpected,
+      bytesSent,
+      contentTypePresent,
+      contentLengthPresent,
+      ...event,
+    };
+    dependencies.onEvent?.(payload);
+    if (payload.errorClass !== undefined) {
+      dependencies.onFailure?.(payload);
+    }
+  };
   try {
     const capability = verifyWorkerEvidenceCapability(
       bearer,
       dependencies.capabilitySecret,
       now,
     );
-    const attemptId = match[1];
     if (capability.attemptId !== attemptId) {
       throw new WorkerEvidenceCapabilityError(
         "Capability belongs to another attempt",
@@ -134,6 +170,9 @@ export async function handleReviewEvidenceRequest(
       );
     }
 
+    bytesExpected = finalization.manifest.totalPlaintextBytes;
+    contentTypePresent = Boolean(finalization.manifest.codec);
+    contentLengthPresent = true;
     response.writeHead(200, {
       "cache-control": "private, no-store, max-age=0",
       "content-disposition": "inline",
@@ -142,6 +181,7 @@ export async function handleReviewEvidenceRequest(
       "x-content-type-options": "nosniff",
     });
     stage = "stream";
+    emit({ httpStatus: 200 });
     const ciphertext = await dependencies.storage.getObjectStream(
       row.object_key,
     );
@@ -149,9 +189,13 @@ export async function handleReviewEvidenceRequest(
       ciphertext,
       finalization.manifest,
       encryptionKey,
-      async (plaintext) => writeResponse(response, plaintext),
+      async (plaintext) => {
+        await writeResponse(response, plaintext);
+        bytesSent += plaintext.byteLength;
+      },
     );
     response.end();
+    emit({ httpStatus: 200, aborted: false });
     await writeEvidenceStreamAudit(
       (sql, values) => dependencies.database.pool.query(sql, values),
       {
@@ -162,12 +206,15 @@ export async function handleReviewEvidenceRequest(
       },
     );
   } catch (error) {
-    dependencies.onFailure?.({
-      stage,
-      errorClass: error instanceof Error ? error.name : "UnknownError",
+    const errorClass = error instanceof Error ? error.name : "UnknownError";
+    const aborted = response.headersSent && !response.writableEnded;
+    const status = error instanceof WorkerEvidenceCapabilityError ? 401 : 403;
+    emit({
+      errorClass,
+      aborted,
+      httpStatus: response.headersSent ? 200 : status,
     });
     if (!response.headersSent) {
-      const status = error instanceof WorkerEvidenceCapabilityError ? 401 : 403;
       jsonError(
         response,
         status,

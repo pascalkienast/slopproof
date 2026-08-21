@@ -10,7 +10,7 @@ import {
 const ATTEMPT_ID = "53000000-0000-4000-8000-000000000001";
 
 describe("private review stream failures", () => {
-  it("reports only a fixed stage and error class, never the attempt identifier", async () => {
+  it("reports attemptId, stage, and error class without capability secrets", async () => {
     const failure = vi.fn<(value: ReviewStreamFailure) => void>();
     const output = responseFixture();
 
@@ -33,11 +33,18 @@ describe("private review stream failures", () => {
     ).resolves.toBe(true);
 
     expect(failure).toHaveBeenCalledOnce();
-    expect(failure).toHaveBeenCalledWith({
-      stage: "capability",
-      errorClass: "Error",
-    });
-    expect(JSON.stringify(failure.mock.calls)).not.toContain(ATTEMPT_ID);
+    expect(failure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptId: ATTEMPT_ID,
+        stage: "capability",
+        errorClass: "Error",
+        httpStatus: 401,
+      }),
+    );
+    expect(JSON.stringify(failure.mock.calls)).not.toContain(
+      "review-stream-test-secret",
+    );
+    expect(JSON.stringify(failure.mock.calls)).not.toContain("Bearer");
     expect(output.status).toBe(401);
   });
 });

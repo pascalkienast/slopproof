@@ -26,6 +26,7 @@ import {
   type ProofEvaluationV1,
   type TranscriptV1,
   type TranscriptionProvider,
+  type JudgeHopUsed,
 } from "@slopproof/providers";
 import type { PgBoss } from "pg-boss";
 import { z } from "zod";
@@ -127,6 +128,9 @@ export type ProviderPipelineDependencies = {
   clock: ProviderClock;
   providerTimeoutMs?: number;
   fakeTranscriptText?: (question: StoredProofQuestionV1) => string;
+  log?: {
+    info(fields: Record<string, unknown>, message: string): void;
+  };
 };
 
 export type ProviderPipelineHandlers = {
@@ -435,11 +439,79 @@ function result(input: {
   outcome: ProviderPipelineStageResultV1["outcome"];
   attemptId: string;
   artifactId?: string;
+  judge?: ProviderPipelineStageResultV1["judge"];
 }): ProviderPipelineStageResultV1 {
   return ProviderPipelineStageResultV1Schema.parse({
     schemaVersion: "1",
     ...input,
   });
+}
+
+function judgeJobDiagnostics(
+  evaluation: MultimodalProofEvaluationV1,
+  provider: InlineMultimodalJudgeProvider,
+): NonNullable<ProviderPipelineStageResultV1["judge"]> {
+  const metadata = evaluation.invocationMetadata;
+  const failure = metadata.failureDiagnostics;
+  return {
+    outcome: metadata.outcome,
+    hopUsed:
+      failure?.hopUsed ?? hopUsedFromSuccessfulMetadata(provider, metadata),
+    ...(failure?.httpStatus === undefined
+      ? {}
+      : { httpStatus: failure.httpStatus }),
+    ...(failure?.errorClass === undefined
+      ? {}
+      : { errorClass: failure.errorClass }),
+    ...(failure?.errorCode === undefined ? {} : { errorCode: failure.errorCode }),
+    ...(failure?.disposition === undefined
+      ? {}
+      : { disposition: failure.disposition }),
+    ...(failure?.lastFailureKind === undefined
+      ? {}
+      : { lastFailureKind: failure.lastFailureKind }),
+    invocationCount: metadata.invocationCount,
+    latencyMs: metadata.latencyMs,
+    frameCount: evaluation.frameCount ?? failure?.frameCount ?? 0,
+    frameWarnings: [...evaluation.frameWarnings],
+  };
+}
+
+function hopUsedFromSuccessfulMetadata(
+  provider: InlineMultimodalJudgeProvider,
+  metadata: MultimodalProofEvaluationV1["invocationMetadata"],
+): JudgeHopUsed {
+  const fallback = provider.transportFallbackDescriptor;
+  if (
+    fallback &&
+    metadata.provider === fallback.provider &&
+    (metadata.model === fallback.model ||
+      metadata.model === fallback.visionModel)
+  ) {
+    return "transport_fallback";
+  }
+  if (
+    metadata.provider === provider.descriptor.provider &&
+    (metadata.model === provider.descriptor.model ||
+      metadata.model === provider.descriptor.visionModel)
+  ) {
+    return "primary";
+  }
+  return "none";
+}
+
+function evaluationRunLogFields(
+  stageResult: ProviderPipelineStageResultV1,
+): Record<string, unknown> {
+  return {
+    attemptId: stageResult.attemptId,
+    stage: stageResult.stage,
+    outcome: stageResult.outcome,
+    ...(stageResult.artifactId === undefined
+      ? {}
+      : { artifactId: stageResult.artifactId }),
+    ...(stageResult.judge === undefined ? {} : stageResult.judge),
+  };
 }
 
 async function routeProviderFailure(
@@ -1081,13 +1153,22 @@ export function createProviderPipelineHandlers(
               evaluationId: persistence.compatibilityEvaluation.evaluationId,
             });
           }
-          return result({
+          const stageResult = result({
             stage: "evaluation.run",
             outcome:
               persistence.status === "created" ? "completed" : "replayed",
             attemptId: job.attemptId,
             artifactId: persistence.compatibilityEvaluation.evaluationId,
+            judge: judgeJobDiagnostics(
+              multimodalEvaluation,
+              dependencies.multimodalJudge.provider,
+            ),
           });
+          dependencies.log?.info(
+            evaluationRunLogFields(stageResult),
+            "worker.evaluation.run",
+          );
+          return stageResult;
         }
         if (dependencies.judgeProvider === undefined) {
           throw new ProviderError(
@@ -1321,7 +1402,9 @@ export type ProviderPipelineRegistrationDependencies = Omit<
 
 export async function registerProviderPipelineWorkers(
   queue: PgBoss,
-  dependencies: ProviderPipelineRegistrationDependencies,
+  dependencies: ProviderPipelineRegistrationDependencies & {
+    log?: ProviderPipelineDependencies["log"];
+  },
 ): Promise<{
   extractTranscriptWorkerId: string;
   selectFramesWorkerId: string;

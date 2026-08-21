@@ -1461,6 +1461,113 @@ describe("provider worker pipeline", () => {
     );
   });
 
+  it("records fallback judge enums on evaluation.run job output and info logs", async () => {
+    const base = fixture();
+    await base.handlers.extractTranscript(extractJob);
+    base.dispatcher.jobs.length = 0;
+    const sidecars = new InMemoryMultimodalEvaluationRepository();
+    const provider: InlineMultimodalJudgeProvider = {
+      descriptor: {
+        provider: "openrouter",
+        model: "xiaomi/mimo-v2.5",
+        visionModel: "xiaomi/mimo-v2.5",
+      },
+      transportFallbackDescriptor: {
+        provider: "hetzner-inference",
+        model: "hetzner-judge",
+        visionModel: "hetzner-vision",
+      },
+      evaluate: vi.fn(async () => {
+        throw new ProviderError(
+          "PROVIDER_UNAVAILABLE",
+          "retryable",
+          "private raw provider payload and API key",
+          {
+            hopUsed: "transport_fallback",
+            telemetry: {
+              lastFailureKind: "upstream_unavailable",
+              httpStatusClass: "4xx",
+              transportAttemptCount: 3,
+              httpStatus: 402,
+            },
+          },
+        );
+      }),
+    };
+    const info = vi.fn();
+    const evaluate = vi.fn(
+      (
+        input: Parameters<typeof runMultimodalJudgeEvaluation>[0],
+        context: Parameters<typeof runMultimodalJudgeEvaluation>[1],
+        dependencies: Parameters<typeof runMultimodalJudgeEvaluation>[2],
+      ) =>
+        runMultimodalJudgeEvaluation(input, context, {
+          ...dependencies,
+          loadFrames: vi.fn(async () => ({
+            frames: [gate6InlineFrameFixture()],
+            warnings: [],
+          })),
+        }),
+    );
+    const handlers = createProviderPipelineHandlers({
+      repository: base.repository,
+      dispatcher: base.dispatcher,
+      payloadCipher: base.payloadCipher,
+      transcriptionProvider: new LocalFakeTranscriptionProvider({
+        now: () => NOW,
+      }),
+      frameSelectionAdapter: new OneFrameAdapter(),
+      judgeProvider: createGate5MultimodalJudgeBoundary("hetzner", {
+        now: () => NOW,
+      }),
+      multimodalJudge: {
+        provider,
+        repository: sidecars,
+        frameStorage: { getObjectStream: vi.fn() },
+        evaluate,
+      },
+      clock: { now: () => NOW },
+      log: { info },
+    });
+
+    const outcome = await handlers.runEvaluation(
+      gate6EvaluationJob(base.repository.transcript!.transcriptId),
+    );
+
+    expect(outcome).toMatchObject({
+      stage: "evaluation.run",
+      outcome: "completed",
+      judge: {
+        outcome: "fallback",
+        hopUsed: "transport_fallback",
+        httpStatus: 402,
+        errorClass: "ProviderError",
+        errorCode: "PROVIDER_UNAVAILABLE",
+        disposition: "retryable",
+        lastFailureKind: "upstream_unavailable",
+        invocationCount: 2,
+        frameCount: 1,
+        frameWarnings: [],
+      },
+    });
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: "evaluation.run",
+        hopUsed: "transport_fallback",
+        httpStatus: 402,
+        errorCode: "PROVIDER_UNAVAILABLE",
+        invocationCount: 2,
+        frameCount: 1,
+      }),
+      "worker.evaluation.run",
+    );
+    expect(JSON.stringify(info.mock.calls)).not.toContain("private raw provider");
+    expect(JSON.stringify(info.mock.calls)).not.toContain("API key");
+    expect(
+      JSON.stringify(sidecars.persisted?.multimodalEvaluation),
+    ).not.toContain("private raw provider");
+  });
+
   it("strictly rejects unknown job data before external effects", async () => {
     const base = fixture();
     await expect(

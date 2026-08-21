@@ -427,6 +427,12 @@ describe("HetznerMultimodalJudgeProvider", () => {
       expect(failure).toMatchObject({
         code: "PROVIDER_UNAVAILABLE",
         disposition: "retryable",
+        telemetry: {
+          lastFailureKind: "upstream_unavailable",
+          httpStatusClass: "4xx",
+          transportAttemptCount: 3,
+          httpStatus: status,
+        },
       });
       expect(String(failure)).not.toContain(API_KEY);
       expect(String(failure)).not.toContain("private-body");
@@ -434,6 +440,42 @@ describe("HetznerMultimodalJudgeProvider", () => {
       expect(sleep).toHaveBeenCalledTimes(2);
     },
   );
+
+  it("skips a no-op same-model vision hop and fails closed on HTTP 400", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 400 }));
+    let failure: unknown;
+    try {
+      await new HetznerMultimodalJudgeProvider(
+        {
+          provider: "openrouter",
+          baseUrl: "https://openrouter.example.test/api/v1",
+          apiKey: API_KEY,
+          model: "xiaomi/mimo-v2.5",
+          visionModel: "xiaomi/mimo-v2.5",
+        },
+        {
+          fetchImpl,
+          policy: {
+            maxAttempts: 3,
+            attemptTimeoutMs: 100,
+            now: () => NOW.getTime(),
+            random: () => 0,
+            sleep: async () => undefined,
+          },
+        },
+      ).evaluate(inputFixture(), contextFixture());
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      disposition: "terminal",
+      telemetry: { httpStatus: 400, lastFailureKind: "request_rejected" },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
 
   it.each([402, 404, 408])(
     "retries HTTP %s then hops to the Hetzner judge fallback",
