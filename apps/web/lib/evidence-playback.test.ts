@@ -96,6 +96,12 @@ describe("review evidence playback", () => {
 
     expect(result.objectUrl).toBe(objectUrl);
     expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain(
+      "evidence-capability",
+    );
+    expect(String(fetchImpl.mock.calls[2]?.[0])).toContain(
+      "evidence-capability",
+    );
     expect(events.some((event) => event.aborted)).toBe(true);
   });
 
@@ -149,6 +155,42 @@ describe("review evidence playback", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 
+  it("plays a 15MB-class WebM when Content-Length is omitted", async () => {
+    const objectUrl = "blob:evidence-15mb";
+    const recording = webmOfSize(15_193_871);
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => objectUrl),
+      revokeObjectURL: vi.fn(),
+    } as unknown as typeof URL);
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          streamUrl: `/api/review/${ATTEMPT_ID}/evidence`,
+          expiresAt: "2026-08-21T14:30:00.000Z",
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(recording, {
+          status: 200,
+          headers: { "content-type": "video/webm;codecs=vp8,opus" },
+        }),
+      );
+
+    await expect(
+      loadReviewEvidencePlayback({
+        attemptId: ATTEMPT_ID,
+        csrf: "csrf-token",
+        fetchImpl,
+      }),
+    ).resolves.toEqual({
+      objectUrl,
+      expiresAt: "2026-08-21T14:30:00.000Z",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps a matching Content-Length success path unchanged", async () => {
     const objectUrl = "blob:evidence-success";
     vi.stubGlobal("URL", {
@@ -198,6 +240,12 @@ describe("review evidence playback", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
+
+function webmOfSize(byteLength: number): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(byteLength);
+  bytes.set([0x1a, 0x45, 0xdf, 0xa3], 0);
+  return bytes;
+}
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {

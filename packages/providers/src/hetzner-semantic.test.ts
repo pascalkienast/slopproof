@@ -322,6 +322,49 @@ describe("Hetzner semantic provider adapters", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("times out keepalive-only SSE and hops so the fallback can generate", async () => {
+    const primaryFetch = vi.fn<typeof fetch>(async () =>
+      keepaliveOnlySseResponse(),
+    );
+    const fallbackFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(completionResponse({ hopped: true }));
+    const provider = new TransportFallbackSemanticProvider(
+      new HetznerProofQuestionProvider(
+        {
+          provider: "openrouter",
+          baseUrl: "https://openrouter.example.test/api/v1",
+          apiKey: API_KEY,
+          model: "xiaomi/mimo-v2.5",
+        },
+        testDependencies(primaryFetch, {
+          maxAttempts: 1,
+          attemptTimeoutMs: 40,
+          now: Date.now,
+        }),
+      ),
+      new HetznerProofQuestionProvider(
+        configuration("hetzner-proof"),
+        testDependencies(fallbackFetch, { now: Date.now }),
+      ),
+    );
+
+    await expect(
+      provider.generate(proofInput(), {
+        ...context("proof_questions"),
+        deadlineAt: new Date(Date.now() + 2_000),
+      }),
+    ).resolves.toMatchObject({
+      output: { hopped: true },
+      answeredBy: {
+        provider: "hetzner-inference",
+        model: "hetzner-proof",
+      },
+    });
+    expect(primaryFetch).toHaveBeenCalledTimes(1);
+    expect(fallbackFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a long response alive while bounded SSE chunks continue arriving", async () => {
     const content = JSON.stringify({ result: { streamed: true } });
     const events = completionEvents(content, {
@@ -335,7 +378,7 @@ describe("Hetzner semantic provider adapters", () => {
       configuration("proof-model"),
       testDependencies(fetchImpl, {
         maxAttempts: 1,
-        attemptTimeoutMs: 20,
+        attemptTimeoutMs: 80,
         now: Date.now,
       }),
     );
@@ -992,6 +1035,32 @@ function fragmentedSseResponse(events: unknown[], fragmentBytes: number) {
           controller.enqueue(bytes.slice(offset, offset + fragmentBytes));
         }
         controller.close();
+      },
+    }),
+    { headers: { "content-type": "text/event-stream; charset=utf-8" } },
+  );
+}
+
+function keepaliveOnlySseResponse(): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          while (true) {
+            controller.enqueue(encoder.encode(": keepalive\n\n"));
+            await new Promise((resolve) => setTimeout(resolve, 5));
+          }
+        } catch {
+          try {
+            controller.close();
+          } catch {
+            // The reader cancelled the keepalive stream after the attempt timeout.
+          }
+        }
+      },
+      cancel() {
+        // Attempt timeout aborts the fetch; closing is best effort.
       },
     }),
     { headers: { "content-type": "text/event-stream; charset=utf-8" } },

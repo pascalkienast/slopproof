@@ -42,27 +42,9 @@ function visionBody(configuration, repair) {
   return {
     model: configuration.JUDGE_FALLBACK_MODEL,
     store: false,
-    tools: [],
     temperature: 0,
     max_tokens: 96,
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "slopproof_vision_capability",
-        strict: true,
-        schema: {
-          type: "object",
-          properties: {
-            topLeft: { type: "string", const: "red" },
-            topRight: { type: "string", const: "green" },
-            bottomLeft: { type: "string", const: "blue" },
-            bottomRight: { type: "string", const: "yellow" },
-          },
-          required: ["topLeft", "topRight", "bottomLeft", "bottomRight"],
-          additionalProperties: false,
-        },
-      },
-    },
+    chat_template_kwargs: { thinking: false },
     messages: [
       {
         role: "system",
@@ -75,14 +57,13 @@ function visionBody(configuration, repair) {
           {
             type: "text",
             text: repair
-              ? "Repair attempt: inspect the image again and return only JSON naming the top-left, top-right, bottom-left and bottom-right colors."
-              : "Inspect this four-quadrant image and return JSON naming the top-left, top-right, bottom-left and bottom-right colors.",
+              ? 'Repair attempt: inspect the image again and return only the JSON object {"topLeft":"red","topRight":"green","bottomLeft":"blue","bottomRight":"yellow"}.'
+              : 'Inspect this four-quadrant image and return only the JSON object {"topLeft":"red","topRight":"green","bottomLeft":"blue","bottomRight":"yellow"}.',
           },
           {
             type: "image_url",
             image_url: {
               url: `data:image/png;base64,${FOUR_QUADRANT_PNG_BASE64}`,
-              detail: "low",
             },
           },
         ],

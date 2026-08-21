@@ -25,10 +25,7 @@ import { z } from "zod";
 export const WORKER_REVIEW_EVIDENCE_PATH = "/internal/review/evidence" as const;
 export const WORKER_REVIEW_CONTEXT_PATH = "/internal/review/context" as const;
 
-export const WORKER_EVIDENCE_RESPONSE_HEADERS = [
-  "content-type",
-  "content-length",
-] as const;
+export const WORKER_EVIDENCE_RESPONSE_HEADERS = ["content-type"] as const;
 
 /**
  * Private contributor practice follows the same worker-only decryption

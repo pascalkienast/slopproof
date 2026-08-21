@@ -18,6 +18,7 @@ import type {
 import {
   HetznerProofQuestionProvider,
   ProviderError,
+  TransportFallbackSemanticProvider,
 } from "@slopproof/providers";
 import {
   deterministicLearningFallbackV1,
@@ -107,6 +108,64 @@ describe("Gate 4 worker-only semantic generation", () => {
     expect(result.providerMetadata.provider).toBe("hetzner-inference");
     expect(result.providerMetadata.model).toBe("hetzner-learning");
     expect(provider.descriptor.provider).toBe("local-contract-test");
+  });
+
+  it("records generated Proof questions after a primary deadline hop", async () => {
+    const context = contextFixture();
+    const valid = deterministicProofFallbackV2(context, 2);
+    const primary = new StubSemanticProvider({
+      initial: () => {
+        throw new ProviderError(
+          "DEADLINE_EXCEEDED",
+          "retryable",
+          "Semantic provider deadline elapsed",
+          {
+            telemetry: {
+              lastFailureKind: "timeout",
+              httpStatusClass: null,
+              transportAttemptCount: 1,
+            },
+          },
+        );
+      },
+      repair: () => {
+        throw new Error("repair must not run");
+      },
+    });
+    const fallback = new StubSemanticProvider({
+      initial: () => ({
+        ...response(valid),
+        answeredBy: {
+          provider: "hetzner-inference",
+          model: "hetzner-proof",
+        },
+      }),
+      repair: () => {
+        throw new Error("repair must not run");
+      },
+    });
+    Object.defineProperty(primary, "descriptor", {
+      value: { provider: "openrouter", model: "xiaomi/mimo-v2.5" },
+    });
+    Object.defineProperty(fallback, "descriptor", {
+      value: { provider: "hetzner-inference", model: "hetzner-proof" },
+    });
+    const result = await createSemanticGenerationService({
+      learningMaterialProvider: primary,
+      practiceCoachProvider: primary,
+      proofQuestionProvider: new TransportFallbackSemanticProvider(
+        primary,
+        fallback,
+      ),
+      clock: clockFixture(CREATED_AT),
+    }).generateProofQuestionPlan(proofRequest(context, 2));
+
+    expect(result.providerMetadata.outcome).toBe("generated");
+    expect(result.providerMetadata.provider).toBe("hetzner-inference");
+    expect(result.providerMetadata.model).toBe("hetzner-proof");
+    expect(result.degraded).toBe(false);
+    expect(primary.generateCalls).toBe(1);
+    expect(fallback.generateCalls).toBe(1);
   });
 
   it("repairs invalid Proof output once and freezes exactly the analyzer budget", async () => {
