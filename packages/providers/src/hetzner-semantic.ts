@@ -206,9 +206,17 @@ const CompactPracticeFeedbackResponseSchema = z
   })
   .strict();
 
+// OpenRouter MiMo counts reasoning toward max_tokens. Learning needs room
+// for a compact bundle plus 3-5 practice questions and MiMo reasoning.
+// Proof and practice feedback share a 16_000 budget so a large PR's
+// reasoning cannot exhaust 6_000 before the JSON finishes.
+export const LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS = 32_000;
+export const PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS = 16_000;
+export const PROOF_QUESTIONS_MAXIMUM_OUTPUT_TOKENS = 16_000;
+
 const LEARNING_SPECIFICATION = Object.freeze({
   purpose: "learning_material",
-  maximumOutputTokens: 6_000,
+  maximumOutputTokens: LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS,
   responseSchema: responseJsonSchema(CompactLearningBundleResponseSchema),
   outputContract:
     "LearningBundleCandidateV1: patchIntent; changedAreas; behaviors; interfaces; risks; testGaps; testIdeas; rollbackSignals; and exactly the requested 3-5 private practiceQuestions. Every statement and question needs nonempty anchorIds plus matching patchReferences with anchorId, file, oldStart and newStart.",
@@ -218,7 +226,7 @@ const LEARNING_SPECIFICATION = Object.freeze({
 
 const PRACTICE_SPECIFICATION = Object.freeze({
   purpose: "practice_feedback",
-  maximumOutputTokens: 6_000,
+  maximumOutputTokens: PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS,
   responseSchema: responseJsonSchema(CompactPracticeFeedbackResponseSchema),
   outputContract:
     "PracticeFeedbackCandidateV1: understood, missingPatchDetail and hint as anchored statements; scoreIncluded=false; modelAnswerIncluded=false. Feedback must stay within the supplied practice question anchors and must provide a hint, never a model answer.",
@@ -228,7 +236,7 @@ const PRACTICE_SPECIFICATION = Object.freeze({
 
 const PROOF_SPECIFICATION = Object.freeze({
   purpose: "proof_questions",
-  maximumOutputTokens: 6_000,
+  maximumOutputTokens: PROOF_QUESTIONS_MAXIMUM_OUTPUT_TOKENS,
   responseSchema: responseJsonSchema(
     z.array(ProofQuestionCandidateV2Schema).min(1).max(5),
   ),

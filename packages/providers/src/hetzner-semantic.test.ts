@@ -4,6 +4,9 @@ import {
   HetznerLearningMaterialProvider,
   HetznerPracticeCoachProvider,
   HetznerProofQuestionProvider,
+  LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS,
+  PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS,
+  PROOF_QUESTIONS_MAXIMUM_OUTPUT_TOKENS,
   extractSemanticJsonValue,
   type HetznerSemanticProviderDependencies,
 } from "./hetzner-semantic";
@@ -72,7 +75,11 @@ describe("Hetzner semantic provider adapters", () => {
         temperature: 0,
         stream: true,
         chat_template_kwargs: { thinking: false },
-        max_tokens: [6_000, 6_000, 6_000][index],
+        max_tokens: [
+          LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS,
+          PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS,
+          PROOF_QUESTIONS_MAXIMUM_OUTPUT_TOKENS,
+        ][index],
         response_format: {
           type: "json_schema",
           json_schema: {
@@ -112,6 +119,20 @@ describe("Hetzner semantic provider adapters", () => {
     ).toMatchObject({ minItems: 1, maxItems: 1 });
   });
 
+  it("sizes the learning output budget for a max compact bundle plus reasoning", () => {
+    expect(LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS).toBe(32_000);
+    expect(PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS).toBe(16_000);
+    expect(PROOF_QUESTIONS_MAXIMUM_OUTPUT_TOKENS).toBe(16_000);
+    const compactJsonTokens = conservativeJsonTokenEstimate(
+      maximumCompactLearningEnvelope(),
+    );
+    const reasoningReserve = PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS;
+    expect(compactJsonTokens).toBeGreaterThan(1_000);
+    expect(compactJsonTokens + reasoningReserve).toBeLessThanOrEqual(
+      LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS,
+    );
+  });
+
   it("omits Hetzner-only request fields when the same client speaks OpenRouter", async () => {
     const bodies: unknown[] = [];
     const fetchImpl = vi.fn(
@@ -143,6 +164,7 @@ describe("Hetzner semantic provider adapters", () => {
       model: "xiaomi/mimo-v2.5",
       store: false,
       stream: true,
+      max_tokens: LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS,
     });
     expect(bodies[0]).not.toHaveProperty("chat_template_kwargs");
   });
@@ -381,6 +403,45 @@ describe("Hetzner semantic provider adapters", () => {
       tokenUsage: { inputTokens: 12, outputTokens: 4 },
     });
     expect(JSON.stringify(result)).not.toContain(API_KEY);
+  });
+
+  it("returns a content-free learning marker when the raised output budget is exhausted", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      sseResponse([
+        {
+          choices: [
+            {
+              index: 0,
+              delta: { content: '{"result":{"truncated":' },
+              finish_reason: "length",
+            },
+          ],
+        },
+        {
+          choices: [],
+          usage: {
+            prompt_tokens: 20,
+            completion_tokens: LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS,
+          },
+        },
+      ]),
+    );
+    const provider = new HetznerLearningMaterialProvider(
+      configuration("learning-model"),
+      testDependencies(fetchImpl),
+    );
+
+    await expect(
+      provider.generate(learningInput(), context("learning_material")),
+    ).resolves.toEqual({
+      output: { malformedSemanticOutput: true },
+      tokenUsage: {
+        inputTokens: 20,
+        outputTokens: LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS,
+      },
+      transportAttemptCount: 1,
+      answeredBy: { provider: "hetzner-inference", model: "learning-model" },
+    });
   });
 
   it("returns a content-free marker when the provider exhausts its output budget", async () => {
@@ -1119,4 +1180,53 @@ function asRecord(value: unknown): Record<string, unknown> {
     throw new Error("Expected a JSON object");
   }
   return value as Record<string, unknown>;
+}
+
+function maximumCompactLearningEnvelope(): { result: Record<string, unknown> } {
+  const file = "docs/operations/self-hosting-and-public-release-checklist.md";
+  const reference = {
+    anchorId: "a0",
+    file,
+    oldStart: 12,
+    newStart: 18,
+  };
+  const statement = {
+    text: "x".repeat(160),
+    anchorIds: ["a0"],
+    patchReferences: [reference],
+  };
+  const question = (focus: string) => ({
+    schemaVersion: "2",
+    questionVersion: "practice-question-v2",
+    focus,
+    prompt: "x".repeat(220),
+    anchorIds: ["a0"],
+    patchReferences: [reference],
+    privateToPracticeSession: true,
+  });
+  return {
+    result: {
+      schemaVersion: "1",
+      learningVersion: "learning-bundle-v1",
+      patchIntent: statement,
+      changedAreas: [statement, statement, statement, statement],
+      behaviors: [statement, statement, statement, statement],
+      interfaces: [statement, statement, statement],
+      risks: [statement, statement, statement],
+      testGaps: [statement, statement],
+      testIdeas: [statement, statement, statement],
+      rollbackSignals: [statement, statement],
+      practiceQuestions: [
+        question("patch_intent"),
+        question("changed_behavior"),
+        question("risk"),
+        question("testing"),
+        question("rollback"),
+      ],
+    },
+  };
+}
+
+function conservativeJsonTokenEstimate(value: unknown): number {
+  return Math.ceil(Buffer.byteLength(JSON.stringify(value), "utf8") / 2);
 }
