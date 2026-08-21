@@ -206,14 +206,13 @@ const CompactPracticeFeedbackResponseSchema = z
   })
   .strict();
 
-// OpenRouter MiMo counts reasoning toward max_tokens. Practice feedback is
-// three short statements and already needed 6_000 after a 2_000 cap was
-// exhausted twice. A compact learning bundle plus 3-5 practice questions is a
-// much larger JSON artifact; 6_000 is not enough for reasoning plus that
-// payload. Proof stays at 6_000.
-export const LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS = 16_000;
-export const PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS = 6_000;
-export const PROOF_QUESTIONS_MAXIMUM_OUTPUT_TOKENS = 6_000;
+// OpenRouter MiMo counts reasoning toward max_tokens. Learning needs room
+// for a compact bundle plus 3-5 practice questions and MiMo reasoning.
+// Proof and practice feedback share a 16_000 budget so a large PR's
+// reasoning cannot exhaust 6_000 before the JSON finishes.
+export const LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS = 32_000;
+export const PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS = 16_000;
+export const PROOF_QUESTIONS_MAXIMUM_OUTPUT_TOKENS = 16_000;
 
 const LEARNING_SPECIFICATION = Object.freeze({
   purpose: "learning_material",

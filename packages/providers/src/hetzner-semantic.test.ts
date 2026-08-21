@@ -120,9 +120,9 @@ describe("Hetzner semantic provider adapters", () => {
   });
 
   it("sizes the learning output budget for a max compact bundle plus reasoning", () => {
-    expect(LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS).toBe(16_000);
-    expect(PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS).toBe(6_000);
-    expect(PROOF_QUESTIONS_MAXIMUM_OUTPUT_TOKENS).toBe(6_000);
+    expect(LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS).toBe(32_000);
+    expect(PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS).toBe(16_000);
+    expect(PROOF_QUESTIONS_MAXIMUM_OUTPUT_TOKENS).toBe(16_000);
     const compactJsonTokens = conservativeJsonTokenEstimate(
       maximumCompactLearningEnvelope(),
     );
