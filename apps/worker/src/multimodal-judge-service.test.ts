@@ -1,5 +1,6 @@
 import {
   ProofEvaluationInputV1Schema,
+  ProviderError,
   multimodalJudgeCandidateHashV1,
   multimodalJudgeProviderInputHashV1,
   type InlineMultimodalJudgeProvider,
@@ -160,9 +161,16 @@ describe("multimodal judge service", () => {
     });
     expect(result.invocationMetadata).toMatchObject({
       outcome: "fallback",
-      invocationCount: 0,
+      invocationCount: 1,
       degraded: true,
+      failureDiagnostics: {
+        errorClass: "Error",
+        hopUsed: "none",
+        invocationCount: 1,
+        frameCount: 0,
+      },
     });
+    expect(result.frameCount).toBe(0);
     expect(JSON.stringify(result)).not.toContain("private raw provider");
   });
 
@@ -253,6 +261,105 @@ describe("multimodal judge service", () => {
     });
     expect(JSON.stringify(result)).not.toContain("private raw provider");
     expect(frameBytes).toEqual(new Uint8Array(4));
+  });
+
+  it("persists httpStatus, hopUsed, and invocation count when evaluate throws a mocked 404", async () => {
+    const provider: InlineMultimodalJudgeProvider = {
+      descriptor: descriptorFixture(),
+      transportFallbackDescriptor: {
+        provider: "hetzner-inference",
+        model: "hetzner-judge",
+        visionModel: "hetzner-vision",
+      },
+      evaluate: vi.fn(async () => {
+        throw new ProviderError(
+          "PROVIDER_UNAVAILABLE",
+          "retryable",
+          "Multimodal provider is temporarily unavailable",
+          {
+            hopUsed: "transport_fallback",
+            telemetry: {
+              lastFailureKind: "upstream_unavailable",
+              httpStatusClass: "4xx",
+              transportAttemptCount: 3,
+              httpStatus: 404,
+            },
+          },
+        );
+      }),
+    };
+    const result = await runMultimodalJudgeEvaluation(
+      inputFixture(),
+      contextFixture(),
+      {
+        provider,
+        loadFrames: vi.fn(async () => ({
+          frames: [frameFixture()],
+          warnings: [],
+        })),
+        now: () => NOW,
+      },
+    );
+    expect(result.invocationMetadata).toMatchObject({
+      outcome: "fallback",
+      invocationCount: 2,
+      latencyMs: 0,
+      failureDiagnostics: {
+        httpStatus: 404,
+        errorClass: "ProviderError",
+        errorCode: "PROVIDER_UNAVAILABLE",
+        disposition: "retryable",
+        lastFailureKind: "upstream_unavailable",
+        hopUsed: "transport_fallback",
+        invocationCount: 2,
+        frameCount: 1,
+      },
+    });
+    expect(result.frameCount).toBe(1);
+    expect(result.frameWarnings).toEqual([]);
+  });
+
+  it("records a network evaluate failure without logging the provider payload", async () => {
+    const provider: InlineMultimodalJudgeProvider = {
+      descriptor: descriptorFixture(),
+      evaluate: vi.fn(async () => {
+        throw new ProviderError(
+          "PROVIDER_UNAVAILABLE",
+          "retryable",
+          "Multimodal provider is temporarily unavailable",
+          {
+            telemetry: {
+              lastFailureKind: "network",
+              httpStatusClass: null,
+              transportAttemptCount: 1,
+            },
+          },
+        );
+      }),
+    };
+    const result = await runMultimodalJudgeEvaluation(
+      inputFixture(),
+      contextFixture(),
+      {
+        provider,
+        loadFrames: vi.fn(async () => ({
+          frames: [frameFixture()],
+          warnings: [],
+        })),
+        now: () => NOW,
+      },
+    );
+    expect(result.invocationMetadata.failureDiagnostics).toMatchObject({
+      errorCode: "PROVIDER_UNAVAILABLE",
+      lastFailureKind: "network",
+      hopUsed: "none",
+      invocationCount: 1,
+      frameCount: 1,
+    });
+    expect(result.invocationMetadata.failureDiagnostics).not.toHaveProperty(
+      "httpStatus",
+    );
+    expect(JSON.stringify(result)).not.toContain("temporarily unavailable");
   });
 
   it("persists no late provider result and wipes frames when provider work crosses the deadline", async () => {

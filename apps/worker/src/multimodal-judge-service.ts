@@ -11,6 +11,7 @@ import {
   ProofEvaluationInputV1Schema,
   ProviderContextV1Schema,
   ProviderError,
+  describeJudgeEvaluateFailure,
   manualReviewFallbackMultimodalJudgeResultV1,
   validateMultimodalJudgeProviderResultV1,
   type InlineMultimodalJudgeProvider,
@@ -110,9 +111,10 @@ export async function runMultimodalJudgeEvaluation(
       loadedFrames.frames,
     );
     let providerResult;
+    const evaluateStartedAt = now();
     try {
       providerResult = validateMultimodalJudgeProviderResultV1(
-        await runUntilMultimodalDeadline(context.data, now(), () =>
+        await runUntilMultimodalDeadline(context.data, evaluateStartedAt, () =>
           dependencies.provider.evaluate(providerInput, context.data),
         ),
         providerInput,
@@ -131,11 +133,20 @@ export async function runMultimodalJudgeEvaluation(
       );
     } catch (error) {
       if (isMultimodalDeadlineError(error)) throw multimodalDeadlineError();
+      const completedAt = now();
       providerResult = manualReviewFallbackMultimodalJudgeResultV1(
         providerInput,
         dependencies.provider.descriptor,
         [...frameWarnings, "provider_evaluation_unavailable"],
-        now(),
+        completedAt,
+        describeJudgeEvaluateFailure(error, {
+          hopUsed:
+            dependencies.provider.transportFallbackDescriptor === undefined
+              ? "none"
+              : "primary",
+          latencyMs: completedAt.getTime() - evaluateStartedAt.getTime(),
+          frameCount: loadedFrames.frames.length,
+        }),
       );
     }
     const completedAt = now();
@@ -155,6 +166,7 @@ export async function runMultimodalJudgeEvaluation(
       candidate: providerResult.candidate,
       invocationMetadata: providerResult.metadata,
       frameWarnings,
+      frameCount: loadedFrames.frames.length,
       workflowOutcome: "review_required",
       manualReviewRequired: true,
       createdAt: completedAt,

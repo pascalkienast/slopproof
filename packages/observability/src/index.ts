@@ -1,5 +1,7 @@
 import pino, { type Logger, type LoggerOptions } from "pino";
 
+export type { Logger };
+
 const redactionPaths = [
   "req.headers.authorization",
   "req.headers.cookie",

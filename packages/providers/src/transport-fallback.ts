@@ -1,4 +1,5 @@
 import { isTransportFailure } from "./errors";
+import { annotateProviderErrorHopUsed } from "./judge-diagnostics";
 import {
   SemanticProviderDescriptorV1Schema,
   SemanticProviderRawResponseV1Schema,
@@ -99,8 +100,17 @@ export class TransportFallbackMultimodalJudgeProvider implements InlineMultimoda
     try {
       return await this.primary.evaluate(input, context);
     } catch (error) {
-      if (!isTransportFailure(error)) throw error;
-      return await this.fallback.evaluate(input, context);
+      if (!isTransportFailure(error)) {
+        throw annotateProviderErrorHopUsed(error, "primary");
+      }
+      try {
+        return await this.fallback.evaluate(input, context);
+      } catch (fallbackError) {
+        throw annotateProviderErrorHopUsed(
+          fallbackError,
+          "transport_fallback",
+        );
+      }
     }
   }
 }

@@ -146,6 +146,9 @@ async function handleHttpRequest(
       storage,
       privateKeyPath,
       capabilitySecret: config.WORKER_INTERNAL_SECRET,
+      onEvent: (event) => {
+        log.info(event, "worker.evidence.stream");
+      },
       onFailure: (failure) => {
         log.warn(failure, "worker.review_evidence_failed");
       },
@@ -315,6 +318,7 @@ async function start(): Promise<void> {
   await registerProviderPipelineWorkers(activeJobQueue, {
     repository: providerPipelineRepository,
     payloadCipher: activePayloadCipher,
+    log,
     ...createTranscriptionPipelineSelection(config, {
       privateKeyPath: activePrivateKeyPath,
       storage,

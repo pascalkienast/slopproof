@@ -72,12 +72,22 @@ export function isTransientUpstreamHttpStatus(status: number): boolean {
   );
 }
 
+export const JUDGE_HOP_USED = [
+  "primary",
+  "transport_fallback",
+  "none",
+] as const;
+
+export type JudgeHopUsed = (typeof JUDGE_HOP_USED)[number];
+
 type ProviderErrorOptions = ErrorOptions & {
   telemetry?: ProviderFailureTelemetry;
+  hopUsed?: JudgeHopUsed;
 };
 
 export class ProviderError extends Error {
   readonly telemetry: ProviderFailureTelemetry | undefined;
+  readonly hopUsed: JudgeHopUsed | undefined;
 
   constructor(
     readonly code: ProviderErrorCode,
@@ -88,6 +98,7 @@ export class ProviderError extends Error {
     super(message, options);
     this.name = "ProviderError";
     this.telemetry = options?.telemetry;
+    this.hopUsed = options?.hopUsed;
   }
 }
 

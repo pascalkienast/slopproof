@@ -21,6 +21,8 @@ Forbidden dimensions and values:
 - object keys, presigned URLs, secret/key names or secret-derived hashes;
 - arbitrary provider model output or exception messages.
 
+Structured `evaluation.run` and `evidence.stream` info logs may include attemptId plus content-free enums (stage, hopUsed, httpStatus, byte counts); those fields are diagnostic, not metric dimensions.
+
 The value-free `/api/health/live` answers only process liveness.
 `/api/health/ready` performs bounded DB, pg-boss and S3 `HeadBucket` capability
 checks and returns only `ready` or `unavailable`; it never lists, reads or writes

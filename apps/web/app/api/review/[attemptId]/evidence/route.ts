@@ -24,6 +24,7 @@ import {
   consumeWebRequestRateLimit,
   createWebRequestSubjectHash,
 } from "../../../../../lib/request-rate-limit";
+import { logWebEvidenceStream } from "../../../../../lib/evidence-stream-log";
 import { getWebRuntime } from "../../../../../lib/runtime";
 
 export async function GET(
@@ -99,6 +100,19 @@ export async function GET(
       `${WORKER_REVIEW_EVIDENCE_PATH}/${encodeURIComponent(attemptId)}`,
       app.config.WORKER_INTERNAL_URL,
     );
+    const aborted = { value: false };
+    request.signal.addEventListener(
+      "abort",
+      () => {
+        aborted.value = true;
+        logWebEvidenceStream({
+          attemptId,
+          stage: "proxy",
+          aborted: true,
+        });
+      },
+      { once: true },
+    );
     const upstream = await fetch(workerUrl, {
       method: "GET",
       headers: { authorization: `Bearer ${token}` },
@@ -108,17 +122,33 @@ export async function GET(
     });
     if (upstream.status !== 200 || !upstream.body) {
       await upstream.body?.cancel();
-      return jsonError(
-        "evidence_unavailable",
-        upstream.status >= 500 ? 503 : 404,
-      );
+      const httpStatus = upstream.status >= 500 ? 503 : 404;
+      logWebEvidenceStream({
+        attemptId,
+        stage: "proxy",
+        httpStatus,
+        aborted: aborted.value,
+        contentTypePresent: Boolean(upstream.headers.get("content-type")),
+        contentLengthPresent: Boolean(upstream.headers.get("content-length")),
+        errorClass: "UpstreamUnavailable",
+      });
+      return jsonError("evidence_unavailable", httpStatus);
     }
     const contentType = upstream.headers.get("content-type")?.toLowerCase();
     if (!contentType?.startsWith("video/webm")) {
       await upstream.body.cancel();
+      logWebEvidenceStream({
+        attemptId,
+        stage: "proxy",
+        httpStatus: 503,
+        contentTypePresent: Boolean(contentType),
+        contentLengthPresent: Boolean(upstream.headers.get("content-length")),
+        errorClass: "InvalidContentType",
+      });
       return jsonError("evidence_unavailable", 503);
     }
 
+    const declaredLength = Number(upstream.headers.get("content-length"));
     const headers = new Headers({
       "cache-control": "private, no-store, max-age=0",
       "content-disposition": "inline",
@@ -128,6 +158,17 @@ export async function GET(
       const value = upstream.headers.get(name);
       if (value !== null) headers.set(name, value);
     }
+    logWebEvidenceStream({
+      attemptId,
+      stage: "proxy",
+      httpStatus: 200,
+      contentTypePresent: true,
+      contentLengthPresent: Number.isSafeInteger(declaredLength),
+      bytesExpected: Number.isSafeInteger(declaredLength)
+        ? declaredLength
+        : null,
+      aborted: aborted.value,
+    });
     const response = new NextResponse(upstream.body, {
       status: 200,
       headers,
@@ -141,6 +182,17 @@ export async function GET(
     });
     return response;
   } catch (error) {
+    const attemptId = await context.params
+      .then((params) => ReviewAttemptIdSchema.safeParse(params.attemptId).data)
+      .catch(() => undefined);
+    if (attemptId) {
+      logWebEvidenceStream({
+        attemptId,
+        stage: "proxy",
+        aborted: request.signal.aborted,
+        errorClass: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
     return (
       reviewRouteErrorResponse(error) ?? jsonError("evidence_unavailable", 503)
     );
