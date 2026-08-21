@@ -113,14 +113,14 @@ set the OAuth proxy-authenticator headers described in
 [production-configuration.md](production-configuration.md), reject direct Web
 access and preserve the camera/microphone policy for the mobile route.
 
-Serve exact `GET|HEAD /` from the static `landing/` payload (`index.html` and
-`landing.js`). That directory is the marketing page. Do not point `/` at the
+Serve exact `GET|HEAD /` from the static `landing/` payload, `index.html` and
+`landing.js`. That directory is the marketing page. Do not point `/` at the
 Next.js app shell in `apps/web/app/page.tsx`.
 
-During a live proof the recording tab must stay in the foreground. Switching
-away (another app, second screen, lock, or a different tab) aborts the take as
-`visibility_lost`. That is the help/no-help guarantee: notes on a second screen
-cannot be read while the take is running.
+During a live proof the recording tab stays in the foreground. Switch to
+another app, a second screen, the lock screen, or another tab, and the take
+aborts as `visibility_lost`. That is the help/no-help guarantee. You cannot
+read notes on a second screen while the take runs.
 
 ## 6. Verify before inviting contributors
 
