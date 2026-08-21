@@ -39,12 +39,7 @@ export type ReviewStreamDependencies = {
 };
 
 export type ReviewStreamStage =
-  | "capability"
-  | "authorization"
-  | "binding"
-  | "key"
-  | "storage"
-  | "stream";
+  "capability" | "authorization" | "binding" | "key" | "storage" | "stream";
 
 export type ReviewStreamEvent = {
   attemptId: string;

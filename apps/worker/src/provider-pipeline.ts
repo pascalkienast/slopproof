@@ -463,7 +463,9 @@ function judgeJobDiagnostics(
     ...(failure?.errorClass === undefined
       ? {}
       : { errorClass: failure.errorClass }),
-    ...(failure?.errorCode === undefined ? {} : { errorCode: failure.errorCode }),
+    ...(failure?.errorCode === undefined
+      ? {}
+      : { errorCode: failure.errorCode }),
     ...(failure?.disposition === undefined
       ? {}
       : { disposition: failure.disposition }),
