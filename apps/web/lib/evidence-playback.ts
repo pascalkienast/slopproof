@@ -113,7 +113,11 @@ async function attemptEvidencePlayback(input: {
   try {
     const response = await input.fetchImpl(
       `/api/review/${input.attemptId}/evidence-capability`,
-      { method: "POST", headers: { "x-slopproof-csrf": input.csrf } },
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "x-slopproof-csrf": input.csrf },
+      },
     );
     capabilityStatus = response.status;
     const result = (await response.json().catch(() => null)) as {
@@ -128,7 +132,7 @@ async function attemptEvidencePlayback(input: {
     if (!response.ok || !result?.streamUrl || !result.expiresAt) {
       throw new EvidencePlaybackError(
         "capability_rejected",
-        result?.error ?? "Evidence access was rejected.",
+        capabilityErrorMessage(result?.error),
         response.status >= 500,
       );
     }
@@ -214,12 +218,28 @@ async function attemptEvidencePlayback(input: {
       httpStatus: capabilityStatus,
       aborted: isAbortLike(error),
     });
-    throw new EvidencePlaybackError(
-      "transfer_incomplete",
-      "The recording transfer was interrupted. Request fresh access and try again.",
-      true,
-    );
+    throw capabilityStatus === null
+      ? new EvidencePlaybackError(
+          "capability_rejected",
+          "The evidence access request was interrupted. Try again.",
+          true,
+        )
+      : new EvidencePlaybackError(
+          "transfer_incomplete",
+          "The recording transfer was interrupted. Request fresh access and try again.",
+          true,
+        );
   }
+}
+
+function capabilityErrorMessage(code: string | undefined): string {
+  if (code === "csrf_rejected" || code === "authentication_required") {
+    return "Your review session changed. Authorize with GitHub again, then retry.";
+  }
+  if (code === "forbidden") {
+    return "This GitHub session cannot access the recording.";
+  }
+  return code ?? "Evidence access was rejected.";
 }
 
 function parseDeclaredLength(raw: string | null): number | undefined {

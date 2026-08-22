@@ -269,6 +269,11 @@ describe("GitHub OAuth route handlers", () => {
     const cookies = setCookies(response).join("\n");
     expect(cookies).toContain("slopproof_session=new-session-token");
     expect(cookies).toContain("slopproof_csrf=new-csrf-token");
+    expect(
+      setCookies(response).find((cookie) =>
+        cookie.startsWith("slopproof_csrf="),
+      ),
+    ).toContain("SameSite=lax");
     expect(cookies).toContain(
       `${GITHUB_USER_TOKEN_COOKIE}=v1.sealed-user-token`,
     );

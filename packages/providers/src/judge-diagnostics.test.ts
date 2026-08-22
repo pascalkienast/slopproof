@@ -58,4 +58,45 @@ describe("judge evaluate failure diagnostics", () => {
       invocationCount: 1,
     });
   });
+
+  it("keeps safe binding diagnostics and the real generate plus repair count", () => {
+    const diagnostics = describeJudgeEvaluateFailure(
+      new ProviderError(
+        "INVALID_OUTPUT",
+        "review",
+        "private provider output must not cross this boundary",
+        {
+          telemetry: {
+            lastFailureKind: "invalid_output",
+            httpStatusClass: null,
+            transportAttemptCount: 2,
+          },
+          validationCode: "binding_invalid",
+          validationIssueCodes: [
+            "not_evaluable_with_anchor",
+            "not_evaluable_reason_mismatch",
+          ],
+        },
+      ),
+      { hopUsed: "primary", latencyMs: 31_534, frameCount: 1 },
+    );
+
+    expect(diagnostics).toMatchObject({
+      errorCode: "INVALID_OUTPUT",
+      disposition: "review",
+      lastFailureKind: "invalid_output",
+      validationCode: "binding_invalid",
+      validationIssueCodes: [
+        "not_evaluable_with_anchor",
+        "not_evaluable_reason_mismatch",
+      ],
+      hopUsed: "primary",
+      invocationCount: 2,
+      latencyMs: 31_534,
+      frameCount: 1,
+    });
+    expect(JSON.stringify(diagnostics)).not.toContain(
+      "private provider output",
+    );
+  });
 });

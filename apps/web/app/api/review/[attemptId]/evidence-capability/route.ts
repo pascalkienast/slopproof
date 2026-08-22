@@ -8,7 +8,10 @@ import {
   EVIDENCE_CAPABILITY_MAX_TTL_MS,
   issueEvidenceCapability,
 } from "../../../../../lib/evidence-capability";
-import { requireMutationSession } from "../../../../../lib/http-auth";
+import {
+  HttpAuthError,
+  requireMutationSession,
+} from "../../../../../lib/http-auth";
 import {
   requireEvidenceAccess,
   writeReviewAudit,
@@ -106,6 +109,7 @@ export async function POST(
     });
     return response;
   } catch (error) {
+    const mappedResponse = reviewRouteErrorResponse(error);
     const attemptId = await context.params
       .then((params) => ReviewAttemptIdSchema.safeParse(params.attemptId).data)
       .catch(() => undefined);
@@ -114,17 +118,15 @@ export async function POST(
         attemptId,
         stage: "capability",
         errorClass: error instanceof Error ? error.name : "UnknownError",
+        ...(error instanceof HttpAuthError ? { errorCode: error.code } : {}),
         ...(error instanceof InvalidRequestBodyError
           ? { httpStatus: 400 }
-          : {}),
+          : { httpStatus: mappedResponse?.status ?? 503 }),
       });
     }
     if (error instanceof InvalidRequestBodyError) {
       return jsonError("invalid_request", 400);
     }
-    return (
-      reviewRouteErrorResponse(error) ??
-      jsonError("temporarily_unavailable", 503)
-    );
+    return mappedResponse ?? jsonError("temporarily_unavailable", 503);
   }
 }

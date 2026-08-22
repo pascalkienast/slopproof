@@ -12,6 +12,7 @@ export function logWebEvidenceStream(fields: {
   aborted?: boolean;
   httpStatus?: number;
   errorClass?: string;
+  errorCode?: string;
 }): void {
   const payload = {
     attemptId: fields.attemptId,
@@ -35,6 +36,7 @@ export function logWebEvidenceStream(fields: {
     ...(fields.errorClass === undefined
       ? {}
       : { errorClass: fields.errorClass }),
+    ...(fields.errorCode === undefined ? {} : { errorCode: fields.errorCode }),
   };
   getWebLogger().info(payload, "web.evidence.stream");
   console.info("web.evidence.stream", payload);
