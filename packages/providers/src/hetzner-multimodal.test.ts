@@ -395,7 +395,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
     ).toThrow("exact server contract");
   });
 
-  it("requires every exact criterion once and forbids pass on non-evaluable evidence", () => {
+  it("requires every exact criterion once and conservatively downgrades an incoherent pass", () => {
     const missing = validCandidate();
     missing.questionEvaluations[0]!.criterionResults.pop();
     expect(() =>
@@ -403,12 +403,18 @@ describe("HetznerMultimodalJudgeProvider", () => {
     ).toThrow();
 
     const unsafePass = manualReviewFallbackCandidateV1(inputFixture());
-    expect(() =>
+    expect(
       validateMultimodalJudgeCandidateV1(
         { ...unsafePass, recommendation: "pass" },
         inputFixture(),
       ),
-    ).toThrow();
+    ).toMatchObject({
+      recommendation: "review_required",
+      privateReason: "stored_criteria_not_fully_supported",
+      warnings: expect.arrayContaining([
+        "recommendation_downgraded_for_manual_review",
+      ]),
+    });
   });
 
   it("requires anchor evidence for negative findings and forbids pass with unresolved evidence", () => {
@@ -431,9 +437,47 @@ describe("HetznerMultimodalJudgeProvider", () => {
     unresolved.questionEvaluations[0]!.uncertainty = [
       "transcript_evidence_incomplete",
     ];
-    expect(() =>
+    expect(
       validateMultimodalJudgeCandidateV1(unresolved, inputFixture()),
-    ).toThrow();
+    ).toMatchObject({
+      recommendation: "review_required",
+      privateReason: "stored_criteria_not_fully_supported",
+      warnings: expect.arrayContaining([
+        "recommendation_downgraded_for_manual_review",
+      ]),
+    });
+  });
+
+  it("accepts the exact live MiMo contradiction as manual review without a repair loop", async () => {
+    const incoherent = validCandidate();
+    incoherent.questionEvaluations[0]!.criterionResults[0] = {
+      ...incoherent.questionEvaluations[0]!.criterionResults[0]!,
+      result: "not_evaluable",
+      supportedPatchAnchorIds: [],
+      reason: "question_evidence_insufficient",
+    };
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(completionResponse(incoherent));
+
+    const result = await providerWith(fetchImpl).evaluate(
+      inputFixture(),
+      contextFixture(),
+    );
+
+    expect(result.candidate).toMatchObject({
+      recommendation: "review_required",
+      privateReason: "stored_criteria_not_fully_supported",
+      warnings: expect.arrayContaining([
+        "recommendation_downgraded_for_manual_review",
+      ]),
+    });
+    expect(result.metadata).toMatchObject({
+      invocationCount: 1,
+      outcome: "generated",
+      degraded: false,
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
   it.each([

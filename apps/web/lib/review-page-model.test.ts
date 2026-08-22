@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import type { PrivateReviewContext } from "@slopproof/providers";
 import { describe, expect, it } from "vitest";
 import {
+  AUTOMATED_JUDGMENT_UNAVAILABLE,
   GITHUB_CHECK_NOTICE,
-  JUDGE_DID_NOT_FINISH,
   JUDGE_OPINION_UNAVAILABLE,
   SPOKEN_ANSWER_UNBOUND,
   SPOKEN_ANSWER_UNAVAILABLE,
@@ -143,7 +143,7 @@ describe("maintainer review copy", () => {
     expect(JSON.stringify(view)).not.toContain("Judge did not finish");
   });
 
-  it("treats a fallback or missing sidecar as an unfinished judge", () => {
+  it("presents a completed manual-review fallback without claiming the judge hung", () => {
     const fallback = buildMaintainerReviewView({
       authorId: "99",
       authorLogin: null,
@@ -153,11 +153,12 @@ describe("maintainer review copy", () => {
       questions: [questionFixture()],
       privateContext: fallbackContext(),
     });
-    expect(JUDGE_DID_NOT_FINISH).toBe("Judge did not finish.");
-    expect(fallback.judgeUnavailable).toBe(true);
-    expect(fallback.recommendationLabel).toBeNull();
-    expect(fallback.questions[0]?.judgeOpinion).toBe(JUDGE_DID_NOT_FINISH);
-    expect(fallback.questions[0]?.judgeFinished).toBe(false);
+    expect(fallback.judgeUnavailable).toBe(false);
+    expect(fallback.recommendationLabel).toBe("Needs a look");
+    expect(fallback.questions[0]?.judgeOpinion).toBe(
+      AUTOMATED_JUDGMENT_UNAVAILABLE,
+    );
+    expect(fallback.questions[0]?.judgeFinished).toBe(true);
     expect(JSON.stringify(fallback)).not.toContain("not_evaluable");
     expect(JSON.stringify(fallback)).not.toContain("not a model opinion");
 
@@ -177,7 +178,9 @@ describe("maintainer review copy", () => {
         privateContext: compatibilityOnlyContext(),
       }),
     ).toBe(true);
-    expect(projection.questions[0]?.judgeOpinion).toBe(JUDGE_DID_NOT_FINISH);
+    expect(projection.questions[0]?.judgeOpinion).toBe(
+      AUTOMATED_JUDGMENT_UNAVAILABLE,
+    );
     expect(projection.recommendationLabel).toBeNull();
   });
 
@@ -239,6 +242,11 @@ describe("maintainer review copy", () => {
     expect(page).not.toContain("review-frame-grid");
     expect(page).not.toContain("Transcript-aligned frames");
     expect(player).toContain("Watch the proof");
+    expect(player).toContain(`/evidence?request=`);
+    expect(player).toContain("autoPlay");
+    expect(player).not.toContain("fetch(");
+    expect(player).not.toContain("evidence-capability");
+    expect(player).not.toContain("slopproof_csrf");
     expect(player).not.toContain("Selected frame");
     expect(decision).toContain("Decide for this SHA");
     expect(decision).not.toContain("Human decision only");

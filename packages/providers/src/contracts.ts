@@ -406,6 +406,7 @@ const AuthoritativeWarningCodeV1Schema = z.enum([
   "frame_dimensions_invalid",
   "provider_evaluation_unavailable",
   "local_fake_manual_review",
+  "recommendation_downgraded_for_manual_review",
 ]);
 
 const AuthoritativeFrameWarningCodeV1Schema = z.enum([

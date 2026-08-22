@@ -275,6 +275,7 @@ export const MultimodalWarningCodeV1Schema = z.enum([
   "frame_dimensions_invalid",
   "provider_evaluation_unavailable",
   "local_fake_manual_review",
+  "recommendation_downgraded_for_manual_review",
 ]);
 
 export type MultimodalWarningCodeV1 = z.infer<
@@ -777,6 +778,20 @@ export function validateMultimodalJudgeCandidateV1(
     (hasNonPassingResult || hasUnresolvedEvidence)
   ) {
     issues.add("pass_with_unresolved_or_nonpassing");
+  }
+  if (issues.size === 1 && issues.has("pass_with_unresolved_or_nonpassing")) {
+    return MultimodalJudgeCandidateV1Schema.parse({
+      ...candidate.data,
+      recommendation: "review_required",
+      privateReason: "stored_criteria_not_fully_supported",
+      warnings: [
+        "recommendation_downgraded_for_manual_review",
+        ...candidate.data.warnings.filter(
+          (warning) =>
+            warning !== "recommendation_downgraded_for_manual_review",
+        ),
+      ].slice(0, 20),
+    });
   }
   if (issues.size > 0) {
     throw new CandidateValidationError("binding_invalid", [...issues]);
