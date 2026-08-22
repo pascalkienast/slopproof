@@ -46,6 +46,10 @@ describe("review evidence playback", () => {
       expiresAt: "2026-08-21T14:30:00.000Z",
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({
+      method: "POST",
+      credentials: "same-origin",
+    });
   });
 
   it("retries an aborted transfer with a fresh capability and then plays", async () => {
@@ -238,6 +242,47 @@ describe("review evidence playback", () => {
       }),
     ).rejects.toBeInstanceOf(EvidencePlaybackError);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("explains a rotated OAuth/CSRF pair instead of calling it a video transfer", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ error: "csrf_rejected" }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(
+      loadReviewEvidencePlayback({
+        attemptId: ATTEMPT_ID,
+        csrf: "stale-csrf-token",
+        fetchImpl,
+      }),
+    ).rejects.toMatchObject({
+      code: "capability_rejected",
+      retryable: false,
+      message:
+        "Your review session changed. Authorize with GitHub again, then retry.",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("distinguishes an interrupted capability request from a video transfer", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new TypeError("private network detail"));
+
+    await expect(
+      loadReviewEvidencePlayback({
+        attemptId: ATTEMPT_ID,
+        csrf: "csrf-token",
+        fetchImpl,
+        maxAutomaticRetries: 0,
+      }),
+    ).rejects.toMatchObject({
+      code: "capability_rejected",
+      message: "The evidence access request was interrupted. Try again.",
+    });
   });
 });
 

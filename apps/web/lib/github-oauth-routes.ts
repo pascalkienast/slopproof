@@ -328,7 +328,7 @@ function setNoStoreHeaders(response: NextResponse): void {
 
 function clearAllAuthCookies(response: NextResponse): void {
   response.cookies.set(SESSION_COOKIE, "", expiredCookie("/", true, "lax"));
-  response.cookies.set(CSRF_COOKIE, "", expiredCookie("/", false, "strict"));
+  response.cookies.set(CSRF_COOKIE, "", expiredCookie("/", false, "lax"));
   clearFlowCookie(response);
   clearUserTokenCookie(response);
   clearDirectoryCookie(response);

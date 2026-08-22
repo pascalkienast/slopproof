@@ -220,6 +220,74 @@ describe("HetznerMultimodalJudgeProvider", () => {
     expect(JSON.stringify(result)).not.toContain("private malformed output");
   });
 
+  it("gives repair a content-free explanation of invalid not-evaluable bindings", async () => {
+    const invalid = structuredClone(validCandidate());
+    invalid.recommendation = "review_required";
+    invalid.privateReason = "stored_criteria_not_fully_supported";
+    invalid.questionEvaluations[0]!.criterionResults =
+      invalid.questionEvaluations[0]!.criterionResults.map((criterion) => ({
+        ...criterion,
+        result: "not_evaluable" as const,
+        supportedPatchAnchorIds: [],
+        reason: "patch_evidence_supports_criterion" as const,
+      }));
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(completionResponse(invalid))
+      .mockResolvedValueOnce(completionResponse(validCandidate()));
+
+    const result = await providerWith(fetchImpl).evaluate(
+      { ...inputFixture(), frames: [] },
+      contextFixture(),
+    );
+
+    expect(result.metadata).toMatchObject({
+      invocationCount: 2,
+      outcome: "repaired",
+    });
+    const initialBody = String(fetchImpl.mock.calls[0]?.[1]?.body);
+    const repairBody = String(fetchImpl.mock.calls[1]?.[1]?.body);
+    expect(initialBody).toContain("Never attach an anchor to not_evaluable");
+    expect(repairBody).toContain("not_evaluable_reason_mismatch");
+    expect(repairBody).not.toContain(JSON.stringify(invalid));
+  });
+
+  it("reports both failed semantic invocations with safe validation diagnostics", async () => {
+    const invalid = structuredClone(validCandidate());
+    invalid.recommendation = "review_required";
+    invalid.privateReason = "stored_criteria_not_fully_supported";
+    invalid.questionEvaluations[0]!.criterionResults =
+      invalid.questionEvaluations[0]!.criterionResults.map((criterion) => ({
+        ...criterion,
+        result: "not_evaluable" as const,
+        supportedPatchAnchorIds: ["a0"],
+        reason: "patch_evidence_supports_criterion" as const,
+      }));
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => completionResponse(invalid));
+
+    await expect(
+      providerWith(fetchImpl).evaluate(
+        { ...inputFixture(), frames: [] },
+        contextFixture(),
+      ),
+    ).rejects.toMatchObject({
+      code: "INVALID_OUTPUT",
+      disposition: "review",
+      telemetry: {
+        lastFailureKind: "invalid_output",
+        transportAttemptCount: 2,
+      },
+      validationCode: "binding_invalid",
+      validationIssueCodes: expect.arrayContaining([
+        "not_evaluable_with_anchor",
+        "not_evaluable_reason_mismatch",
+      ]),
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     {
       name: "unknown question",

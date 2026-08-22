@@ -8,6 +8,8 @@ import {
   safeHttpStatus,
   type ProviderFailureTelemetry,
   type ProviderHttpStatusClass,
+  type ProviderValidationCode,
+  type ProviderValidationIssueCode,
 } from "./errors";
 import { ProviderContextV1Schema, type ProviderContextV1 } from "./contracts";
 import { JudgeEvaluateFailureDiagnosticsV1Schema } from "./judge-diagnostics";
@@ -430,9 +432,6 @@ type RetryableFailure = {
   httpStatusClass?: ProviderHttpStatusClass;
 };
 
-type CandidateValidationCode =
-  "schema_invalid" | "binding_invalid" | "content_policy_invalid";
-
 type TokenUsage = {
   inputTokens: number;
   outputTokens: number;
@@ -562,9 +561,11 @@ export class HetznerMultimodalJudgeProvider implements InlineMultimodalJudgeProv
       );
     } catch (error) {
       if (!(error instanceof CandidateValidationError)) {
-        throw invalidOutputError();
+        throw invalidOutputError(invocationCount);
       }
-      if (invocationCount === 2) throw invalidOutputError();
+      if (invocationCount === 2) {
+        throw invalidOutputError(invocationCount, error);
+      }
       invocationCount = 2;
       const repaired = await this.invoke(
         input.data,
@@ -572,6 +573,7 @@ export class HetznerMultimodalJudgeProvider implements InlineMultimodalJudgeProv
         actualModel,
         {
           validationCode: error.validationCode,
+          validationIssueCodes: error.validationIssueCodes,
           invalidOutputHash: hashUnknown(initial.output),
           maximumAdditionalAttempts: 1,
         },
@@ -582,8 +584,11 @@ export class HetznerMultimodalJudgeProvider implements InlineMultimodalJudgeProv
           repaired.output,
           input.data,
         );
-      } catch {
-        throw invalidOutputError();
+      } catch (error) {
+        throw invalidOutputError(
+          invocationCount,
+          error instanceof CandidateValidationError ? error : undefined,
+        );
       }
       outcome = "repaired";
     }
@@ -615,7 +620,8 @@ export class HetznerMultimodalJudgeProvider implements InlineMultimodalJudgeProv
     deadlineAt: Date,
     model: string,
     repair?: {
-      validationCode: CandidateValidationCode;
+      validationCode: ProviderValidationCode;
+      validationIssueCodes: readonly ProviderValidationIssueCode[];
       invalidOutputHash: string;
       maximumAdditionalAttempts: 1;
     },
@@ -689,8 +695,9 @@ export function validateMultimodalJudgeCandidateV1(
   const candidate = MultimodalJudgeCandidateV1Schema.safeParse(rawCandidate);
   const input = MultimodalJudgeProviderInputV1Schema.safeParse(rawInput);
   if (!candidate.success || !input.success) {
-    throw new CandidateValidationError("schema_invalid");
+    throw new CandidateValidationError("schema_invalid", ["schema_invalid"]);
   }
+  const issues = new Set<ProviderValidationIssueCode>();
   const questions = new Map(
     input.data.questions.map((question) => [question.id, question]),
   );
@@ -698,8 +705,12 @@ export function validateMultimodalJudgeCandidateV1(
   let hasNonPassingResult = false;
   for (const evaluation of candidate.data.questionEvaluations) {
     const question = questions.get(evaluation.questionId);
-    if (question === undefined || seenQuestions.has(evaluation.questionId)) {
-      throw new CandidateValidationError("binding_invalid");
+    if (question === undefined) {
+      issues.add("unknown_question");
+      continue;
+    }
+    if (seenQuestions.has(evaluation.questionId)) {
+      issues.add("duplicate_question");
     }
     seenQuestions.add(evaluation.questionId);
     const expectedCriteria = new Set(
@@ -707,43 +718,55 @@ export function validateMultimodalJudgeCandidateV1(
     );
     const seenCriteria = new Set<string>();
     for (const result of evaluation.criterionResults) {
+      if (!expectedCriteria.has(result.criterionId)) {
+        issues.add("unknown_criterion");
+      }
+      if (seenCriteria.has(result.criterionId)) {
+        issues.add("duplicate_criterion");
+      }
       if (
-        !expectedCriteria.has(result.criterionId) ||
-        seenCriteria.has(result.criterionId) ||
         result.supportedPatchAnchorIds.some(
           (anchorId) => !question.patchAnchorIds.includes(anchorId),
-        ) ||
-        (result.result !== "not_evaluable" &&
-          result.supportedPatchAnchorIds.length === 0) ||
-        (result.result === "not_evaluable" &&
-          result.supportedPatchAnchorIds.length !== 0) ||
+        )
+      ) {
+        issues.add("foreign_anchor");
+      }
+      if (
+        result.result !== "not_evaluable" &&
+        result.supportedPatchAnchorIds.length === 0
+      ) {
+        issues.add("evaluable_without_anchor");
+      }
+      if (
+        result.result === "not_evaluable" &&
+        result.supportedPatchAnchorIds.length !== 0
+      ) {
+        issues.add("not_evaluable_with_anchor");
+      }
+      if (
         (result.result === "met" &&
           result.reason !== "patch_evidence_supports_criterion") ||
         (result.result === "not_met" &&
-          result.reason !== "patch_evidence_conflicts_with_criterion") ||
-        (result.result === "not_evaluable" &&
-          result.reason !== "question_evidence_insufficient" &&
-          result.reason !== "question_evidence_unavailable")
+          result.reason !== "patch_evidence_conflicts_with_criterion")
       ) {
-        throw new CandidateValidationError("binding_invalid");
+        issues.add("result_reason_mismatch");
+      }
+      if (
+        result.result === "not_evaluable" &&
+        result.reason !== "question_evidence_insufficient" &&
+        result.reason !== "question_evidence_unavailable"
+      ) {
+        issues.add("not_evaluable_reason_mismatch");
       }
       seenCriteria.add(result.criterionId);
       if (result.result !== "met") hasNonPassingResult = true;
     }
-    if (
-      seenCriteria.size !== expectedCriteria.size ||
-      [...expectedCriteria].some(
-        (criterionId) => !seenCriteria.has(criterionId),
-      )
-    ) {
-      throw new CandidateValidationError("binding_invalid");
+    for (const criterionId of expectedCriteria) {
+      if (!seenCriteria.has(criterionId)) issues.add("missing_criterion");
     }
   }
-  if (
-    seenQuestions.size !== questions.size ||
-    [...questions.keys()].some((questionId) => !seenQuestions.has(questionId))
-  ) {
-    throw new CandidateValidationError("binding_invalid");
+  for (const questionId of questions.keys()) {
+    if (!seenQuestions.has(questionId)) issues.add("missing_question");
   }
   const hasUnresolvedEvidence = candidate.data.questionEvaluations.some(
     (evaluation) =>
@@ -753,7 +776,10 @@ export function validateMultimodalJudgeCandidateV1(
     candidate.data.recommendation === "pass" &&
     (hasNonPassingResult || hasUnresolvedEvidence)
   ) {
-    throw new CandidateValidationError("binding_invalid");
+    issues.add("pass_with_unresolved_or_nonpassing");
+  }
+  if (issues.size > 0) {
+    throw new CandidateValidationError("binding_invalid", [...issues]);
   }
   return candidate.data;
 }
@@ -900,7 +926,9 @@ export const PROOF_JUDGE_SYSTEM_V2 = [
   "Never identify or characterize a person. Never analyze identity, gaze as identity, disability, or authorship. Do not describe a face, age, gender, race, or who the speaker is.",
   "Never invoke tools or browse. Cite only supplied anchor IDs.",
   "Return every supplied question ID and every criterion ID exactly once; do not add, omit or rewrite criteria.",
-  "Use not_evaluable when evidence is missing or uncertain. A recommendation never makes the public decision; maintainer review remains mandatory.",
+  "For met use one or more anchors from that question and reason patch_evidence_supports_criterion. For not_met use one or more anchors from that question and reason patch_evidence_conflicts_with_criterion.",
+  "For not_evaluable use no anchors and reason question_evidence_insufficient or question_evidence_unavailable. Never attach an anchor to not_evaluable.",
+  "Recommend pass only when every criterion is met and contradictions and uncertainty are both empty. A recommendation never makes the public decision; maintainer review remains mandatory.",
   'Return only one JSON object under the single key "result".',
 ].join(" ");
 
@@ -909,7 +937,8 @@ function buildRequestBody(
   model: string,
   provider: string,
   repair?: {
-    validationCode: CandidateValidationCode;
+    validationCode: ProviderValidationCode;
+    validationIssueCodes: readonly ProviderValidationIssueCode[];
     invalidOutputHash: string;
     maximumAdditionalAttempts: 1;
   },
@@ -1363,9 +1392,17 @@ function isSafeProviderBaseUrl(value: string): boolean {
 }
 
 class CandidateValidationError extends Error {
-  constructor(readonly validationCode: CandidateValidationCode) {
+  readonly validationIssueCodes: readonly ProviderValidationIssueCode[];
+
+  constructor(
+    readonly validationCode: ProviderValidationCode,
+    validationIssueCodes: readonly ProviderValidationIssueCode[],
+  ) {
     super("Multimodal candidate failed its exact server contract");
     this.name = "CandidateValidationError";
+    this.validationIssueCodes = Object.freeze([
+      ...new Set(validationIssueCodes),
+    ]);
   }
 }
 
@@ -1421,11 +1458,28 @@ function invalidInputError(): ProviderError {
   );
 }
 
-function invalidOutputError(): ProviderError {
+function invalidOutputError(
+  invocationCount = 1,
+  validation?: CandidateValidationError,
+): ProviderError {
   return new ProviderError(
     "INVALID_OUTPUT",
     "review",
     "Multimodal provider output is invalid",
+    {
+      ...(validation === undefined ? {} : { cause: validation }),
+      telemetry: {
+        lastFailureKind: "invalid_output",
+        httpStatusClass: null,
+        transportAttemptCount: invocationCount,
+      },
+      ...(validation === undefined
+        ? {}
+        : {
+            validationCode: validation.validationCode,
+            validationIssueCodes: validation.validationIssueCodes,
+          }),
+    },
   );
 }
 

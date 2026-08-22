@@ -17,6 +17,7 @@ export class HttpAuthError extends Error {
     readonly code: "authentication_required" | "csrf_rejected" | "forbidden",
   ) {
     super(code);
+    this.name = "HttpAuthError";
   }
 }
 
@@ -174,7 +175,10 @@ export function attachSessionCookies(
   response.cookies.set(CSRF_COOKIE, issued.csrfToken, {
     httpOnly: false,
     secure,
-    sameSite: "strict",
+    // The token still has to be echoed in a non-simple same-origin header.
+    // Lax keeps the OAuth callback's rotated session and CSRF pair coherent
+    // across Safari/WebKit's cross-site redirect chain.
+    sameSite: "lax",
     path: "/",
     maxAge,
   });

@@ -18,6 +18,7 @@ describe("web evidence stream logs", () => {
       contentLengthPresent: false,
       bytesExpected: null,
       aborted: false,
+      errorCode: "csrf_rejected",
     });
     expect(info).toHaveBeenCalledWith(
       {
@@ -28,6 +29,7 @@ describe("web evidence stream logs", () => {
         contentLengthPresent: false,
         aborted: false,
         httpStatus: 200,
+        errorCode: "csrf_rejected",
       },
       "web.evidence.stream",
     );

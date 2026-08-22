@@ -28,6 +28,33 @@ export const PROVIDER_FAILURE_KINDS = [
 export type ProviderFailureKind = (typeof PROVIDER_FAILURE_KINDS)[number];
 export type ProviderHttpStatusClass = "4xx" | "5xx";
 
+export const PROVIDER_VALIDATION_CODES = [
+  "schema_invalid",
+  "binding_invalid",
+  "content_policy_invalid",
+] as const;
+
+export type ProviderValidationCode = (typeof PROVIDER_VALIDATION_CODES)[number];
+
+export const PROVIDER_VALIDATION_ISSUE_CODES = [
+  "schema_invalid",
+  "unknown_question",
+  "duplicate_question",
+  "unknown_criterion",
+  "duplicate_criterion",
+  "foreign_anchor",
+  "evaluable_without_anchor",
+  "not_evaluable_with_anchor",
+  "result_reason_mismatch",
+  "not_evaluable_reason_mismatch",
+  "missing_criterion",
+  "missing_question",
+  "pass_with_unresolved_or_nonpassing",
+] as const;
+
+export type ProviderValidationIssueCode =
+  (typeof PROVIDER_VALIDATION_ISSUE_CODES)[number];
+
 /**
  * Content-free diagnostics that may cross the provider boundary safely.
  * Never add messages, URLs, request/response bodies, headers, or identifiers.
@@ -83,11 +110,16 @@ export type JudgeHopUsed = (typeof JUDGE_HOP_USED)[number];
 type ProviderErrorOptions = ErrorOptions & {
   telemetry?: ProviderFailureTelemetry;
   hopUsed?: JudgeHopUsed;
+  validationCode?: ProviderValidationCode;
+  validationIssueCodes?: readonly ProviderValidationIssueCode[];
 };
 
 export class ProviderError extends Error {
   readonly telemetry: ProviderFailureTelemetry | undefined;
   readonly hopUsed: JudgeHopUsed | undefined;
+  readonly validationCode: ProviderValidationCode | undefined;
+  readonly validationIssueCodes:
+    readonly ProviderValidationIssueCode[] | undefined;
 
   constructor(
     readonly code: ProviderErrorCode,
@@ -99,6 +131,13 @@ export class ProviderError extends Error {
     this.name = "ProviderError";
     this.telemetry = options?.telemetry;
     this.hopUsed = options?.hopUsed;
+    this.validationCode = options?.validationCode;
+    this.validationIssueCodes =
+      options?.validationIssueCodes === undefined
+        ? undefined
+        : Object.freeze(
+            [...new Set(options.validationIssueCodes)].slice(0, 16),
+          );
   }
 }
 

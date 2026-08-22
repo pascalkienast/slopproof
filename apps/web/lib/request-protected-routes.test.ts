@@ -22,6 +22,7 @@ import { POST as decideReview } from "../app/api/review/[attemptId]/decision/rou
 import { POST as finalizeUpload } from "../app/api/uploads/finalize/route";
 import { POST as acknowledgePart } from "../app/api/uploads/part-complete/route";
 import { POST as presignPart } from "../app/api/uploads/part-url/route";
+import { HttpAuthError } from "./http-auth";
 
 const ATTEMPT_ID = "10000000-0000-4000-8000-000000000001";
 
@@ -123,6 +124,24 @@ describe("production mutation request-body boundaries", () => {
       expect(forbiddenQuery()).not.toHaveBeenCalled();
     },
   );
+
+  it("returns the exact safe CSRF failure before issuing evidence access", async () => {
+    mocks.requireMutationSession.mockRejectedValueOnce(
+      new HttpAuthError(403, "csrf_rejected"),
+    );
+
+    const response = await call(
+      issueEvidenceCapability,
+      new Request(
+        `https://slopproof.example/api/review/${ATTEMPT_ID}/evidence-capability`,
+        { method: "POST", headers: { "x-slopproof-csrf": "stale-token" } },
+      ),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "csrf_rejected" });
+    expect(forbiddenQuery()).not.toHaveBeenCalled();
+  });
 });
 
 type RouteHandler = (
