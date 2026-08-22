@@ -3,7 +3,8 @@ set -euo pipefail
 IFS=$'\n\t'
 umask 077
 
-readonly REMOTE='root@157.180.84.237'
+# Local operators leave DEPLOY_SSH_* unset and keep the existing host default.
+readonly REMOTE="${DEPLOY_SSH_USER:-root}@${DEPLOY_SSH_HOST:-157.180.84.237}"
 readonly RELEASES_ROOT='/opt/slopproof/releases'
 readonly SECRET_ROOT='/etc/slopproof/secrets'
 
