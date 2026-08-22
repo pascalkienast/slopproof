@@ -1,15 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import {
-  evidencePlaybackUserMessage,
-  loadReviewEvidencePlayback,
-} from "../../../lib/evidence-playback";
+import { useRef, useState } from "react";
 
 type PlayerState =
   | { kind: "idle" }
-  | { kind: "loading" }
-  | { kind: "ready"; streamUrl: string; expiresAt: string }
+  | { kind: "ready"; streamUrl: string }
   | { kind: "error"; message: string };
 
 export function EvidencePlayer({
@@ -20,38 +15,13 @@ export function EvidencePlayer({
   markers: { id: string; label: string; timestampMs: number }[];
 }) {
   const [state, setState] = useState<PlayerState>({ kind: "idle" });
-  const objectUrlRef = useRef<string | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  useEffect(() => {
-    return () => {
-      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-    };
-  }, []);
-
-  async function openEvidence(): Promise<void> {
-    setState({ kind: "loading" });
-    try {
-      const result = await loadReviewEvidencePlayback({
-        attemptId,
-        csrf: readCookie("slopproof_csrf"),
-        onEvent: (event) => {
-          console.info("slopproof.evidence.stream", event);
-        },
-      });
-      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-      objectUrlRef.current = result.objectUrl;
-      setState({
-        kind: "ready",
-        streamUrl: result.objectUrl,
-        expiresAt: result.expiresAt,
-      });
-    } catch (error) {
-      setState({
-        kind: "error",
-        message: evidencePlaybackUserMessage(error),
-      });
-    }
+  function openEvidence(): void {
+    setState({
+      kind: "ready",
+      streamUrl: `/api/review/${attemptId}/evidence?request=${crypto.randomUUID()}`,
+    });
   }
 
   return (
@@ -65,8 +35,16 @@ export function EvidencePlayer({
       {state.kind === "ready" ? (
         <>
           <video
+            autoPlay
             className="review-video"
             controls
+            onError={() => {
+              setState({
+                kind: "error",
+                message:
+                  "The recording could not be opened. Reload this review and try again.",
+              });
+            }}
             playsInline
             preload="none"
             ref={videoRef}
@@ -92,19 +70,11 @@ export function EvidencePlayer({
               ))}
             </div>
           ) : null}
-          <p className="review-help">
-            Access expires at {new Date(state.expiresAt).toLocaleTimeString()}.
-            The video stays in this tab.
-          </p>
+          <p className="review-help">The video stays in this tab.</p>
         </>
       ) : (
-        <button
-          className="button"
-          disabled={state.kind === "loading"}
-          onClick={() => void openEvidence()}
-          type="button"
-        >
-          {state.kind === "loading" ? "Opening…" : "Play the recording"}
+        <button className="button" onClick={openEvidence} type="button">
+          Play the recording
         </button>
       )}
       {state.kind === "error" ? (
@@ -117,12 +87,4 @@ export function EvidencePlayer({
 function formatTimestamp(milliseconds: number): string {
   const seconds = Math.floor(milliseconds / 1_000);
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-function readCookie(name: string): string | undefined {
-  for (const pair of document.cookie.split(";")) {
-    const [rawName, ...rest] = pair.trim().split("=");
-    if (rawName === name) return decodeURIComponent(rest.join("="));
-  }
-  return undefined;
 }

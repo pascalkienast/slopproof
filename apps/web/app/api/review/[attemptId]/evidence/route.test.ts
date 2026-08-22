@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  EVIDENCE_CAPABILITY_COOKIE,
-  issueEvidenceCapability,
-} from "../../../../../lib/evidence-capability";
+import { verifyEvidenceCapability } from "../../../../../lib/evidence-capability";
 
 const mocks = vi.hoisted(() => ({
   getWebRuntime: vi.fn(),
@@ -70,14 +67,6 @@ describe("GET /api/review/[attemptId]/evidence request protection", () => {
       csrfHash: "c".repeat(64),
       expiresAt: new Date("2026-08-14T00:00:00.000Z"),
     });
-    const capability = issueEvidenceCapability(
-      {
-        attemptId: ATTEMPT_ID,
-        repositoryId: REPOSITORY_ID,
-        actorId: ACTOR_ID,
-      },
-      WORKER_SECRET,
-    );
     const upstreamFetch = vi
       .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("worker must not be called"));
@@ -85,11 +74,6 @@ describe("GET /api/review/[attemptId]/evidence request protection", () => {
     const response = await GET(
       new Request(
         `https://slopproof.example/api/review/${ATTEMPT_ID}/evidence`,
-        {
-          headers: {
-            cookie: `${EVIDENCE_CAPABILITY_COOKIE}=${capability.token}`,
-          },
-        },
       ),
       { params: Promise.resolve({ attemptId: ATTEMPT_ID }) },
     );
@@ -155,14 +139,6 @@ describe("GET /api/review/[attemptId]/evidence request protection", () => {
       },
     });
     mocks.writeReviewAudit.mockResolvedValue(undefined);
-    const capability = issueEvidenceCapability(
-      {
-        attemptId: ATTEMPT_ID,
-        repositoryId: REPOSITORY_ID,
-        actorId: ACTOR_ID,
-      },
-      WORKER_SECRET,
-    );
     const upstreamFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(recording, {
         status: 200,
@@ -176,11 +152,6 @@ describe("GET /api/review/[attemptId]/evidence request protection", () => {
     const response = await GET(
       new Request(
         `https://slopproof.example/api/review/${ATTEMPT_ID}/evidence`,
-        {
-          headers: {
-            cookie: `${EVIDENCE_CAPABILITY_COOKIE}=${capability.token}`,
-          },
-        },
       ),
       { params: Promise.resolve({ attemptId: ATTEMPT_ID }) },
     );
@@ -197,6 +168,22 @@ describe("GET /api/review/[attemptId]/evidence request protection", () => {
     expect(String(upstreamFetch.mock.calls[0]?.[0])).toBe(
       `http://worker:4001/internal/review/evidence/${ATTEMPT_ID}`,
     );
+    const authorization = new Headers(
+      upstreamFetch.mock.calls[0]?.[1]?.headers,
+    ).get("authorization");
+    expect(authorization).toMatch(/^Bearer /u);
+    expect(
+      verifyEvidenceCapability(
+        authorization?.slice("Bearer ".length) ?? "",
+        WORKER_SECRET,
+      ),
+    ).toMatchObject({
+      attemptId: ATTEMPT_ID,
+      repositoryId: REPOSITORY_ID,
+      actorId: ACTOR_ID,
+    });
+    expect(mocks.requireEvidenceAccess).toHaveBeenCalledOnce();
+    expect(mocks.writeReviewAudit).toHaveBeenCalledTimes(2);
   });
 });
 

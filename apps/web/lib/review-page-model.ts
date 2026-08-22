@@ -5,7 +5,8 @@ import type {
   TranscriptV1,
 } from "@slopproof/providers";
 
-export const JUDGE_DID_NOT_FINISH = "Judge did not finish.";
+export const AUTOMATED_JUDGMENT_UNAVAILABLE =
+  "Automated judgment was unavailable. Review the spoken answer and recording directly.";
 export const GITHUB_CHECK_NOTICE = "Does not update the GitHub check.";
 export const SPOKEN_ANSWER_UNAVAILABLE = "Spoken answer is not available.";
 export const SPOKEN_ANSWER_UNBOUND =
@@ -115,7 +116,7 @@ export function isAutomatedJudgeUnavailable(input: {
   }
   const evaluation = context.authoritativeEvaluation;
   if (evaluation === null) return true;
-  return isAuthoritativeFallback(evaluation);
+  return false;
 }
 
 export function buildMaintainerReviewView(input: {
@@ -195,7 +196,7 @@ function judgeOpinionForQuestion(input: {
   privateContext: PrivateReviewContext | null;
 }): string {
   if (input.privateContext === null) return JUDGE_OPINION_UNAVAILABLE;
-  if (input.judgeUnavailable) return JUDGE_DID_NOT_FINISH;
+  if (input.judgeUnavailable) return AUTOMATED_JUDGMENT_UNAVAILABLE;
   if (input.privateContext.schemaVersion === "1") {
     return legacyJudgeOpinion(
       input.privateContext.evaluation.questionEvaluations.find(
@@ -204,8 +205,9 @@ function judgeOpinionForQuestion(input: {
     );
   }
   const evaluation = input.privateContext.authoritativeEvaluation;
-  if (evaluation === null || isAuthoritativeFallback(evaluation)) {
-    return JUDGE_DID_NOT_FINISH;
+  if (evaluation === null) return JUDGE_OPINION_UNAVAILABLE;
+  if (isAuthoritativeFallback(evaluation)) {
+    return AUTOMATED_JUDGMENT_UNAVAILABLE;
   }
   return authoritativeJudgeOpinion(
     evaluation.candidate.questionEvaluations.find(
@@ -293,7 +295,7 @@ function resolveStoredRecommendation(
   if (judgeUnavailable) return null;
   if (input.privateContext?.schemaVersion === "2") {
     const evaluation = input.privateContext.authoritativeEvaluation;
-    if (evaluation === null || isAuthoritativeFallback(evaluation)) return null;
+    if (evaluation === null) return null;
     return evaluation.candidate.recommendation;
   }
   if (input.privateContext?.schemaVersion === "1") {

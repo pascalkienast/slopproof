@@ -275,6 +275,7 @@ export const MultimodalWarningCodeV1Schema = z.enum([
   "frame_dimensions_invalid",
   "provider_evaluation_unavailable",
   "local_fake_manual_review",
+  "incoherent_pass_normalized_downward",
 ]);
 
 export type MultimodalWarningCodeV1 = z.infer<
@@ -702,7 +703,8 @@ export function validateMultimodalJudgeCandidateV1(
     input.data.questions.map((question) => [question.id, question]),
   );
   const seenQuestions = new Set<string>();
-  let hasNonPassingResult = false;
+  let hasNotMetResult = false;
+  let hasNotEvaluableResult = false;
   for (const evaluation of candidate.data.questionEvaluations) {
     const question = questions.get(evaluation.questionId);
     if (question === undefined) {
@@ -759,7 +761,8 @@ export function validateMultimodalJudgeCandidateV1(
         issues.add("not_evaluable_reason_mismatch");
       }
       seenCriteria.add(result.criterionId);
-      if (result.result !== "met") hasNonPassingResult = true;
+      if (result.result === "not_met") hasNotMetResult = true;
+      if (result.result === "not_evaluable") hasNotEvaluableResult = true;
     }
     for (const criterionId of expectedCriteria) {
       if (!seenCriteria.has(criterionId)) issues.add("missing_criterion");
@@ -774,9 +777,26 @@ export function validateMultimodalJudgeCandidateV1(
   );
   if (
     candidate.data.recommendation === "pass" &&
-    (hasNonPassingResult || hasUnresolvedEvidence)
+    (hasNotMetResult || hasNotEvaluableResult || hasUnresolvedEvidence)
   ) {
     issues.add("pass_with_unresolved_or_nonpassing");
+  }
+  if (issues.size === 1 && issues.has("pass_with_unresolved_or_nonpassing")) {
+    const normalizedRecommendation =
+      hasNotMetResult && !hasNotEvaluableResult && !hasUnresolvedEvidence
+        ? "retry"
+        : "review_required";
+    return MultimodalJudgeCandidateV1Schema.parse({
+      ...candidate.data,
+      recommendation: normalizedRecommendation,
+      privateReason: "stored_criteria_not_fully_supported",
+      warnings: [
+        "incoherent_pass_normalized_downward",
+        ...candidate.data.warnings.filter(
+          (warning) => warning !== "incoherent_pass_normalized_downward",
+        ),
+      ].slice(0, 20),
+    });
   }
   if (issues.size > 0) {
     throw new CandidateValidationError("binding_invalid", [...issues]);
@@ -928,7 +948,9 @@ export const PROOF_JUDGE_SYSTEM_V2 = [
   "Return every supplied question ID and every criterion ID exactly once; do not add, omit or rewrite criteria.",
   "For met use one or more anchors from that question and reason patch_evidence_supports_criterion. For not_met use one or more anchors from that question and reason patch_evidence_conflicts_with_criterion.",
   "For not_evaluable use no anchors and reason question_evidence_insufficient or question_evidence_unavailable. Never attach an anchor to not_evaluable.",
-  "Recommend pass only when every criterion is met and contradictions and uncertainty are both empty. A recommendation never makes the public decision; maintainer review remains mandatory.",
+  "Recommend pass only when every criterion is met and contradictions and uncertainty are both empty. Recommend retry when every criterion is evaluable, at least one criterion is not_met, and contradictions and uncertainty are both empty. Recommend review_required when any criterion is not_evaluable or any contradiction or uncertainty remains.",
+  "Use privateReason all_stored_criteria_supported only with pass and stored_criteria_not_fully_supported with retry or review_required. automated_evaluation_unavailable is reserved for the server fallback.",
+  "A recommendation never makes the public decision; maintainer review remains mandatory.",
   'Return only one JSON object under the single key "result".',
 ].join(" ");
 
