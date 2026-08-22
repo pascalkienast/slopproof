@@ -97,6 +97,12 @@ describe("HetznerMultimodalJudgeProvider", () => {
     expect(PROOF_JUDGE_SYSTEM_V2).toContain("Do not describe a face");
     expect(PROOF_JUDGE_SYSTEM_V2).not.toContain("AUTHORITATIVE");
     expect(PROOF_JUDGE_SYSTEM_V2).not.toMatch(/identify the speaker/i);
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain(
+      "Recommend retry when every criterion is evaluable",
+    );
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain(
+      "Recommend review_required when any criterion is not_evaluable",
+    );
   });
 
   it("uses the primary text model when no inline frame is available", async () => {
@@ -411,9 +417,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
     ).toMatchObject({
       recommendation: "review_required",
       privateReason: "stored_criteria_not_fully_supported",
-      warnings: expect.arrayContaining([
-        "recommendation_downgraded_for_manual_review",
-      ]),
+      warnings: expect.arrayContaining(["incoherent_pass_normalized_downward"]),
     });
   });
 
@@ -442,10 +446,37 @@ describe("HetznerMultimodalJudgeProvider", () => {
     ).toMatchObject({
       recommendation: "review_required",
       privateReason: "stored_criteria_not_fully_supported",
-      warnings: expect.arrayContaining([
-        "recommendation_downgraded_for_manual_review",
-      ]),
+      warnings: expect.arrayContaining(["incoherent_pass_normalized_downward"]),
     });
+  });
+
+  it("normalizes an incoherent pass over bounded negative findings to retry", async () => {
+    const incoherent = validCandidate();
+    incoherent.questionEvaluations[0]!.criterionResults[0] = {
+      ...incoherent.questionEvaluations[0]!.criterionResults[0]!,
+      result: "not_met",
+      reason: "patch_evidence_conflicts_with_criterion",
+    };
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(completionResponse(incoherent));
+
+    const result = await providerWith(fetchImpl).evaluate(
+      inputFixture(),
+      contextFixture(),
+    );
+
+    expect(result.candidate).toMatchObject({
+      recommendation: "retry",
+      privateReason: "stored_criteria_not_fully_supported",
+      warnings: expect.arrayContaining(["incoherent_pass_normalized_downward"]),
+    });
+    expect(result.metadata).toMatchObject({
+      invocationCount: 1,
+      outcome: "generated",
+      degraded: false,
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
   it("accepts the exact live MiMo contradiction as manual review without a repair loop", async () => {
@@ -468,9 +499,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
     expect(result.candidate).toMatchObject({
       recommendation: "review_required",
       privateReason: "stored_criteria_not_fully_supported",
-      warnings: expect.arrayContaining([
-        "recommendation_downgraded_for_manual_review",
-      ]),
+      warnings: expect.arrayContaining(["incoherent_pass_normalized_downward"]),
     });
     expect(result.metadata).toMatchObject({
       invocationCount: 1,
