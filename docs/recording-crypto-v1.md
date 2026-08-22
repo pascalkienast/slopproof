@@ -1,9 +1,9 @@
 # SlopProof Recording Crypto v1
 
-Status: verbindliche MVP-Protokollspezifikation  
+Status: verbindliche Protokollspezifikation  
 Suite-ID: `SP-RC1`
 
-Diese Spezifikation schließt die Kryptoprotokollgrenze des MVP. Abweichende
+Diese Spezifikation schließt die Kryptoprotokollgrenze. Abweichende
 Algorithmen, Feldreihenfolgen oder stilles Fallback sind nicht erlaubt.
 
 ## Schlüssel und Ableitung
@@ -39,7 +39,7 @@ private Schlüssel ist ausschließlich dem Worker zugänglich.
 
 - IDs sind kanonische kleingeschriebene UUIDs.
 - `headSha` ist exakt 40 Zeichen langes kleingeschriebenes Hex.
-- MVP-Codec ist ausschließlich `video/webm;codecs=vp8,opus`, bis weitere
+- Der v1-Codec ist ausschließlich `video/webm;codecs=vp8,opus`, bis weitere
   Profile physisch und im Integrationstest bestätigt sind.
 - Zahlen sind nicht negative Safe Integers.
 - Binärwerte sind ungepaddetes Base64url nach RFC 4648.
@@ -60,7 +60,7 @@ JSON.stringify([
 Der 12-Byte-GCM-Nonce ist `randomPrefix8 || uint32be(chunkIndex)`. Der Index
 beginnt bei null, ist lückenlos und wird nur für nicht leere MediaRecorder-
 Blobs erhöht. Reload oder Verlust des Schlüsselzustands invalidiert den
-Attempt; der MVP setzt eine Aufnahme nicht mit rekonstruiertem Zustand fort.
+Attempt; eine Aufnahme wird nicht mit rekonstruiertem Zustand fortgesetzt.
 
 ## Binäres Chunk-Record
 

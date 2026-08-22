@@ -113,13 +113,23 @@ set the OAuth proxy-authenticator headers described in
 [production-configuration.md](production-configuration.md), reject direct Web
 access and preserve the camera/microphone policy for the mobile route.
 
+Serve exact `GET|HEAD /` from the static `landing/` payload, `index.html` and
+`landing.js`. That directory is the marketing page. Do not point `/` at the
+Next.js app shell in `apps/web/app/page.tsx`.
+
+During a live proof the recording tab stays in the foreground. Switch to
+another app, a second screen, the lock screen, or another tab, and the take
+aborts as `visibility_lost`. That is the help/no-help guarantee. You cannot
+read notes on a second screen while the take runs.
+
 ## 6. Verify before inviting contributors
 
 1. Confirm `/api/health/live` and `/api/health/ready` return `200`.
 2. Deliver a signed synthetic webhook and verify that replay stays idempotent.
 3. Open a disposable pull request in a selected repository.
 4. Complete Practice, phone handoff, recording, processing and maintainer
-   review with synthetic content.
+   review with synthetic content. Confirm that hiding the proof tab aborts the
+   take.
 5. Push a new commit and confirm that the old attempt becomes invalid.
 6. Run retention and verify object deletion, key shredding and multipart abort.
 7. Rehearse an encrypted database backup and restore into a separate database.
