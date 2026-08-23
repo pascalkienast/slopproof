@@ -15,11 +15,15 @@ import { ProviderContextV1Schema, type ProviderContextV1 } from "./contracts";
 import { JudgeEvaluateFailureDiagnosticsV1Schema } from "./judge-diagnostics";
 
 const MAX_TRANSPORT_ATTEMPTS = 3;
-const DEFAULT_ATTEMPT_TIMEOUT_MS = 20_000;
+// Only content deltas, finish_reason, or usage reset this timeout. The absolute
+// provider-hop deadline remains the hard upper bound while tokens are flowing.
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 150_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 512 * 1_024;
 const MAX_RESPONSE_BYTES = 1024 * 1_024;
 const MAX_REQUEST_BYTES = 4 * 1_024 * 1_024;
 const MAX_MODEL_TEXT_BYTES = 512 * 1_024;
+const MAX_SSE_EVENT_BYTES = 256 * 1_024;
+const MAX_SSE_EVENT_COUNT = 20_000;
 const MAX_INLINE_FRAME_BYTES = 512 * 1_024;
 const MAX_INLINE_FRAME_TOTAL_BYTES = 2 * 1_024 * 1_024;
 const VISION_CAPABILITY_REJECTED_STATUSES = new Set([400, 404, 415, 422]);
@@ -405,7 +409,7 @@ export type HetznerMultimodalJudgeConfigV1 = z.input<
 
 export type HetznerMultimodalJudgeRequestPolicy = {
   maxAttempts?: number;
-  attemptTimeoutMs?: number;
+  streamIdleTimeoutMs?: number;
   maxResponseBytes?: number;
   now?: () => number;
   random?: () => number;
@@ -419,7 +423,7 @@ export type HetznerMultimodalJudgeDependencies = {
 
 type ResolvedRequestPolicy = {
   maxAttempts: number;
-  attemptTimeoutMs: number;
+  streamIdleTimeoutMs: number;
   maxResponseBytes: number;
   now: () => number;
   random: () => number;
@@ -438,23 +442,38 @@ type TokenUsage = {
   outputTokens: number;
 } | null;
 
-const OpenAiChatCompletionSchema = z
+type StreamRequestResult = {
+  content: string | undefined;
+  finishReason: string | null;
+  usage: TokenUsage;
+  transportAttemptCount: number;
+};
+
+const OpenAiStreamChunkSchema = z
   .object({
     choices: z
       .array(
         z
           .object({
-            message: z
+            delta: z
               .object({
-                content: z.union([z.string(), z.null()]),
+                content: z.string().nullable().optional(),
+                reasoning: z.string().nullable().optional(),
               })
               .passthrough(),
+            finish_reason: z.string().nullable().optional(),
           })
           .passthrough(),
       )
-      .min(1)
       .max(8),
     usage: z.unknown().optional(),
+  })
+  .passthrough();
+
+const OpenAiUsageSchema = z
+  .object({
+    prompt_tokens: z.number().int().nonnegative().max(10_000_000),
+    completion_tokens: z.number().int().nonnegative().max(10_000_000),
   })
   .passthrough();
 
@@ -634,7 +653,7 @@ export class HetznerMultimodalJudgeProvider implements InlineMultimodalJudgeProv
     if (Buffer.byteLength(body, "utf8") > MAX_REQUEST_BYTES) {
       throw invalidInputError();
     }
-    const envelope = await requestJsonWithRetry({
+    const streamed = await requestStreamWithRetry({
       endpoint: this.endpoint,
       apiKey: this.apiKey,
       body,
@@ -643,18 +662,17 @@ export class HetznerMultimodalJudgeProvider implements InlineMultimodalJudgeProv
       policy: this.policy,
       allowVisionCapabilityFallback,
     });
-    const completion = OpenAiChatCompletionSchema.safeParse(envelope);
-    if (!completion.success) throw invalidOutputError();
-    const content = completion.data.choices[0]?.message.content;
     const extracted =
-      typeof content === "string" ? tryExtractJsonObject(content) : undefined;
+      typeof streamed.content === "string"
+        ? tryExtractJsonObject(streamed.content)
+        : undefined;
     const output =
       extracted === undefined
         ? { malformedMultimodalOutput: true }
         : unwrapResultEnvelope(extracted);
     return {
       output,
-      tokenUsage: tokenUsage(completion.data.usage),
+      tokenUsage: streamed.usage,
     };
   }
 }
@@ -998,7 +1016,7 @@ function buildRequestBody(
   return {
     model,
     store: false,
-    stream: false,
+    stream: true,
     temperature: 0,
     max_tokens: 6_000,
     ...(hetzner
@@ -1026,7 +1044,7 @@ function buildRequestBody(
   } as const;
 }
 
-async function requestJsonWithRetry(input: {
+async function requestStreamWithRetry(input: {
   endpoint: string;
   apiKey: string;
   body: string;
@@ -1034,20 +1052,47 @@ async function requestJsonWithRetry(input: {
   fetchImpl: typeof fetch;
   policy: ResolvedRequestPolicy;
   allowVisionCapabilityFallback: boolean;
-}): Promise<unknown> {
+}): Promise<StreamRequestResult> {
   let lastFailure: RetryableFailure | undefined;
   for (let attempt = 1; attempt <= input.policy.maxAttempts; attempt += 1) {
     const remaining = input.deadlineAtMs - input.policy.now();
-    if (remaining <= 0) throw deadlineError();
+    if (remaining <= 0) {
+      throw deadlineError(retryableFailureTelemetry(lastFailure, attempt - 1));
+    }
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let response: Response | undefined;
+    let timeoutKind: "idle" | "deadline" | undefined;
     try {
-      const operation = (async (): Promise<unknown> => {
+      let rejectTimeout: ((reason: typeof timeoutMarker) => void) | undefined;
+      const timeoutPromise = new Promise<never>((_resolve, reject) => {
+        rejectTimeout = reject;
+      });
+      const registerActivity = (): void => {
+        if (timeout !== undefined) clearTimeout(timeout);
+        const currentRemaining = input.deadlineAtMs - input.policy.now();
+        const activityWindow = Math.max(
+          1,
+          Math.min(input.policy.streamIdleTimeoutMs, currentRemaining),
+        );
+        const expiryKind =
+          currentRemaining <= input.policy.streamIdleTimeoutMs
+            ? "deadline"
+            : "idle";
+        timeout = setTimeout(() => {
+          timeoutKind = expiryKind;
+          controller.abort();
+          rejectTimeout?.(timeoutMarker);
+        }, activityWindow);
+      };
+      registerActivity();
+      const operation = (async (): Promise<
+        Omit<StreamRequestResult, "transportAttemptCount">
+      > => {
         response = await input.fetchImpl(input.endpoint, {
           method: "POST",
           headers: {
-            accept: "application/json",
+            accept: "text/event-stream",
             authorization: `Bearer ${input.apiKey}`,
             "content-type": "application/json",
           },
@@ -1059,29 +1104,26 @@ async function requestJsonWithRetry(input: {
           referrerPolicy: "no-referrer",
         });
         if (!response.ok) throw responseStatusMarker(response.status);
-        const text = await readBoundedResponseText(
+        registerActivity();
+        return readBoundedSseResponse(
           response,
           input.policy.maxResponseBytes,
+          registerActivity,
         );
-        try {
-          return JSON.parse(text.replace(/^\uFEFF/u, ""));
-        } catch {
-          throw new SafeProtocolError("malformed_response");
-        }
       })();
-      return await Promise.race([
-        operation,
-        new Promise<never>((_resolve, reject) => {
-          timeout = setTimeout(
-            () => {
-              controller.abort();
-              reject(timeoutMarker);
-            },
-            Math.max(1, Math.min(input.policy.attemptTimeoutMs, remaining)),
-          );
-        }),
-      ]);
+      const payload = await Promise.race([operation, timeoutPromise]);
+      return { ...payload, transportAttemptCount: attempt };
     } catch (error) {
+      if (
+        timeoutKind === "deadline" &&
+        (error === timeoutMarker || controller.signal.aborted)
+      ) {
+        throw deadlineError({
+          lastFailureKind: "deadline_exceeded",
+          httpStatusClass: null,
+          transportAttemptCount: attempt,
+        });
+      }
       if (error instanceof SafeProtocolError) {
         if (error.kind === "response_stream") {
           lastFailure = { kind: "network" };
@@ -1137,7 +1179,8 @@ async function requestJsonWithRetry(input: {
         }
       } else {
         lastFailure =
-          error === timeoutMarker || controller.signal.aborted
+          error === timeoutMarker ||
+          (controller.signal.aborted && timeoutKind === "idle")
             ? { kind: "timeout" }
             : { kind: "network" };
       }
@@ -1152,17 +1195,26 @@ async function requestJsonWithRetry(input: {
       lastFailure?.retryAfterMs ?? 0,
     );
     if (input.deadlineAtMs - input.policy.now() <= delay) {
-      throw deadlineError();
+      throw deadlineError(retryableFailureTelemetry(lastFailure, attempt));
     }
     await input.policy.sleep(delay);
   }
   throw retryableProviderError(lastFailure, input.policy.maxAttempts);
 }
 
-async function readBoundedResponseText(
+async function readBoundedSseResponse(
   response: Response,
   maximumBytes: number,
-): Promise<string> {
+  registerGenerationProgress: () => void,
+): Promise<Omit<StreamRequestResult, "transportAttemptCount">> {
+  const contentType = response.headers
+    .get("content-type")
+    ?.split(";", 1)[0]
+    ?.trim()
+    .toLowerCase();
+  if (contentType !== "text/event-stream") {
+    throw new SafeProtocolError("malformed_response");
+  }
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
     try {
@@ -1176,7 +1228,108 @@ async function readBoundedResponseText(
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let bytesRead = 0;
-  let text = "";
+  let pending = "";
+  let eventData: string[] = [];
+  let eventBytes = 0;
+  let eventCount = 0;
+  let doneSeen = false;
+  let content = "";
+  let contentBytes = 0;
+  let finishReason: string | null = null;
+  let usage: TokenUsage = null;
+
+  const commitEvent = (): void => {
+    if (eventData.length === 0) return;
+    const data = eventData.join("\n");
+    eventData = [];
+    eventBytes = 0;
+    if (data === "[DONE]") {
+      doneSeen = true;
+      return;
+    }
+    if (doneSeen || (eventCount += 1) > MAX_SSE_EVENT_COUNT) {
+      throw new SafeProtocolError("malformed_response");
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data.replace(/^\uFEFF/u, "")) as unknown;
+    } catch {
+      throw new SafeProtocolError("malformed_response");
+    }
+    const chunk = OpenAiStreamChunkSchema.safeParse(parsed);
+    if (!chunk.success) throw new SafeProtocolError("malformed_response");
+    const choice = chunk.data.choices[0];
+    let progressed = false;
+    if (choice?.delta.content !== undefined && choice.delta.content !== null) {
+      const deltaBytes = Buffer.byteLength(choice.delta.content, "utf8");
+      if (contentBytes + deltaBytes > MAX_MODEL_TEXT_BYTES) {
+        throw new SafeProtocolError("response_too_large");
+      }
+      content += choice.delta.content;
+      contentBytes += deltaBytes;
+      if (choice.delta.content.length > 0) progressed = true;
+    }
+    if (
+      choice?.delta.reasoning !== undefined &&
+      choice.delta.reasoning !== null &&
+      choice.delta.reasoning.length > 0
+    ) {
+      progressed = true;
+    }
+    if (choice?.finish_reason !== undefined && choice.finish_reason !== null) {
+      if (finishReason !== null && finishReason !== choice.finish_reason) {
+        throw new SafeProtocolError("malformed_response");
+      }
+      finishReason = choice.finish_reason;
+      progressed = true;
+    }
+    if (chunk.data.usage !== undefined && chunk.data.usage !== null) {
+      const parsedUsage = OpenAiUsageSchema.safeParse(chunk.data.usage);
+      if (!parsedUsage.success) {
+        throw new SafeProtocolError("malformed_response");
+      }
+      usage = {
+        inputTokens: parsedUsage.data.prompt_tokens,
+        outputTokens: parsedUsage.data.completion_tokens,
+      };
+      progressed = true;
+    }
+    if (progressed) registerGenerationProgress();
+  };
+
+  const acceptLine = (rawLine: string): void => {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    if (line.length === 0) {
+      commitEvent();
+      return;
+    }
+    if (line.startsWith(":")) return;
+    const separator = line.indexOf(":");
+    const field = separator === -1 ? line : line.slice(0, separator);
+    if (field !== "data") return;
+    let value = separator === -1 ? "" : line.slice(separator + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+    const valueBytes = Buffer.byteLength(value, "utf8");
+    if (eventBytes + valueBytes > MAX_SSE_EVENT_BYTES) {
+      throw new SafeProtocolError("response_too_large");
+    }
+    eventData.push(value);
+    eventBytes += valueBytes;
+  };
+
+  const acceptText = (value: string): void => {
+    pending += value;
+    let newline = pending.indexOf("\n");
+    while (newline !== -1) {
+      acceptLine(pending.slice(0, newline));
+      pending = pending.slice(newline + 1);
+      newline = pending.indexOf("\n");
+    }
+    if (Buffer.byteLength(pending, "utf8") > MAX_SSE_EVENT_BYTES) {
+      throw new SafeProtocolError("response_too_large");
+    }
+  };
+
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -1186,10 +1339,22 @@ async function readBoundedResponseText(
         await reader.cancel();
         throw new SafeProtocolError("response_too_large");
       }
-      text += decoder.decode(value, { stream: true });
+      acceptText(decoder.decode(value, { stream: true }));
     }
-    text += decoder.decode();
-    return text;
+    acceptText(decoder.decode());
+    if (pending.length > 0) {
+      acceptLine(pending);
+      pending = "";
+    }
+    commitEvent();
+    if (!doneSeen || finishReason === null) {
+      throw new SafeProtocolError("malformed_response");
+    }
+    return {
+      content: content.length === 0 ? undefined : content,
+      finishReason,
+      usage,
+    };
   } catch (error) {
     if (error instanceof SafeProtocolError) throw error;
     throw new SafeProtocolError("response_stream");
@@ -1264,22 +1429,6 @@ function unwrapResultEnvelope(value: unknown): unknown {
   return keys.length === 1 && keys[0] === "result" ? value.result : value;
 }
 
-function tokenUsage(rawUsage: unknown): TokenUsage {
-  const usage = z
-    .object({
-      prompt_tokens: z.number().int().nonnegative().max(10_000_000),
-      completion_tokens: z.number().int().nonnegative().max(10_000_000),
-    })
-    .passthrough()
-    .safeParse(rawUsage);
-  return usage.success
-    ? {
-        inputTokens: usage.data.prompt_tokens,
-        outputTokens: usage.data.completion_tokens,
-      }
-    : null;
-}
-
 function addTokenUsage(left: TokenUsage, right: TokenUsage): TokenUsage {
   if (right === null) return left;
   if (left === null) return right;
@@ -1341,12 +1490,12 @@ function resolvePolicy(
         .min(1)
         .max(MAX_TRANSPORT_ATTEMPTS)
         .default(MAX_TRANSPORT_ATTEMPTS),
-      attemptTimeoutMs: z
+      streamIdleTimeoutMs: z
         .number()
         .int()
         .positive()
-        .max(120_000)
-        .default(DEFAULT_ATTEMPT_TIMEOUT_MS),
+        .max(180_000)
+        .default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
       maxResponseBytes: z
         .number()
         .int()
@@ -1357,7 +1506,7 @@ function resolvePolicy(
     .strict()
     .safeParse({
       maxAttempts: rawPolicy.maxAttempts,
-      attemptTimeoutMs: rawPolicy.attemptTimeoutMs,
+      streamIdleTimeoutMs: rawPolicy.streamIdleTimeoutMs,
       maxResponseBytes: rawPolicy.maxResponseBytes,
     });
   if (!parsed.success) throw invalidInputError();
@@ -1525,7 +1674,14 @@ function retryableProviderError(
   transportAttemptCount: number,
 ): ProviderError {
   return failure?.kind === "timeout"
-    ? deadlineError(retryableFailureTelemetry(failure, transportAttemptCount))
+    ? new ProviderError(
+        "PROVIDER_TIMEOUT",
+        "retryable",
+        "Multimodal provider exhausted its stream idle timeout budget",
+        {
+          telemetry: retryableFailureTelemetry(failure, transportAttemptCount),
+        },
+      )
     : new ProviderError(
         "PROVIDER_UNAVAILABLE",
         "retryable",

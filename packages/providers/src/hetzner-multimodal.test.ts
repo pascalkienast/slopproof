@@ -31,6 +31,9 @@ describe("HetznerMultimodalJudgeProvider", () => {
           redirect: "error",
           referrerPolicy: "no-referrer",
         });
+        expect(new Headers(init?.headers).get("accept")).toBe(
+          "text/event-stream",
+        );
         return completionResponse(validCandidate());
       },
     );
@@ -44,11 +47,14 @@ describe("HetznerMultimodalJudgeProvider", () => {
       outcome: "generated",
       degraded: false,
     });
+    expect(JSON.stringify(result)).not.toContain(
+      "private reasoning must never be persisted",
+    );
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(bodies[0]).toMatchObject({
       model: "vision-model",
       store: false,
-      stream: false,
+      stream: true,
       chat_template_kwargs: { thinking: false },
     });
     expect(bodies[0]).not.toHaveProperty("tools");
@@ -121,6 +127,42 @@ describe("HetznerMultimodalJudgeProvider", () => {
     expect(JSON.stringify(body)).not.toContain("data:image");
   });
 
+  it("assembles fragmented SSE content before validating the candidate", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(fragmentedCompletionResponse(validCandidate()));
+
+    const result = await providerWith(fetchImpl).evaluate(
+      { ...inputFixture(), frames: [] },
+      contextFixture(),
+    );
+
+    expect(result.candidate.recommendation).toBe("pass");
+    expect(result.metadata.tokenUsage).toEqual({
+      inputTokens: 25,
+      outputTokens: 10,
+    });
+  });
+
+  it("accepts the single fenced JSON object emitted by the live Ox stream", async () => {
+    const fenced = [
+      "```json",
+      JSON.stringify({ result: validCandidate() }),
+      "```",
+    ].join("\n");
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(completionTextResponse(fenced));
+
+    const result = await providerWith(fetchImpl).evaluate(
+      { ...inputFixture(), frames: [] },
+      contextFixture(),
+    );
+
+    expect(result.candidate.recommendation).toBe("pass");
+    expect(result.metadata.outcome).toBe("generated");
+  });
+
   it.each([400, 415, 422])(
     "after Hetzner hop-vision HTTP %s, evaluates from the transcript without frames",
     async (status) => {
@@ -172,7 +214,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
           fetchImpl,
           policy: {
             maxAttempts: 3,
-            attemptTimeoutMs: 100,
+            streamIdleTimeoutMs: 100,
             now: () => NOW.getTime(),
             random: () => 0,
             sleep: async () => undefined,
@@ -687,7 +729,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
           fetchImpl,
           policy: {
             maxAttempts: 3,
-            attemptTimeoutMs: 100,
+            streamIdleTimeoutMs: 100,
             now: () => NOW.getTime(),
             random: () => 0,
             sleep: async () => undefined,
@@ -729,7 +771,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
             fetchImpl: primaryFetch,
             policy: {
               maxAttempts: 3,
-              attemptTimeoutMs: 100,
+              streamIdleTimeoutMs: 100,
               now: () => NOW.getTime(),
               random: () => 0,
               sleep: async () => undefined,
@@ -748,7 +790,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
             fetchImpl: fallbackFetch,
             policy: {
               maxAttempts: 3,
-              attemptTimeoutMs: 100,
+              streamIdleTimeoutMs: 100,
               now: () => NOW.getTime(),
               random: () => 0,
               sleep: async () => undefined,
@@ -794,7 +836,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
           fetchImpl: primaryFetch,
           policy: {
             maxAttempts: 3,
-            attemptTimeoutMs: 100,
+            streamIdleTimeoutMs: 100,
             now: () => NOW.getTime(),
             random: () => 0,
             sleep: async () => undefined,
@@ -813,7 +855,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
           fetchImpl: fallbackFetch,
           policy: {
             maxAttempts: 3,
-            attemptTimeoutMs: 100,
+            streamIdleTimeoutMs: 100,
             now: () => NOW.getTime(),
             random: () => 0,
             sleep: async () => undefined,
@@ -864,7 +906,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
           fetchImpl: primaryFetch,
           policy: {
             maxAttempts: 3,
-            attemptTimeoutMs: 100,
+            streamIdleTimeoutMs: 100,
             now: () => NOW.getTime(),
             random: () => 0,
             sleep: async () => undefined,
@@ -883,7 +925,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
           fetchImpl: fallbackFetch,
           policy: {
             maxAttempts: 3,
-            attemptTimeoutMs: 100,
+            streamIdleTimeoutMs: 100,
             now: () => NOW.getTime(),
             random: () => 0,
             sleep: async () => undefined,
@@ -932,7 +974,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
           fetchImpl: primaryFetch,
           policy: {
             maxAttempts: 3,
-            attemptTimeoutMs: 100,
+            streamIdleTimeoutMs: 100,
             now: () => NOW.getTime(),
             random: () => 0,
             sleep: async () => undefined,
@@ -951,7 +993,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
           fetchImpl: fallbackFetch,
           policy: {
             maxAttempts: 3,
-            attemptTimeoutMs: 100,
+            streamIdleTimeoutMs: 100,
             now: () => NOW.getTime(),
             random: () => 0,
             sleep: async () => undefined,
@@ -974,7 +1016,7 @@ describe("HetznerMultimodalJudgeProvider", () => {
     expect(fallbackFetch).toHaveBeenCalledTimes(2);
   });
 
-  it("hard-times out a fetch that ignores AbortSignal", async () => {
+  it("reports an exhausted stream idle budget separately from the shared deadline", async () => {
     const fetchImpl = vi.fn<typeof fetch>(
       async () => new Promise<Response>(() => undefined),
     );
@@ -985,10 +1027,40 @@ describe("HetznerMultimodalJudgeProvider", () => {
     await expect(
       providerWith(fetchImpl, {
         maxAttempts: 1,
-        attemptTimeoutMs: 5,
+        streamIdleTimeoutMs: 5,
         now: Date.now,
       }).evaluate(inputFixture(), liveContext),
-    ).rejects.toMatchObject({ code: "DEADLINE_EXCEEDED" });
+    ).rejects.toMatchObject({
+      code: "PROVIDER_TIMEOUT",
+      telemetry: {
+        lastFailureKind: "timeout",
+        transportAttemptCount: 1,
+      },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps DEADLINE_EXCEEDED for the actual provider-hop deadline", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(
+      async () => new Promise<Response>(() => undefined),
+    );
+    const liveContext = {
+      ...contextFixture(),
+      deadlineAt: new Date(Date.now() + 20),
+    };
+    await expect(
+      providerWith(fetchImpl, {
+        maxAttempts: 1,
+        streamIdleTimeoutMs: 100,
+        now: Date.now,
+      }).evaluate(inputFixture(), liveContext),
+    ).rejects.toMatchObject({
+      code: "DEADLINE_EXCEEDED",
+      telemetry: {
+        lastFailureKind: "deadline_exceeded",
+        transportAttemptCount: 1,
+      },
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
@@ -1036,7 +1108,7 @@ function providerWith(
       fetchImpl,
       policy: {
         maxAttempts: 3,
-        attemptTimeoutMs: 100,
+        streamIdleTimeoutMs: 100,
         now: () => NOW.getTime(),
         random: () => 0,
         sleep: async () => undefined,
@@ -1183,8 +1255,64 @@ function completionResponse(candidate: unknown): Response {
 }
 
 function completionTextResponse(content: string): Response {
-  return Response.json({
-    choices: [{ message: { role: "assistant", content } }],
-    usage: { prompt_tokens: 25, completion_tokens: 10 },
-  });
+  const events = [
+    {
+      choices: [
+        {
+          delta: { reasoning: "private reasoning must never be persisted" },
+          finish_reason: null,
+        },
+      ],
+      usage: null,
+    },
+    {
+      choices: [{ delta: { content }, finish_reason: null }],
+      usage: null,
+    },
+    {
+      choices: [{ delta: {}, finish_reason: "stop" }],
+    },
+    {
+      choices: [{ delta: {}, finish_reason: "stop" }],
+      usage: { prompt_tokens: 25, completion_tokens: 10 },
+    },
+  ];
+  return new Response(
+    `${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")}data: [DONE]\n\n`,
+    { headers: { "content-type": "text/event-stream; charset=utf-8" } },
+  );
+}
+
+function fragmentedCompletionResponse(candidate: unknown): Response {
+  const content = JSON.stringify({ result: candidate });
+  const midpoint = Math.floor(content.length / 2);
+  const events = [
+    {
+      choices: [
+        { delta: { content: content.slice(0, midpoint) }, finish_reason: null },
+      ],
+    },
+    {
+      choices: [
+        { delta: { content: content.slice(midpoint) }, finish_reason: null },
+      ],
+    },
+    {
+      choices: [{ delta: {}, finish_reason: "stop" }],
+      usage: { prompt_tokens: 25, completion_tokens: 10 },
+    },
+  ];
+  const payload = `${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")}data: [DONE]\n\n`;
+  const bytes = new TextEncoder().encode(payload);
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let offset = 0; offset < bytes.length; offset += 7) {
+          controller.enqueue(bytes.slice(offset, offset + 7));
+        }
+        controller.close();
+      },
+    }),
+    { headers: { "content-type": "text/event-stream" } },
+  );
 }

@@ -15,7 +15,7 @@ import type {
   MultimodalJudgeProviderInputV1,
   MultimodalJudgeProviderResultV1,
 } from "./hetzner-multimodal";
-import type { ProviderContextV1 } from "./contracts";
+import { ProviderContextV1Schema, type ProviderContextV1 } from "./contracts";
 
 type RepairableSemanticProvider<TInput> = {
   readonly descriptor: SemanticProviderDescriptorV1;
@@ -34,6 +34,14 @@ export const SEMANTIC_TRANSPORT_FALLBACK_RESERVE_MS = 120_000;
 export const SEMANTIC_TRANSPORT_FALLBACK_MIN_PRIMARY_MS = 30_000;
 
 export type TransportFallbackSemanticOptions = {
+  now?: () => number;
+  reserveMs?: number;
+};
+
+export const MULTIMODAL_TRANSPORT_FALLBACK_RESERVE_MS = 120_000;
+export const MULTIMODAL_TRANSPORT_FALLBACK_MIN_PRIMARY_MS = 60_000;
+
+export type TransportFallbackMultimodalOptions = {
   now?: () => number;
   reserveMs?: number;
 };
@@ -140,21 +148,36 @@ export class TransportFallbackSemanticProvider<
 export class TransportFallbackMultimodalJudgeProvider implements InlineMultimodalJudgeProvider {
   readonly descriptor: InlineMultimodalJudgeDescriptorV1;
   readonly transportFallbackDescriptor: InlineMultimodalJudgeDescriptorV1;
+  private readonly now: () => number;
+  private readonly reserveMs: number;
 
   constructor(
     private readonly primary: InlineMultimodalJudgeProvider,
     private readonly fallback: InlineMultimodalJudgeProvider,
+    options: TransportFallbackMultimodalOptions = {},
   ) {
     this.descriptor = primary.descriptor;
     this.transportFallbackDescriptor = fallback.descriptor;
+    this.now = options.now ?? Date.now;
+    this.reserveMs =
+      options.reserveMs ?? MULTIMODAL_TRANSPORT_FALLBACK_RESERVE_MS;
   }
 
   async evaluate(
     input: MultimodalJudgeProviderInputV1,
     context: ProviderContextV1,
   ): Promise<MultimodalJudgeProviderResultV1> {
+    const primaryContext = ProviderContextV1Schema.parse({
+      ...context,
+      deadlineAt: reserveTransportFallbackDeadline(
+        context.deadlineAt,
+        this.now(),
+        this.reserveMs,
+        MULTIMODAL_TRANSPORT_FALLBACK_MIN_PRIMARY_MS,
+      ),
+    });
     try {
-      return await this.primary.evaluate(input, context);
+      return await this.primary.evaluate(input, primaryContext);
     } catch (error) {
       if (!isTransportFailure(error)) {
         throw annotateProviderErrorHopUsed(error, "primary");

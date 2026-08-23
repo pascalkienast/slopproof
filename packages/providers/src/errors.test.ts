@@ -28,6 +28,25 @@ describe("provider HTTP status helpers", () => {
 });
 
 describe("isTransportFailure", () => {
+  it("hops after an exhausted provider stream idle timeout", () => {
+    expect(
+      isTransportFailure(
+        new ProviderError(
+          "PROVIDER_TIMEOUT",
+          "retryable",
+          "Multimodal provider exhausted its stream idle timeout budget",
+          {
+            telemetry: {
+              lastFailureKind: "timeout",
+              httpStatusClass: null,
+              transportAttemptCount: 1,
+            },
+          },
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("hops after exhausted transient 402/404/408 retries", () => {
     for (const httpStatus of [402, 404, 408]) {
       expect(
