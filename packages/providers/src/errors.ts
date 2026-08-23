@@ -5,6 +5,7 @@ export const PROVIDER_ERROR_CODES = [
   "RUBRIC_MISMATCH",
   "PATCH_ANCHOR_MISMATCH",
   "DEADLINE_EXCEEDED",
+  "PROVIDER_TIMEOUT",
   "PROVIDER_UNAVAILABLE",
   "INVALID_CIPHER_KEY",
   "INVALID_CIPHER_PAYLOAD",
@@ -168,6 +169,8 @@ export function isTransportFailure(error: unknown): boolean {
   const kind = error.telemetry?.lastFailureKind;
   if (kind !== undefined && !TRANSPORT_FAILURE_KINDS.has(kind)) return false;
   return (
-    error.code === "DEADLINE_EXCEEDED" || error.code === "PROVIDER_UNAVAILABLE"
+    error.code === "DEADLINE_EXCEEDED" ||
+    error.code === "PROVIDER_TIMEOUT" ||
+    error.code === "PROVIDER_UNAVAILABLE"
   );
 }

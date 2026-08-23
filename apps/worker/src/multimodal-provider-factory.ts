@@ -63,6 +63,9 @@ export function createMultimodalJudgeProvider(
       },
       dependencies.hetzner,
     ),
+    {
+      now: () => (dependencies.clock?.now() ?? new Date()).getTime(),
+    },
   );
 }
 

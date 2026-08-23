@@ -13,6 +13,7 @@ import type {
   SemanticProviderRepairInstructionV1,
 } from "./learning-proof";
 import {
+  MULTIMODAL_TRANSPORT_FALLBACK_RESERVE_MS,
   SEMANTIC_TRANSPORT_FALLBACK_RESERVE_MS,
   TransportFallbackMultimodalJudgeProvider,
   TransportFallbackSemanticProvider,
@@ -365,6 +366,65 @@ describe("TransportFallbackSemanticProvider", () => {
 });
 
 describe("TransportFallbackMultimodalJudgeProvider", () => {
+  it("reserves two minutes for the fallback inside a five-minute judge deadline", async () => {
+    const start = new Date("2026-08-18T12:00:00.000Z");
+    const context = {
+      ...judgeContext(),
+      deadlineAt: new Date(start.getTime() + 5 * 60_000),
+    };
+    const primary = stubJudgeProvider(
+      {
+        provider: "openrouter",
+        model: "stealth/ox-alpha",
+        visionModel: "stealth/ox-alpha",
+      },
+      (primaryContext) => {
+        expect(primaryContext.deadlineAt).toEqual(
+          new Date(
+            context.deadlineAt.getTime() -
+              MULTIMODAL_TRANSPORT_FALLBACK_RESERVE_MS,
+          ),
+        );
+        throw new ProviderError(
+          "PROVIDER_TIMEOUT",
+          "retryable",
+          "Multimodal provider exhausted its stream idle timeout budget",
+          {
+            telemetry: {
+              lastFailureKind: "timeout",
+              httpStatusClass: null,
+              transportAttemptCount: 1,
+            },
+          },
+        );
+      },
+    );
+    const fallback = stubJudgeProvider(
+      {
+        provider: "hetzner-inference",
+        model: "hetzner-judge",
+        visionModel: "hetzner-vision",
+      },
+      (fallbackContext) => {
+        expect(fallbackContext.deadlineAt).toEqual(context.deadlineAt);
+        return judgeResult({
+          provider: "hetzner-inference",
+          model: "hetzner-judge",
+        });
+      },
+    );
+
+    const result = await new TransportFallbackMultimodalJudgeProvider(
+      primary,
+      fallback,
+      { now: () => start.getTime() },
+    ).evaluate({} as MultimodalJudgeProviderInputV1, context);
+
+    expect(result.metadata.provider).toBe("hetzner-inference");
+    expect(primary.evaluate).toHaveBeenCalledOnce();
+    expect(fallback.evaluate).toHaveBeenCalledOnce();
+  });
+
   it("records the Hetzner judge after a primary transport failure", async () => {
     const primary = stubJudgeProvider(
       {
@@ -631,13 +691,13 @@ function stubSemanticProvider(
 
 function stubJudgeProvider(
   descriptor: InlineMultimodalJudgeProvider["descriptor"],
-  evaluate: () => MultimodalJudgeProviderResultV1,
+  evaluate: (context: ProviderContextV1) => MultimodalJudgeProviderResultV1,
 ): InlineMultimodalJudgeProvider & {
   evaluate: ReturnType<typeof vi.fn>;
 } {
   return {
     descriptor,
-    evaluate: vi.fn(async () => evaluate()),
+    evaluate: vi.fn(async (_input, context) => evaluate(context)),
   };
 }
 
