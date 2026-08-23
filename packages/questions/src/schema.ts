@@ -29,6 +29,13 @@ export const PlanProofInputSchema = z
 
 export type PlanProofInput = z.infer<typeof PlanProofInputSchema>;
 
+export const PlanProofBudgetInputSchema = PlanProofInputSchema.pick({
+  analysis: true,
+  policy: true,
+}).strict();
+
+export type PlanProofBudgetInput = z.infer<typeof PlanProofBudgetInputSchema>;
+
 export const QuestionIntentSchema = z.enum([
   "explain",
   "predict",

@@ -19,7 +19,49 @@ export function createSemanticProofReadyWriter(
       });
       await insertProofReadyAuditOnce(client, input);
     },
+    async fail(client, input) {
+      await checkIntents.write(client, {
+        revisionId: input.revisionId,
+        headSha: input.headSha,
+        status: "completed",
+        conclusion: "action_required",
+        summary: `SlopProof could not prepare patch-bound questions for head ${input.headSha}. Maintainer action is required.`,
+        reason: "preparation_failed",
+        idempotencyKey: input.idempotencyKey,
+      });
+      await insertProofPreparationFailureAuditOnce(client, input);
+    },
   };
+}
+
+async function insertProofPreparationFailureAuditOnce(
+  client: PoolClient,
+  input: {
+    revisionId: string;
+    generationContextId: string;
+    headSha: string;
+    errorClass: string;
+  },
+): Promise<void> {
+  await client.query(
+    `INSERT INTO audit_events
+       (actor_id, action, object_type, object_id, metadata)
+     SELECT 'semantic-worker', 'analysis.preparation_failed',
+            'revision', $1, $2::jsonb
+     WHERE NOT EXISTS (
+       SELECT 1 FROM audit_events
+        WHERE action = 'analysis.preparation_failed'
+          AND object_type = 'revision' AND object_id = $1
+     )`,
+    [
+      input.revisionId,
+      JSON.stringify({
+        headSha: input.headSha,
+        generationContextId: input.generationContextId,
+        errorClass: input.errorClass,
+      }),
+    ],
+  );
 }
 
 async function insertProofReadyAuditOnce(

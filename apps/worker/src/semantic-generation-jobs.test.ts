@@ -78,6 +78,52 @@ describe("semantic generation job handlers", () => {
     );
     expect(deadlineAt.getTime() - createdAt.getTime()).toBe(8 * 60_000);
   });
+
+  it("turns a deterministic Proof system error into preparation_failed once", async () => {
+    const failProofPreparation = vi.fn(async () => "failed" as const);
+    const handlers = createSemanticGenerationJobHandlers({
+      repository: repositoryStub({
+        reserveRun: vi.fn(async () =>
+          runFixture({
+            createdAt: new Date("2026-08-19T15:46:12.000Z"),
+            deadlineAt: new Date("2026-08-19T15:54:12.000Z"),
+          }),
+        ),
+        failProofPreparation,
+      }),
+      service: serviceStub({
+        generateProofQuestionPlan: vi.fn(async () => {
+          throw new Error("private deterministic binding failure");
+        }),
+      }),
+    });
+
+    await expect(
+      handlers["semantic.generate-proof-questions"](proofPayload()),
+    ).resolves.toEqual({ outcome: "failed" });
+    expect(failProofPreparation).toHaveBeenCalledWith(proofPayload(), "Error");
+  });
+
+  it("keeps transient Proof infrastructure failures retryable", async () => {
+    const retryable = Object.assign(new Error("serialization retry"), {
+      code: "40001",
+    });
+    const failProofPreparation = vi.fn(async () => "failed" as const);
+    const handlers = createSemanticGenerationJobHandlers({
+      repository: repositoryStub({
+        reserveRun: vi.fn(async () => {
+          throw retryable;
+        }),
+        failProofPreparation,
+      }),
+      service: serviceStub({}),
+    });
+
+    await expect(
+      handlers["semantic.generate-proof-questions"](proofPayload()),
+    ).rejects.toBe(retryable);
+    expect(failProofPreparation).not.toHaveBeenCalled();
+  });
 });
 
 function learningPayload(): JobPayload<"semantic.generate-learning"> {
@@ -85,6 +131,17 @@ function learningPayload(): JobPayload<"semantic.generate-learning"> {
     schemaVersion: "1",
     idempotencyKey: "semantic.learning.v3:82000000-0000-4000-8000-000000000003",
     artifactKind: "learning_bundle_v1",
+    revisionId: "82000000-0000-4000-8000-000000000002",
+    generationContextId: "82000000-0000-4000-8000-000000000003",
+    expectedHeadSha: "a".repeat(40),
+  };
+}
+
+function proofPayload(): JobPayload<"semantic.generate-proof-questions"> {
+  return {
+    schemaVersion: "1",
+    idempotencyKey: "semantic.proof.v2:82000000-0000-4000-8000-000000000003",
+    artifactKind: "proof_question_plan_v2",
     revisionId: "82000000-0000-4000-8000-000000000002",
     generationContextId: "82000000-0000-4000-8000-000000000003",
     expectedHeadSha: "a".repeat(40),
@@ -127,6 +184,7 @@ function repositoryStub(
     persistPracticeFeedback: vi.fn(),
     persistProofPlanAndCreateAttempt: vi.fn(),
     replayCompletedProof: vi.fn(),
+    failProofPreparation: vi.fn(),
     expirePrivate: vi.fn(),
     startPracticeSession: vi.fn(),
     submitPracticeAnswer: vi.fn(),

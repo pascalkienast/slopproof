@@ -30,7 +30,7 @@ import { PostgresGithubRevisionPatchSource } from "./github-revision-patch-sourc
 import {
   createWorkerCheckIntentWriter,
   LocalFakeRevisionPatchSource,
-  prepareRevision,
+  prepareRevisionFailClosed,
 } from "./revision-preparation";
 import { createPostgresRetentionService } from "./retention";
 import { handleReviewContextRequest } from "./review-context";
@@ -220,7 +220,7 @@ async function start(): Promise<void> {
     activeJobQueue,
     "analysis.prepare-revision",
     async (job) => {
-      await prepareRevision(job.data, {
+      const result = await prepareRevisionFailClosed(job.data, {
         pool: database.pool,
         queue: activeJobQueue,
         checkIntents,
@@ -228,6 +228,15 @@ async function start(): Promise<void> {
         generationContexts,
         semanticGeneration: activeSemanticRepository,
       });
+      if (result.outcome === "preparation_failed") {
+        log.error(
+          {
+            revisionId: result.revisionId,
+            headSha: result.headSha,
+          },
+          "analysis.preparation_failed",
+        );
+      }
     },
   );
   await registerJobWorker(

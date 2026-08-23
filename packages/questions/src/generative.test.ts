@@ -242,6 +242,24 @@ describe("Gate 4 semantic content contracts", () => {
     ).toBe(true);
   });
 
+  it("keeps a five-question same-file fallback total and collision-free", () => {
+    const context = sameFileContextFixture();
+    const candidates = deterministicProofFallbackV2(context, 5);
+
+    expect(candidates).toHaveLength(5);
+    expect(new Set(candidates.map((candidate) => candidate.prompt)).size).toBe(
+      5,
+    );
+    expect(
+      candidates.every(
+        (candidate) =>
+          candidate.anchorIds.length === 1 &&
+          candidate.patchReferences.length === 1 &&
+          candidate.anchorIds[0] === candidate.patchReferences[0]?.anchorId,
+      ),
+    ).toBe(true);
+  });
+
   it("rejects a 301-character rubric description before a Proof plan can be frozen or hashed", () => {
     const candidate = deterministicProofFallbackV2(contextFixture(), 1)[0];
     expect(candidate).toBeDefined();
@@ -521,6 +539,54 @@ function contextFixture(): GenerationContextV1 {
   return buildGenerationContextV1({
     revisionId: "10000000-0000-4000-8000-000000000001",
     analysisSnapshotId: "10000000-0000-4000-8000-000000000002",
+    boundedSource: bounded,
+    analysis,
+    excerpts: [],
+  });
+}
+
+function sameFileContextFixture(): GenerationContextV1 {
+  const baseSha = "4".repeat(40);
+  const headSha = "5".repeat(40);
+  const patch = Array.from({ length: 5 }, (_, index) => {
+    const line = index * 20 + 1;
+    return [
+      `@@ -${String(line)},1 +${String(line)},1 @@`,
+      `-return oldBehavior${String(index)};`,
+      `+return newBehavior${String(index)};`,
+    ].join("\n");
+  }).join("\n");
+  const bounded = buildBoundedRevisionSourceV1({
+    githubPullRequestId: "9002",
+    number: 43,
+    state: "open",
+    draft: false,
+    title: "Several bounded changes in one file",
+    body: "Five hunks exercise the deterministic fallback.",
+    authorId: "78",
+    authorLogin: "contributor",
+    headSha,
+    baseSha,
+    changedFiles: 1,
+    isFork: false,
+    files: [
+      {
+        ...changedFile("src/feature.ts", patch),
+        additions: 5,
+        deletions: 5,
+        changes: 10,
+      },
+    ],
+    limitsHit: {
+      files: false,
+      patchBytes: false,
+      patchUnavailable: false,
+    },
+  });
+  const analysis = analyzePullRequestPatch(boundedRevisionSourcePatch(bounded));
+  return buildGenerationContextV1({
+    revisionId: "10000000-0000-4000-8000-000000000011",
+    analysisSnapshotId: "10000000-0000-4000-8000-000000000012",
     boundedSource: bounded,
     analysis,
     excerpts: [],

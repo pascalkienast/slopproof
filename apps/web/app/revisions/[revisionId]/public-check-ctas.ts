@@ -5,10 +5,13 @@ export function publicCheckCtas(input: {
   isCurrent: boolean;
   conclusion: PublicCheckConclusion;
   hasAttempt: boolean;
+  preparationAvailable: boolean;
 }): { showContributor: boolean; showMaintainer: boolean } {
   return {
     showContributor:
-      input.isCurrent && revisionRequiresUnderstanding(input.conclusion),
+      input.isCurrent &&
+      input.preparationAvailable &&
+      revisionRequiresUnderstanding(input.conclusion),
     showMaintainer: input.hasAttempt,
   };
 }

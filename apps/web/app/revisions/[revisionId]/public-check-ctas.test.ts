@@ -8,6 +8,7 @@ describe("public check CTAs", () => {
         isCurrent: true,
         conclusion: null,
         hasAttempt: false,
+        preparationAvailable: true,
       }),
     ).toEqual({ showContributor: true, showMaintainer: false });
   });
@@ -18,6 +19,7 @@ describe("public check CTAs", () => {
         isCurrent: true,
         conclusion: "action_required",
         hasAttempt: true,
+        preparationAvailable: true,
       }),
     ).toEqual({ showContributor: true, showMaintainer: true });
   });
@@ -28,6 +30,7 @@ describe("public check CTAs", () => {
         isCurrent: false,
         conclusion: "neutral",
         hasAttempt: true,
+        preparationAvailable: true,
       }),
     ).toEqual({ showContributor: false, showMaintainer: true });
     expect(
@@ -35,6 +38,7 @@ describe("public check CTAs", () => {
         isCurrent: false,
         conclusion: null,
         hasAttempt: false,
+        preparationAvailable: false,
       }),
     ).toEqual({ showContributor: false, showMaintainer: false });
   });
@@ -45,6 +49,7 @@ describe("public check CTAs", () => {
         isCurrent: true,
         conclusion: "success",
         hasAttempt: true,
+        preparationAvailable: true,
       }),
     ).toEqual({ showContributor: false, showMaintainer: true });
     expect(
@@ -52,6 +57,18 @@ describe("public check CTAs", () => {
         isCurrent: true,
         conclusion: "cancelled",
         hasAttempt: false,
+        preparationAvailable: true,
+      }),
+    ).toEqual({ showContributor: false, showMaintainer: false });
+  });
+
+  it("does not expose contributor flow before preparation has a budget", () => {
+    expect(
+      publicCheckCtas({
+        isCurrent: true,
+        conclusion: null,
+        hasAttempt: false,
+        preparationAvailable: false,
       }),
     ).toEqual({ showContributor: false, showMaintainer: false });
   });

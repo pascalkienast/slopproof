@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import type { AnalysisSnapshot, DiffAnchor } from "@slopproof/analysis";
 import {
   PlanProofInputSchema,
+  PlanProofBudgetInputSchema,
   PracticeInputSchema,
   PracticeSetSchema,
   ProofPlanSchema,
-  type PlanProofInput,
+  type PlanProofBudgetInput,
   type PracticeSet,
   type ProofPlan,
   type ProofQuestion,
@@ -63,7 +64,20 @@ function stableOrder<T>(
   );
 }
 
-function requestedBudget(input: PlanProofInput): number {
+export type ProofBudgetPlan =
+  | {
+      status: "ready";
+      questionBudget: number;
+      rationale: string[];
+    }
+  | {
+      status: "split_recommended";
+      questionBudget: 0;
+      rationale: string[];
+      splitRecommendation: string;
+    };
+
+function requestedBudget(input: PlanProofBudgetInput): number {
   const { analysis, policy } = input;
   if (analysis.riskLevel === "mega" || analysis.anchors.length === 0) {
     return 0;
@@ -129,7 +143,7 @@ function candidatePool(analysis: AnalysisSnapshot): Candidate[] {
 }
 
 function promptFor(candidate: Candidate): string {
-  const location = `the supplied ${candidate.focus} anchor in ${candidate.anchor.file}`;
+  const location = `the supplied ${candidate.focus} anchor ${candidate.anchor.id} in ${boundedDisplayPath(candidate.anchor.file)} near new line ${String(candidate.anchor.newStart)}`;
   switch (candidate.intent) {
     case "explain":
       return `Explain the observable before-and-after behavior at ${location}, and why the new behavior is intended.`;
@@ -190,9 +204,9 @@ function rubricFor(candidate: Candidate): ProofQuestion["rubric"] {
   }
 }
 
-function rationale(input: PlanProofInput, budget: number): string[] {
+function rationale(input: PlanProofBudgetInput, budget: number): string[] {
   const output = [
-    `Risk class ${input.analysis.riskLevel} maps to ${String(budget)} proof question${budget === 1 ? "" : "s"} under planner v1.`,
+    `Risk class ${input.analysis.riskLevel} maps to ${String(budget)} proof question${budget === 1 ? "" : "s"} under the repository proof policy.`,
     `Risk vector: scope=${String(input.analysis.riskVector.scope)}, sensitive=${String(input.analysis.riskVector.sensitiveSurface)}, migration=${String(input.analysis.riskVector.migration)}, concurrency=${String(input.analysis.riskVector.concurrency)}.`,
   ];
   if (input.analysis.generatedChangedLines > 0) {
@@ -203,16 +217,44 @@ function rationale(input: PlanProofInput, budget: number): string[] {
   return output;
 }
 
+export function planProofBudget(rawInput: unknown): ProofBudgetPlan {
+  const input = PlanProofBudgetInputSchema.parse(rawInput);
+  const questionBudget = requestedBudget(input);
+  const reasons = rationale(input, questionBudget);
+  if (input.analysis.riskLevel === "mega") {
+    return {
+      status: "split_recommended",
+      questionBudget: 0,
+      rationale: reasons,
+      splitRecommendation:
+        "Split or narrow the pull request so each proof can be grounded in a bounded, reviewable behavior set.",
+    };
+  }
+  if (input.analysis.anchors.length === 0) {
+    return {
+      status: "split_recommended",
+      questionBudget: 0,
+      rationale: reasons,
+      splitRecommendation:
+        "Provide a text patch with visible hunk anchors before creating proof questions.",
+    };
+  }
+  return { status: "ready", questionBudget, rationale: reasons };
+}
+
 export function planProof(
   rawInput: unknown,
   dependencies: PlannerDependencies,
 ): ProofPlan {
   const input = PlanProofInputSchema.parse(rawInput);
-  const budget = requestedBudget(input);
+  const budgetPlan = planProofBudget({
+    analysis: input.analysis,
+    policy: input.policy,
+  });
+  const budget = budgetPlan.questionBudget;
   const domainSeed = `proof:${input.serverSeed}:${input.analysis.headSha}:${input.versions.planner}:${input.versions.questionTemplates}`;
   const seedCommitment = sha256(domainSeed);
-  const splitRecommended =
-    input.analysis.riskLevel === "mega" || input.analysis.anchors.length === 0;
+  const splitRecommended = budgetPlan.status === "split_recommended";
   const candidates = stableOrder(
     candidatePool(input.analysis),
     domainSeed,
@@ -249,13 +291,10 @@ export function planProof(
       ? ("split_recommended" as const)
       : ("ready" as const),
     questionBudget: questions.length,
-    rationale: rationale(input, questions.length),
+    rationale: budgetPlan.rationale,
     ...(splitRecommended
       ? {
-          splitRecommendation:
-            input.analysis.riskLevel === "mega"
-              ? "Split or narrow the pull request so each proof can be grounded in a bounded, reviewable behavior set."
-              : "Provide a text patch with visible hunk anchors before creating proof questions.",
+          splitRecommendation: budgetPlan.splitRecommendation,
         }
       : {}),
     seedCommitment,
@@ -269,6 +308,11 @@ export function planProof(
     }),
   );
   return ProofPlanSchema.parse({ ...planWithoutHash, planHash });
+}
+
+function boundedDisplayPath(path: string): string {
+  if (path.length <= 240) return path;
+  return `${path.slice(0, 118)}…${path.slice(-118)}`;
 }
 
 const PRACTICE_POOL = [

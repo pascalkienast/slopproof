@@ -9,6 +9,10 @@ import type {
   SemanticGenerationJobHandlerDependencies,
   SemanticGenerationJobHandlers,
 } from "./semantic-generation-contracts";
+import {
+  isRetryablePreparationError,
+  safeErrorClass,
+} from "./revision-preparation";
 
 export function createSemanticGenerationJobHandlers(
   dependencies: SemanticGenerationJobHandlerDependencies,
@@ -90,35 +94,45 @@ export function createSemanticGenerationJobHandlers(
     },
 
     async "semantic.generate-proof-questions"(payload) {
-      const run = await dependencies.repository.reserveRun(
-        "semantic.generate-proof-questions",
-        payload,
-      );
-      if (run === "stale") return { outcome: "stale" };
-      if (run === "proof_pending") {
-        throw new Error(
-          "Proof generation does not wait on frozen Proof content.",
+      try {
+        const run = await dependencies.repository.reserveRun(
+          "semantic.generate-proof-questions",
+          payload,
         );
+        if (run === "stale") return { outcome: "stale" };
+        if (run === "proof_pending") {
+          throw new Error(
+            "Proof generation does not wait on frozen Proof content.",
+          );
+        }
+        if (run.completedArtifactId !== null) {
+          return dependencies.repository.replayCompletedProof(run);
+        }
+        const request: GenerateProofQuestionPlanRequestV1 = {
+          schemaVersion: "1",
+          requestVersion: "generate-proof-question-plan-v1",
+          generationContext: run.generationContext,
+          artifactSeed: run.artifactSeed,
+          artifactCreatedAt: run.createdAt,
+          deadlineAt: run.deadlineAt,
+          deleteAfter: run.deleteAfter,
+          questionBudget: run.questionCount,
+        };
+        const result =
+          await dependencies.service.generateProofQuestionPlan(request);
+        return dependencies.repository.persistProofPlanAndCreateAttempt(
+          run,
+          result,
+        );
+      } catch (error) {
+        if (isRetryablePreparationError(error)) throw error;
+        return {
+          outcome: await dependencies.repository.failProofPreparation(
+            payload,
+            safeErrorClass(error),
+          ),
+        };
       }
-      if (run.completedArtifactId !== null) {
-        return dependencies.repository.replayCompletedProof(run);
-      }
-      const request: GenerateProofQuestionPlanRequestV1 = {
-        schemaVersion: "1",
-        requestVersion: "generate-proof-question-plan-v1",
-        generationContext: run.generationContext,
-        artifactSeed: run.artifactSeed,
-        artifactCreatedAt: run.createdAt,
-        deadlineAt: run.deadlineAt,
-        deleteAfter: run.deleteAfter,
-        questionBudget: run.questionCount,
-      };
-      const result =
-        await dependencies.service.generateProofQuestionPlan(request);
-      return dependencies.repository.persistProofPlanAndCreateAttempt(
-        run,
-        result,
-      );
     },
 
     async "semantic.expire-private"(payload) {

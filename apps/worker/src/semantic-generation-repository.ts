@@ -164,13 +164,19 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
         ) AS proof_ready,
         (
           NOT EXISTS (
-            SELECT 1 FROM attempts WHERE revision_id = $1
-          )
-          OR EXISTS (
-            SELECT 1 FROM semantic_generation_runs
-             WHERE generation_context_id = $2
-               AND purpose = 'proof_questions'
-               AND completed_at IS NOT NULL
+            SELECT 1 FROM check_runs check_run
+             WHERE check_run.revision_id = $1
+               AND check_run.intent_reason = 'preparation_failed'
+          ) AND (
+            NOT EXISTS (
+              SELECT 1 FROM attempts WHERE revision_id = $1
+            )
+            OR EXISTS (
+              SELECT 1 FROM semantic_generation_runs
+               WHERE generation_context_id = $2
+                 AND purpose = 'proof_questions'
+                 AND completed_at IS NOT NULL
+            )
           )
         ) AS should_schedule`,
       [input.revisionId, input.generationContextId, input.questionBudget],
@@ -207,6 +213,66 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
       authorId: run.authorId,
       headSha: run.generationContext.headSha,
     });
+  }
+
+  async failProofPreparation(
+    payload: JobPayload<"semantic.generate-proof-questions">,
+    errorClass: string,
+  ): Promise<"failed" | "stale"> {
+    if (!/^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/u.test(errorClass)) {
+      throw new Error("Proof preparation error class is invalid.");
+    }
+    const client = await this.database.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [`semantic-proof:${payload.revisionId}`],
+      );
+      const current = await client.query<{ current: boolean }>(
+        `SELECT (
+            revision.is_current = true
+            AND revision.head_sha = $3
+            AND pull_request.state = 'open'
+            AND budget.generation_context_id = $2
+            AND NOT EXISTS (
+              SELECT 1 FROM attempts attempt
+               WHERE attempt.revision_id = revision.id
+            )
+          ) AS current
+           FROM pull_request_revisions revision
+           JOIN pull_requests pull_request
+             ON pull_request.id = revision.pull_request_id
+           JOIN semantic_generation_budgets budget
+             ON budget.revision_id = revision.id
+            AND budget.head_sha = revision.head_sha
+          WHERE revision.id = $1
+          FOR UPDATE OF revision, pull_request`,
+        [
+          payload.revisionId,
+          payload.generationContextId,
+          payload.expectedHeadSha,
+        ],
+      );
+      if (current.rows[0]?.current !== true) {
+        await client.query("ROLLBACK");
+        return "stale";
+      }
+      await this.proofReady.fail(client, {
+        revisionId: payload.revisionId,
+        generationContextId: payload.generationContextId,
+        headSha: payload.expectedHeadSha,
+        errorClass,
+        idempotencyKey: `semantic-preparation-failed:${payload.generationContextId}`,
+      });
+      await client.query("COMMIT");
+      return "failed";
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async reserveRun(
@@ -1659,6 +1725,10 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
                      AND run.completed_at IS NOT NULL
                 ) AS needs_learning,
                 (NOT EXISTS (
+                  SELECT 1 FROM check_runs check_run
+                   WHERE check_run.revision_id = budget.revision_id
+                     AND check_run.intent_reason = 'preparation_failed'
+                ) AND NOT EXISTS (
                   SELECT 1 FROM semantic_generation_runs run
                    WHERE run.generation_context_id = budget.generation_context_id
                      AND run.purpose = 'proof_questions'
@@ -1682,6 +1752,11 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
             AND pull_request.state = 'open'
             AND repository.status = 'active'
             AND installation.status = 'active'
+            AND NOT EXISTS (
+              SELECT 1 FROM check_runs check_run
+               WHERE check_run.revision_id = budget.revision_id
+                 AND check_run.intent_reason = 'preparation_failed'
+            )
             AND (
               NOT EXISTS (
                 SELECT 1 FROM semantic_generation_runs run
@@ -1690,6 +1765,10 @@ export class PostgresSemanticGenerationRepository implements SemanticGenerationR
                    AND run.completed_at IS NOT NULL
               )
               OR (NOT EXISTS (
+                SELECT 1 FROM check_runs check_run
+                 WHERE check_run.revision_id = budget.revision_id
+                   AND check_run.intent_reason = 'preparation_failed'
+              ) AND NOT EXISTS (
                 SELECT 1 FROM semantic_generation_runs run
                  WHERE run.generation_context_id = budget.generation_context_id
                    AND run.purpose = 'proof_questions'
@@ -1922,6 +2001,11 @@ async function loadRunBinding(
         AND revision.head_sha = $3 AND context.head_sha = $3
         AND repository.status = 'active'
         AND installation.status = 'active'
+        AND NOT EXISTS (
+          SELECT 1 FROM check_runs check_run
+           WHERE check_run.revision_id = revision.id
+             AND check_run.intent_reason = 'preparation_failed'
+        )
       FOR SHARE OF revision, context, pull_request, repository, installation`,
     [revisionId, generationContextId, headSha],
   );

@@ -145,6 +145,16 @@ export interface SemanticProofReadyWriter {
       idempotencyKey: string;
     },
   ): Promise<void>;
+  fail(
+    client: PoolClient,
+    input: {
+      revisionId: string;
+      generationContextId: string;
+      headSha: string;
+      errorClass: string;
+      idempotencyKey: string;
+    },
+  ): Promise<void>;
 }
 
 export interface SemanticGenerationRepository {
@@ -194,6 +204,10 @@ export interface SemanticGenerationRepository {
     | { outcome: "replayed" | "recovered"; attemptId: string }
     | { outcome: "stale" | "existing_attempt_conflict" }
   >;
+  failProofPreparation(
+    payload: JobPayload<"semantic.generate-proof-questions">,
+    errorClass: string,
+  ): Promise<"failed" | "stale">;
   expirePrivate(
     payload: JobPayload<"semantic.expire-private">,
   ): Promise<"deleted" | "replayed">;
