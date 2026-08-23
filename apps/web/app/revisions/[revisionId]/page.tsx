@@ -16,6 +16,7 @@ type PublicRevision = {
   conclusion: "action_required" | "success" | "neutral" | "cancelled" | null;
   public_summary: string;
   has_attempt: boolean;
+  has_preparation_budget: boolean;
 };
 
 export default async function PublicRevisionPage({
@@ -37,7 +38,12 @@ export default async function PublicRevisionPage({
             EXISTS (
               SELECT 1 FROM attempts attempt
               WHERE attempt.revision_id = revision.id
-            ) AS has_attempt
+            ) AS has_attempt,
+            EXISTS (
+              SELECT 1 FROM semantic_generation_budgets budget
+              WHERE budget.revision_id = revision.id
+                AND budget.head_sha = revision.head_sha
+            ) AS has_preparation_budget
      FROM pull_request_revisions revision
      JOIN pull_requests pull_request ON pull_request.id = revision.pull_request_id
      JOIN repositories repository ON repository.id = pull_request.repository_id
@@ -52,6 +58,8 @@ export default async function PublicRevisionPage({
     isCurrent: revision.is_current,
     conclusion: revision.conclusion,
     hasAttempt: revision.has_attempt,
+    preparationAvailable:
+      revision.has_preparation_budget || revision.has_attempt,
   });
 
   return (

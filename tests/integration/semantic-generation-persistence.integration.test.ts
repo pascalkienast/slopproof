@@ -80,7 +80,10 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
     generationContextId = seeded.generationContextId;
     generationContext = seeded.context;
     scheduler = schedulerFixture();
-    proofReady = { write: vi.fn(async () => undefined) };
+    proofReady = {
+      write: vi.fn(async () => undefined),
+      fail: vi.fn(async () => undefined),
+    };
     repository = new PostgresSemanticGenerationRepository(
       database,
       new PayloadCipher(Buffer.alloc(32, 7)),
@@ -864,6 +867,7 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
     const recoveryScheduler = schedulerFixture();
     const recoveryProofReady: SemanticProofReadyWriter = {
       write: vi.fn(async () => undefined),
+      fail: vi.fn(async () => undefined),
     };
     const recoveredRepository = new PostgresSemanticGenerationRepository(
       database,

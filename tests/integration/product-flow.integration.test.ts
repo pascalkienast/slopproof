@@ -27,7 +27,7 @@ import { expireAttempt } from "../../apps/worker/src/attempt-expiry";
 import {
   createWorkerCheckIntentWriter,
   LocalFakeRevisionPatchSource,
-  prepareRevision,
+  prepareRevisionFailClosed,
   type CheckIntentWriter as WorkerCheckIntentWriter,
 } from "../../apps/worker/src/revision-preparation";
 import { persistGenerationContextV1InTransaction } from "../../apps/worker/src/generation-context-repository";
@@ -68,6 +68,7 @@ databaseDescribe("complete current-SHA product flow", () => {
   let checkIntents: RecordingCheckIntentWriter;
   let workerCheckIntents: WorkerCheckIntentWriter;
   let storage: FakeAbortStorage;
+  let failGenerationContextPersistence = false;
 
   beforeAll(async () => {
     connection = connectDatabase(databaseUrl!);
@@ -88,13 +89,18 @@ databaseDescribe("complete current-SHA product flow", () => {
       jobQueue,
       "analysis.prepare-revision",
       async (job) => {
-        await prepareRevision(job.data, {
+        await prepareRevisionFailClosed(job.data, {
           pool: connection.pool,
           queue: jobQueue,
           checkIntents: workerCheckIntents,
           patchSource: new LocalFakeRevisionPatchSource(),
           generationContexts: {
-            persist: persistGenerationContextV1InTransaction,
+            persist: async (client, context) => {
+              if (failGenerationContextPersistence) {
+                throw new Error("private simulated planner invariant");
+              }
+              return persistGenerationContextV1InTransaction(client, context);
+            },
           },
         });
       },
@@ -136,6 +142,7 @@ databaseDescribe("complete current-SHA product flow", () => {
   beforeEach(async () => {
     storage.calls.length = 0;
     checkIntents.calls.length = 0;
+    failGenerationContextPersistence = false;
     await connection.pool.query(`
       TRUNCATE TABLE
         audit_events, deletion_jobs, check_runs, review_decisions, evaluations,
@@ -246,6 +253,32 @@ databaseDescribe("complete current-SHA product flow", () => {
       firstAttempt.id,
       "attempt.expiry_stale_cleanup",
     );
+  });
+
+  it("completes a deterministic preparation failure once without a 404-shaped state", async () => {
+    failGenerationContextPersistence = true;
+    const request = webhook({
+      deliveryId: "71000000-0000-4000-8000-000000000003",
+      action: "opened",
+      headSha: "8".repeat(40),
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue: githubQueue,
+      secret: webhookSecret,
+      ...request,
+    });
+
+    const failed = await waitForPreparationFailure(connection, "8".repeat(40));
+    expect(failed).toMatchObject({
+      status: "completed",
+      conclusion: "action_required",
+      intent_reason: "preparation_failed",
+      attempt_count: 0,
+      failure_audit_count: 1,
+    });
+    expect(failed.public_summary).toContain("Maintainer action is required");
+    expect(failed.public_summary).not.toContain("simulated");
   });
 
   it("aborts ciphertext upload once, appends technical retry and creates one replacement", async () => {
@@ -646,6 +679,49 @@ async function waitForReadyAttempt(
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`ready attempt for ${headSha} was not created`);
+}
+
+async function waitForPreparationFailure(
+  connection: DatabaseConnection,
+  headSha: string,
+): Promise<{
+  status: string;
+  conclusion: string | null;
+  intent_reason: string | null;
+  public_summary: string;
+  attempt_count: number;
+  failure_audit_count: number;
+}> {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const result = await connection.pool.query<{
+      status: string;
+      conclusion: string | null;
+      intent_reason: string | null;
+      public_summary: string;
+      attempt_count: number;
+      failure_audit_count: number;
+    }>(
+      `SELECT check_run.status, check_run.conclusion,
+              check_run.intent_reason, check_run.public_summary,
+              (SELECT count(*)::int FROM attempts attempt
+                WHERE attempt.revision_id = revision.id) AS attempt_count,
+              (SELECT count(*)::int FROM audit_events audit
+                WHERE audit.object_type = 'revision'
+                  AND audit.object_id = revision.id::text
+                  AND audit.action = 'analysis.preparation_failed')
+                AS failure_audit_count
+         FROM pull_request_revisions revision
+         JOIN check_runs check_run ON check_run.revision_id = revision.id
+        WHERE revision.head_sha = $1`,
+      [headSha],
+    );
+    if (result.rows[0]?.intent_reason === "preparation_failed") {
+      return result.rows[0];
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`preparation failure for ${headSha} was not persisted`);
 }
 
 function authorSession(attempt: {

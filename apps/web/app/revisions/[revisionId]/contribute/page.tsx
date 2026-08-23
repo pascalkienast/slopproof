@@ -4,6 +4,7 @@ import { RetryAttempt } from "../../../retry-attempt";
 import { ProofHandoff } from "../../../demo/pr/[number]/proof-handoff";
 import { readPageSession } from "../../../../lib/http-auth";
 import { getWebRuntime } from "../../../../lib/runtime";
+import { contributorPreparationState } from "./contributor-preparation-state";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,12 @@ type ContributorView = {
   is_current: boolean;
   attempt_id: string | null;
   status: string | null;
-  question_budget: number;
+  question_budget: number | null;
+  check_status: "queued" | "in_progress" | "completed";
+  check_conclusion:
+    "action_required" | "success" | "neutral" | "cancelled" | null;
+  check_reason: string | null;
+  public_summary: string;
   risk_explanation: null | {
     title?: string;
     riskLevel?: string;
@@ -54,10 +60,15 @@ export default async function ContributorPage({
             attempt.id AS attempt_id, attempt.status,
             COALESCE(proof_plan.question_budget, semantic_budget.question_budget)
               AS question_budget,
-            proof_plan.risk_explanation
+            proof_plan.risk_explanation,
+            check_run.status AS check_status,
+            check_run.conclusion AS check_conclusion,
+            check_run.intent_reason AS check_reason,
+            check_run.public_summary
      FROM pull_request_revisions revision
      JOIN pull_requests pull_request ON pull_request.id = revision.pull_request_id
      JOIN repositories repository ON repository.id = pull_request.repository_id
+     JOIN check_runs check_run ON check_run.revision_id = revision.id
      LEFT JOIN LATERAL (
        SELECT candidate.* FROM attempts candidate
        WHERE candidate.revision_id = revision.id
@@ -86,7 +97,13 @@ export default async function ContributorPage({
     ],
   );
   const view = result.rows[0];
-  if (!view || !Number.isInteger(view.question_budget)) notFound();
+  if (!view) notFound();
+  const preparationState = contributorPreparationState({
+    questionBudget: view.question_budget,
+    checkStatus: view.check_status,
+    checkConclusion: view.check_conclusion,
+    checkReason: view.check_reason,
+  });
   const attemptStatus = view.status ?? "preparing";
 
   return (
@@ -115,6 +132,24 @@ export default async function ContributorPage({
         <section className="notice-card">
           This revision is historical. Open the check for the current head SHA
           before creating another proof.
+        </section>
+      ) : preparationState === "failed" ? (
+        <section className="notice-card">
+          <h2>Proof preparation failed.</h2>
+          <p>{view.public_summary}</p>
+          <p>
+            This is a SlopProof system failure, not a contributor result. The
+            required check stays closed until a maintainer retries a repaired
+            pipeline.
+          </p>
+        </section>
+      ) : preparationState === "preparing" ? (
+        <section className="notice-card">
+          <h2>Preparing patch-bound questions.</h2>
+          <p>
+            SlopProof is still analyzing this exact revision. Refresh this page
+            after the GitHub check advances; no proof attempt has started.
+          </p>
         </section>
       ) : (
         <div className="choice-grid">

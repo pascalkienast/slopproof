@@ -402,7 +402,10 @@ function schedulerFixture(): SemanticTransactionalScheduler & {
 }
 
 function proofReadyFixture(): SemanticProofReadyWriter {
-  return { write: vi.fn(async () => undefined) };
+  return {
+    write: vi.fn(async () => undefined),
+    fail: vi.fn(async () => undefined),
+  };
 }
 
 function databaseFixture(query: ReturnType<typeof vi.fn>): DatabaseConnection {

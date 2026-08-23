@@ -73,6 +73,7 @@ export const githubCheckIntentReasonEnum = pgEnum(
   [
     "webhook_ingested",
     "analysis_ready",
+    "preparation_failed",
     "proof_started",
     "review_required",
     "maintainer_decision",

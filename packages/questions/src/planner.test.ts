@@ -11,6 +11,7 @@ import {
   ProofPlanSchema,
   createPracticeSet,
   planProof,
+  planProofBudget,
   practiceAndProofAreSeparated,
   type PlannerClock,
 } from "./index";
@@ -95,6 +96,73 @@ describe("versioned proof planner", () => {
     expect(
       new Set(plan.questions.map((question) => question.prompt)).size,
     ).toBe(plan.questions.length);
+  });
+
+  it("keeps same-file multi-hunk prompts unique across head-bound orderings", () => {
+    const sameFilePatch = patch([
+      {
+        path: "src/auth/session.ts",
+        kind: "text" as const,
+        additions: 4,
+        deletions: 4,
+        patch: [
+          "@@ -1,1 +1,1 @@",
+          "-return session;",
+          "+return authenticate(session);",
+          "@@ -20,1 +20,1 @@",
+          "-return role;",
+          "+return authorize(role);",
+          "@@ -40,1 +40,1 @@",
+          "-return request;",
+          "+return transaction(() => request);",
+          "@@ -60,1 +60,1 @@",
+          "-return token;",
+          "+return lock(token);",
+        ].join("\n"),
+      },
+    ]);
+
+    for (let index = 1; index <= 64; index += 1) {
+      const plan = planFor({
+        ...sameFilePatch,
+        headSha: index.toString(16).padStart(40, "0"),
+      });
+      expect(plan.questionBudget).toBeGreaterThanOrEqual(4);
+      expect(
+        new Set(plan.questions.map((question) => question.prompt)).size,
+      ).toBe(plan.questionBudget);
+      expect(
+        plan.questions.every((question) =>
+          question.prompt.includes(
+            `anchor ${question.anchor.id} in src/auth/session.ts near new line ${String(question.anchor.newStart)}`,
+          ),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("plans only the analyzer-owned budget without rendering V1 questions", () => {
+    const analysis = analyzePullRequestPatch(
+      patch([
+        textFile("apps/web/route.ts", [
+          "-return oldResponse;",
+          "+return new Response('created', { status: 201 });",
+        ]),
+        textFile("packages/orders/service.ts", [
+          "-return insert(command);",
+          "+return insert(normalize(command));",
+        ]),
+      ]),
+    );
+    expect(
+      planProofBudget({
+        analysis,
+        policy: DEFAULT_REPOSITORY_POLICY_V1,
+      }),
+    ).toMatchObject({
+      status: "ready",
+      questionBudget: 2,
+    });
   });
 
   it("creates four or five questions for auth, migration and concurrency risk", () => {

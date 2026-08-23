@@ -28,7 +28,11 @@ import {
   RepositoryPolicyV1Schema,
   type RepositoryPolicyV1,
 } from "@slopproof/policy";
-import { planProof, type ProofQuestion } from "@slopproof/questions";
+import {
+  planProof,
+  planProofBudget,
+  type ProofQuestion,
+} from "@slopproof/questions";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 
@@ -51,6 +55,7 @@ export type WorkerCheckIntentWriterInput = {
   summary: string;
   reason:
     | "analysis_ready"
+    | "preparation_failed"
     | "review_required"
     | "technical_retry"
     | "attempt_expired";
@@ -225,6 +230,11 @@ export type PrepareRevisionDependencies = {
 export type PrepareRevisionResult =
   | { outcome: "stale" | "closed" | "split_recommended" }
   | {
+      outcome: "preparation_failed";
+      revisionId: string;
+      headSha: string;
+    }
+  | {
       outcome: "semantic_generation_queued" | "semantic_generation_replayed";
       revisionId: string;
       headSha: string;
@@ -300,20 +310,7 @@ export async function prepareRevision(
     throw new Error("Patch source returned data for a different revision");
   }
   const analysis = analyzePullRequestPatch(patch);
-  const proof = planProof(
-    {
-      analysis,
-      policy,
-      serverSeed: sha256(
-        `proof-plan:${context.revision_id}:${context.head_sha}`,
-      ),
-      versions: {
-        planner: "proof-planner-v1",
-        questionTemplates: "proof-questions-v1",
-      },
-    },
-    { clock: { now: () => context.received_at } },
-  );
+  const proofBudget = planProofBudget({ analysis, policy });
   const diffHash = sha256(JSON.stringify(patch));
   const now = dependencies.clock?.now() ?? new Date();
   const client = await dependencies.pool.connect();
@@ -376,7 +373,7 @@ export async function prepareRevision(
       throw new Error("Generation context persistence returned no identity");
     }
 
-    if (proof.status === "split_recommended") {
+    if (proofBudget.status === "split_recommended") {
       await dependencies.checkIntents.write(client, {
         revisionId: current.revision_id,
         headSha: current.head_sha,
@@ -405,7 +402,7 @@ export async function prepareRevision(
             generationContextId: persistedGenerationContext.id,
             repositoryPolicyId: frozenPolicyId,
             headSha: current.head_sha,
-            questionBudget: proof.questionBudget,
+            questionBudget: proofBudget.questionBudget,
           },
         );
       if (scheduled === "created") {
@@ -433,7 +430,7 @@ export async function prepareRevision(
             JSON.stringify({
               headSha: current.head_sha,
               generationContextId: persistedGenerationContext.id,
-              questionBudget: proof.questionBudget,
+              questionBudget: proofBudget.questionBudget,
             }),
           ],
         );
@@ -450,6 +447,20 @@ export async function prepareRevision(
       };
     }
 
+    const proof = planProof(
+      {
+        analysis,
+        policy,
+        serverSeed: sha256(
+          `proof-plan:${context.revision_id}:${context.head_sha}`,
+        ),
+        versions: {
+          planner: "proof-planner-v1",
+          questionTemplates: "proof-questions-v1",
+        },
+      },
+      { clock: { now: () => context.received_at } },
+    );
     await client.query(
       `INSERT INTO proof_plans
         (id, revision_id, generation_context_id, repository_policy_id, plan_version,
@@ -610,6 +621,163 @@ export async function prepareRevision(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Job boundary for deterministic preparation failures. Infrastructure errors
+ * remain retryable; a content/schema/programming failure is persisted once as
+ * a fail-closed Check result instead of exhausting the queue invisibly.
+ */
+export async function prepareRevisionFailClosed(
+  rawPayload: JobPayload<"analysis.prepare-revision">,
+  dependencies: PrepareRevisionDependencies,
+): Promise<PrepareRevisionResult> {
+  const payload = parseJobPayload("analysis.prepare-revision", rawPayload);
+  try {
+    return await prepareRevision(payload, dependencies);
+  } catch (error) {
+    if (isRetryablePreparationError(error)) throw error;
+    return persistPreparationFailure(payload, dependencies, error);
+  }
+}
+
+async function persistPreparationFailure(
+  payload: JobPayload<"analysis.prepare-revision">,
+  dependencies: Pick<PrepareRevisionDependencies, "pool" | "checkIntents">,
+  error: unknown,
+): Promise<PrepareRevisionResult> {
+  const client = await dependencies.pool.connect();
+  try {
+    await client.query("BEGIN");
+    const revision = await client.query<{
+      head_sha: string;
+      is_current: boolean;
+      pull_request_state: string;
+    }>(
+      `SELECT revision.head_sha, revision.is_current,
+              pull_request.state AS pull_request_state
+         FROM pull_request_revisions revision
+         JOIN pull_requests pull_request
+           ON pull_request.id = revision.pull_request_id
+        WHERE revision.id = $1
+        FOR UPDATE OF revision, pull_request`,
+      [payload.revisionId],
+    );
+    const current = revision.rows[0];
+    if (
+      current === undefined ||
+      !current.is_current ||
+      current.head_sha !== payload.expectedHeadSha
+    ) {
+      await client.query("ROLLBACK");
+      return { outcome: "stale" };
+    }
+    if (current.pull_request_state !== "open") {
+      await client.query("ROLLBACK");
+      return { outcome: "closed" };
+    }
+    await dependencies.checkIntents.write(client, {
+      revisionId: payload.revisionId,
+      headSha: payload.expectedHeadSha,
+      status: "completed",
+      conclusion: "action_required",
+      summary: `SlopProof could not prepare patch-bound questions for head ${payload.expectedHeadSha}. Maintainer action is required.`,
+      reason: "preparation_failed",
+      idempotencyKey: `analysis-preparation-failed:${payload.revisionId}`,
+    });
+    await client.query(
+      `INSERT INTO audit_events
+         (actor_id, action, object_type, object_id, metadata)
+       SELECT 'analysis-worker', 'analysis.preparation_failed',
+              'revision', $1, $2::jsonb
+       WHERE NOT EXISTS (
+         SELECT 1 FROM audit_events
+          WHERE action = 'analysis.preparation_failed'
+            AND object_type = 'revision' AND object_id = $1
+       )`,
+      [
+        payload.revisionId,
+        JSON.stringify({
+          headSha: payload.expectedHeadSha,
+          errorClass: safeErrorClass(error),
+        }),
+      ],
+    );
+    await client.query("COMMIT");
+    return {
+      outcome: "preparation_failed",
+      revisionId: payload.revisionId,
+      headSha: payload.expectedHeadSha,
+    };
+  } catch (failurePersistenceError) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw failurePersistenceError;
+  } finally {
+    client.release();
+  }
+}
+
+const RETRYABLE_ERROR_CODES = new Set([
+  "40001",
+  "40P01",
+  "55P03",
+  "57014",
+  "57P01",
+  "57P02",
+  "57P03",
+  "ECONNABORTED",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETDOWN",
+  "ENETUNREACH",
+  "ETIMEDOUT",
+]);
+
+export function isRetryablePreparationError(
+  error: unknown,
+  seen: Set<unknown> = new Set(),
+): boolean {
+  if (typeof error !== "object" || error === null || seen.has(error)) {
+    return false;
+  }
+  seen.add(error);
+  const candidate = error as {
+    name?: unknown;
+    code?: unknown;
+    status?: unknown;
+    cause?: unknown;
+  };
+  if (candidate.name === "AbortError") return true;
+  if (
+    typeof candidate.code === "string" &&
+    (candidate.code.startsWith("08") ||
+      candidate.code.startsWith("53") ||
+      candidate.code.startsWith("58") ||
+      RETRYABLE_ERROR_CODES.has(candidate.code))
+  ) {
+    return true;
+  }
+  if (
+    typeof candidate.status === "number" &&
+    (candidate.status === 408 ||
+      candidate.status === 425 ||
+      candidate.status === 429 ||
+      candidate.status >= 500)
+  ) {
+    return true;
+  }
+  return isRetryablePreparationError(candidate.cause, seen);
+}
+
+export function safeErrorClass(error: unknown): string {
+  if (
+    error instanceof Error &&
+    /^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/u.test(error.name)
+  ) {
+    return error.name;
+  }
+  return "UnknownError";
 }
 
 const REVISION_CONTEXT_SQL = `
