@@ -155,6 +155,20 @@ rate-limit failures. Invalid model output stays on the provider that
 produced it. Persisted provider/model metadata names the provider that
 answered. Transcription stays OpenRouter Whisper.
 
+The OpenRouter MiMo judge request keeps a bounded 6,000-token completion
+budget, disables model reasoning, excludes reasoning deltas, and requires an
+endpoint that supports every requested parameter. It also requests denied data
+collection and zero-data-retention routing. A larger output budget is not an
+availability control: reasoning-capable endpoints can otherwise consume the
+budget without producing the bounded JSON candidate. Any finish reason other
+than `stop` fails closed with a safe protocol subtype.
+
+Before frames are loaded or a judge provider is called, the Worker requires at
+least one non-empty question-bound transcript segment for every stored proof
+question. Missing question evidence is projected deterministically to
+`review_required`; patch anchors are never treated as evidence that the
+contributor explained or understood the change.
+
 ## Provider capability checks
 
 The following scripts make real, potentially billable requests and therefore

@@ -106,6 +106,48 @@ describe("multimodal judge service", () => {
     expect(result.manualReviewRequired).toBe(true);
   });
 
+  it("routes missing question-bound transcript evidence to review without loading frames or invoking the provider", async () => {
+    const input = inputFixture();
+    input.transcript.segments[0] = {
+      ...input.transcript.segments[0]!,
+      questionId: undefined,
+    };
+    const provider = successfulProvider();
+    const loadFrames = vi.fn();
+
+    const result = await runMultimodalJudgeEvaluation(input, contextFixture(), {
+      provider,
+      loadFrames,
+      now: () => NOW,
+    });
+
+    expect(loadFrames).not.toHaveBeenCalled();
+    expect(provider.evaluate).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      workflowOutcome: "review_required",
+      manualReviewRequired: true,
+      frameWarnings: [],
+      frameCount: 0,
+      invocationMetadata: {
+        invocationCount: 0,
+        outcome: "fallback",
+        degraded: true,
+      },
+      candidate: {
+        recommendation: "review_required",
+        privateReason: "automated_evaluation_unavailable",
+        warnings: ["question_transcript_unavailable"],
+      },
+    });
+    expect(result.candidate.questionEvaluations[0]?.criterionResults).toEqual([
+      expect.objectContaining({
+        result: "not_evaluable",
+        supportedPatchAnchorIds: [],
+        reason: "question_evidence_unavailable",
+      }),
+    ]);
+  });
+
   it("invokes the provider after a non-deadline frame-loader failure", async () => {
     const provider = successfulProvider();
     const result = await runMultimodalJudgeEvaluation(

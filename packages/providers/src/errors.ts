@@ -19,9 +19,13 @@ export type ProviderErrorDisposition = "retryable" | "terminal" | "review";
 export const PROVIDER_FAILURE_KINDS = [
   "deadline_exceeded",
   "invalid_output",
+  "malformed_response",
   "network",
+  "output_truncated",
   "rate_limited",
   "request_rejected",
+  "response_stream",
+  "response_too_large",
   "timeout",
   "upstream_unavailable",
 ] as const;
@@ -51,6 +55,8 @@ export const PROVIDER_VALIDATION_ISSUE_CODES = [
   "missing_criterion",
   "missing_question",
   "pass_with_unresolved_or_nonpassing",
+  "retry_with_unresolved_evidence",
+  "private_reason_mismatch",
 ] as const;
 
 export type ProviderValidationIssueCode =
@@ -146,6 +152,7 @@ const TRANSPORT_FAILURE_KINDS = new Set<ProviderFailureKind>([
   "deadline_exceeded",
   "network",
   "rate_limited",
+  "response_stream",
   "timeout",
   "upstream_unavailable",
 ]);

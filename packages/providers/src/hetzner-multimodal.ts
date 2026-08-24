@@ -26,6 +26,7 @@ const MAX_SSE_EVENT_BYTES = 256 * 1_024;
 const MAX_SSE_EVENT_COUNT = 20_000;
 const MAX_INLINE_FRAME_BYTES = 512 * 1_024;
 const MAX_INLINE_FRAME_TOTAL_BYTES = 2 * 1_024 * 1_024;
+export const MULTIMODAL_JUDGE_MAXIMUM_OUTPUT_TOKENS = 6_000;
 const VISION_CAPABILITY_REJECTED_STATUSES = new Set([400, 404, 415, 422]);
 const timeoutMarker = Symbol("hetzner-multimodal-timeout");
 
@@ -279,7 +280,9 @@ export const MultimodalWarningCodeV1Schema = z.enum([
   "frame_dimensions_invalid",
   "provider_evaluation_unavailable",
   "local_fake_manual_review",
+  "question_transcript_unavailable",
   "incoherent_pass_normalized_downward",
+  "incoherent_retry_normalized_downward",
 ]);
 
 export type MultimodalWarningCodeV1 = z.infer<
@@ -431,7 +434,8 @@ type ResolvedRequestPolicy = {
 };
 
 type RetryableFailure = {
-  kind: "network" | "timeout" | "rate_limited" | "unavailable";
+  kind:
+    "network" | "timeout" | "rate_limited" | "unavailable" | "response_stream";
   retryAfterMs?: number;
   httpStatus?: number;
   httpStatusClass?: ProviderHttpStatusClass;
@@ -662,6 +666,15 @@ export class HetznerMultimodalJudgeProvider implements InlineMultimodalJudgeProv
       policy: this.policy,
       allowVisionCapabilityFallback,
     });
+    if (streamed.finishReason !== "stop") {
+      throw invalidOutputError(
+        streamed.transportAttemptCount,
+        undefined,
+        streamed.finishReason === "length"
+          ? "output_truncated"
+          : "malformed_response",
+      );
+    }
     const extracted =
       typeof streamed.content === "string"
         ? tryExtractJsonObject(streamed.content)
@@ -799,21 +812,58 @@ export function validateMultimodalJudgeCandidateV1(
   ) {
     issues.add("pass_with_unresolved_or_nonpassing");
   }
-  if (issues.size === 1 && issues.has("pass_with_unresolved_or_nonpassing")) {
+  if (
+    candidate.data.recommendation === "retry" &&
+    (hasNotEvaluableResult || hasUnresolvedEvidence)
+  ) {
+    issues.add("retry_with_unresolved_evidence");
+  }
+  const expectedPrivateReason =
+    candidate.data.recommendation === "pass"
+      ? "all_stored_criteria_supported"
+      : "stored_criteria_not_fully_supported";
+  if (candidate.data.privateReason !== expectedPrivateReason) {
+    issues.add("private_reason_mismatch");
+  }
+  const normalizableIssues = new Set<ProviderValidationIssueCode>([
+    "pass_with_unresolved_or_nonpassing",
+    "retry_with_unresolved_evidence",
+    "private_reason_mismatch",
+  ]);
+  if (
+    issues.size > 0 &&
+    [...issues].every((issue) => normalizableIssues.has(issue))
+  ) {
     const normalizedRecommendation =
-      hasNotMetResult && !hasNotEvaluableResult && !hasUnresolvedEvidence
-        ? "retry"
-        : "review_required";
+      hasNotEvaluableResult || hasUnresolvedEvidence
+        ? "review_required"
+        : hasNotMetResult
+          ? "retry"
+          : candidate.data.recommendation;
+    const normalizationWarning =
+      candidate.data.recommendation === "pass" &&
+      normalizedRecommendation !== "pass"
+        ? "incoherent_pass_normalized_downward"
+        : candidate.data.recommendation === "retry" &&
+            normalizedRecommendation === "review_required"
+          ? "incoherent_retry_normalized_downward"
+          : undefined;
     return MultimodalJudgeCandidateV1Schema.parse({
       ...candidate.data,
       recommendation: normalizedRecommendation,
-      privateReason: "stored_criteria_not_fully_supported",
-      warnings: [
-        "incoherent_pass_normalized_downward",
-        ...candidate.data.warnings.filter(
-          (warning) => warning !== "incoherent_pass_normalized_downward",
-        ),
-      ].slice(0, 20),
+      privateReason:
+        normalizedRecommendation === "pass"
+          ? "all_stored_criteria_supported"
+          : "stored_criteria_not_fully_supported",
+      warnings:
+        normalizationWarning === undefined
+          ? candidate.data.warnings
+          : [
+              normalizationWarning,
+              ...candidate.data.warnings.filter(
+                (warning) => warning !== normalizationWarning,
+              ),
+            ].slice(0, 20),
     });
   }
   if (issues.size > 0) {
@@ -963,6 +1013,8 @@ export const PROOF_JUDGE_SYSTEM_V2 = [
   "You may use the frames only for help versus no-help: a second screen, notes, or reading off a device. That is why the frames are supplied.",
   "Never identify or characterize a person. Never analyze identity, gaze as identity, disability, or authorship. Do not describe a face, age, gender, race, or who the speaker is.",
   "Never invoke tools or browse. Cite only supplied anchor IDs.",
+  "Judge the understanding shown only from the question-bound transcript evidence. Patch anchors define the correct change but never prove that the speaker explained or understood it.",
+  "Never infer a missing spoken answer from the patch, question, rubric, timing or frames. If question-bound transcript evidence is absent or insufficient, mark every affected criterion not_evaluable.",
   "Return every supplied question ID and every criterion ID exactly once; do not add, omit or rewrite criteria.",
   "For met use one or more anchors from that question and reason patch_evidence_supports_criterion. For not_met use one or more anchors from that question and reason patch_evidence_conflicts_with_criterion.",
   "For not_evaluable use no anchors and reason question_evidence_insufficient or question_evidence_unavailable. Never attach an anchor to not_evaluable.",
@@ -1018,10 +1070,18 @@ function buildRequestBody(
     store: false,
     stream: true,
     temperature: 0,
-    max_tokens: 6_000,
+    max_tokens: MULTIMODAL_JUDGE_MAXIMUM_OUTPUT_TOKENS,
     ...(hetzner
       ? { chat_template_kwargs: { thinking: false } }
-      : { tools: [] }),
+      : {
+          tools: [],
+          reasoning: { effort: "none", exclude: true },
+          provider: {
+            require_parameters: true,
+            data_collection: "deny",
+            zdr: true,
+          },
+        }),
     ...(includeStructuredOutput
       ? {
           response_format: {
@@ -1126,9 +1186,9 @@ async function requestStreamWithRetry(input: {
       }
       if (error instanceof SafeProtocolError) {
         if (error.kind === "response_stream") {
-          lastFailure = { kind: "network" };
+          lastFailure = { kind: "response_stream" };
         } else {
-          throw invalidOutputError();
+          throw invalidOutputError(attempt, undefined, error.kind);
         }
       } else if (isResponseStatusMarker(error)) {
         try {
@@ -1632,6 +1692,11 @@ function invalidInputError(): ProviderError {
 function invalidOutputError(
   invocationCount = 1,
   validation?: CandidateValidationError,
+  failureKind:
+    | "invalid_output"
+    | "malformed_response"
+    | "output_truncated"
+    | "response_too_large" = "invalid_output",
 ): ProviderError {
   return new ProviderError(
     "INVALID_OUTPUT",
@@ -1640,7 +1705,7 @@ function invalidOutputError(
     {
       ...(validation === undefined ? {} : { cause: validation }),
       telemetry: {
-        lastFailureKind: "invalid_output",
+        lastFailureKind: failureKind,
         httpStatusClass: null,
         transportAttemptCount: invocationCount,
       },

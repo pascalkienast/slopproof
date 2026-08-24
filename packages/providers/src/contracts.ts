@@ -405,8 +405,10 @@ const AuthoritativeWarningCodeV1Schema = z.enum([
   "frame_jpeg_invalid",
   "frame_dimensions_invalid",
   "provider_evaluation_unavailable",
+  "question_transcript_unavailable",
   "local_fake_manual_review",
   "incoherent_pass_normalized_downward",
+  "incoherent_retry_normalized_downward",
 ]);
 
 const AuthoritativeFrameWarningCodeV1Schema = z.enum([

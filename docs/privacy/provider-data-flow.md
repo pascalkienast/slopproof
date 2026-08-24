@@ -1,23 +1,26 @@
 # Privacy and external provider data flow
 
-Stand: 2026-08-13
+Stand: 2026-08-24
 
 This document describes implemented technical minimization. It is not a claim
 that a third-party provider has contractually guaranteed zero-data retention.
 Operators must verify current terms, region, subprocessors and account settings
 before enabling production.
 
-| Recipient         | Sent                                                                                                                                                                                                    | Explicitly not sent                                                                                                                                  | Persistence in SlopProof                                                                            |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| GitHub            | App/OAuth protocol data, repository/PR identity, bounded patch and exact tree metadata, public Check state                                                                                              | Evidence, transcript, frames, answers, provider reasoning                                                                                            | Installation/repository/PR/revision metadata and content-free check intent                          |
-| Cloudflare R2     | Browser-encrypted recording objects and Worker-encrypted frame derivatives                                                                                                                              | Plaintext recording, transcript, model output, RSA private key                                                                                       | Private bucket until canonical `delete_after`; application deletion plus storage lifecycle backstop |
-| OpenRouter STT    | One bounded per-question mono 16-kHz WAV after Worker-only decryption                                                                                                                                   | Full video, other answers, patch, repository, author identity, public object URL                                                                     | Only encrypted question-bound transcript is stored by SlopProof                                     |
-| Hetzner inference | For generation: bounded untrusted patch context. For Judge: exact head SHA, stored questions/rubrics, bounded anchors, question-bound transcript, timing and at most four inline normalized JPEG frames | Full video, public Evidence URL, GitHub/OAuth identity, face/person metadata, room/accent/disability/tool-analysis fields, Practice answers in Proof | Learning/Practice/Judge artifacts are encrypted worker-only; the public Check has none              |
+| Recipient         | Sent                                                                                                                                                 | Explicitly not sent                                                                                                                                  | Persistence in SlopProof                                                                            |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| GitHub            | App/OAuth protocol data, repository/PR identity, bounded patch and exact tree metadata, public Check state                                           | Evidence, transcript, frames, answers, provider reasoning                                                                                            | Installation/repository/PR/revision metadata and content-free check intent                          |
+| Cloudflare R2     | Browser-encrypted recording objects and Worker-encrypted frame derivatives                                                                           | Plaintext recording, transcript, model output, RSA private key                                                                                       | Private bucket until canonical `delete_after`; application deletion plus storage lifecycle backstop |
+| OpenRouter STT    | One bounded per-question mono 16-kHz WAV after Worker-only decryption                                                                                | Full video, other answers, patch, repository, author identity, public object URL                                                                     | Only encrypted question-bound transcript is stored by SlopProof                                     |
+| OpenRouter judge  | Exact head SHA, stored questions/rubrics, bounded anchors, complete question-bound transcript, timing and at most four inline normalized JPEG frames | Full video, public Evidence URL, GitHub/OAuth identity, face/person metadata, room/accent/disability/tool-analysis fields, Practice answers in Proof | Encrypted authoritative judge sidecar and compatibility projection; the public Check has none       |
+| Hetzner inference | Bounded untrusted patch context for generation; the same minimized judge material only after an eligible transport fallback                          | Full video, public Evidence URL, GitHub/OAuth identity, face/person metadata, room/accent/disability/tool-analysis fields, Practice answers in Proof | Learning/Practice/Judge artifacts are encrypted worker-only; the public Check has none              |
 
 Provider calls disable tools and request `store=false` where the endpoint
-supports it. Requests and responses have absolute deadlines and byte caps;
-transport retry is limited to rate limit, server, network and timeout classes.
-Raw provider bodies and errors are never logged.
+supports it. OpenRouter judge routing additionally requires supported request
+parameters, denied data collection and a ZDR-capable endpoint. Requests and
+responses have absolute deadlines and byte caps; transport retry is limited to
+rate limit, server, network, stream and timeout classes. Raw provider bodies and
+errors are never logged.
 
 ## Retention and access
 

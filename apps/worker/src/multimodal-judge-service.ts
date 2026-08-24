@@ -65,6 +65,35 @@ export async function runMultimodalJudgeEvaluation(
   }
   assertBeforeMultimodalDeadline(context.data, requestStartedAt);
 
+  if (!hasCompleteQuestionBoundTranscriptEvidence(evaluationInput.data)) {
+    const completedAt = now();
+    assertBeforeMultimodalDeadline(context.data, completedAt);
+    const providerInput = projectMultimodalJudgeProviderInputV1(
+      evaluationInput.data,
+      [],
+    );
+    const providerResult = manualReviewFallbackMultimodalJudgeResultV1(
+      providerInput,
+      dependencies.provider.descriptor,
+      ["question_transcript_unavailable"],
+      completedAt,
+    );
+    return MultimodalProofEvaluationV1Schema.parse({
+      schemaVersion: "1",
+      evaluationVersion: "multimodal-proof-evaluation-v1",
+      attemptId: evaluationInput.data.attemptId,
+      revisionId: evaluationInput.data.revisionId,
+      headSha: evaluationInput.data.headSha,
+      candidate: providerResult.candidate,
+      invocationMetadata: providerResult.metadata,
+      frameWarnings: [],
+      frameCount: 0,
+      workflowOutcome: "review_required",
+      manualReviewRequired: true,
+      createdAt: completedAt,
+    });
+  }
+
   const loadFrames = resolveFrameLoader(dependencies);
   let rawLoadedFrames: unknown;
   try {
@@ -243,6 +272,21 @@ export function projectMultimodalJudgeProviderInputV1(
     },
     frames,
   });
+}
+
+function hasCompleteQuestionBoundTranscriptEvidence(
+  evaluationInput: ProofEvaluationInputV1,
+): boolean {
+  const questionIdsWithTranscriptEvidence = new Set(
+    evaluationInput.transcript.segments.flatMap((segment) =>
+      segment.questionId !== undefined && segment.text.content.trim().length > 0
+        ? [segment.questionId]
+        : [],
+    ),
+  );
+  return evaluationInput.questions.every((question) =>
+    questionIdsWithTranscriptEvidence.has(question.id),
+  );
 }
 
 function resolveFrameLoader(
