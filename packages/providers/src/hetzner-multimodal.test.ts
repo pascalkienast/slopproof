@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   HetznerMultimodalJudgeProvider,
   LocalFakeInlineMultimodalJudgeProvider,
+  MULTIMODAL_JUDGE_MAXIMUM_OUTPUT_TOKENS,
   PROOF_JUDGE_SYSTEM_V2,
   manualReviewFallbackCandidateV1,
   validateMultimodalJudgeCandidateV1,
@@ -58,6 +59,8 @@ describe("HetznerMultimodalJudgeProvider", () => {
       chat_template_kwargs: { thinking: false },
     });
     expect(bodies[0]).not.toHaveProperty("tools");
+    expect(bodies[0]).not.toHaveProperty("reasoning");
+    expect(bodies[0]).not.toHaveProperty("provider");
     expect(bodies[0]).not.toHaveProperty("response_format");
     const imagePart = (
       bodies[0] as {
@@ -108,6 +111,12 @@ describe("HetznerMultimodalJudgeProvider", () => {
     );
     expect(PROOF_JUDGE_SYSTEM_V2).toContain(
       "Recommend review_required when any criterion is not_evaluable",
+    );
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain(
+      "Patch anchors define the correct change but never prove",
+    );
+    expect(PROOF_JUDGE_SYSTEM_V2).toContain(
+      "Never infer a missing spoken answer",
     );
   });
 
@@ -225,11 +234,21 @@ describe("HetznerMultimodalJudgeProvider", () => {
       expect(fetchImpl).toHaveBeenCalledTimes(2);
       const first = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
         model: string;
+        max_tokens: number;
         tools: unknown;
+        reasoning: unknown;
+        provider: unknown;
         response_format: { type: string };
       };
       expect(first.model).toBe("text-model");
+      expect(first.max_tokens).toBe(MULTIMODAL_JUDGE_MAXIMUM_OUTPUT_TOKENS);
       expect(first.tools).toEqual([]);
+      expect(first.reasoning).toEqual({ effort: "none", exclude: true });
+      expect(first.provider).toEqual({
+        require_parameters: true,
+        data_collection: "deny",
+        zdr: true,
+      });
       expect(first.response_format.type).toBe("json_schema");
       expect(JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body)).model).toBe(
         "vision-model",
@@ -490,6 +509,97 @@ describe("HetznerMultimodalJudgeProvider", () => {
       privateReason: "stored_criteria_not_fully_supported",
       warnings: expect.arrayContaining(["incoherent_pass_normalized_downward"]),
     });
+  });
+
+  it("normalizes retry with unresolved evidence to maintainer review", () => {
+    const unresolvedRetry = manualReviewFallbackCandidateV1(inputFixture());
+    unresolvedRetry.recommendation = "retry";
+    unresolvedRetry.privateReason = "stored_criteria_not_fully_supported";
+
+    expect(
+      validateMultimodalJudgeCandidateV1(unresolvedRetry, inputFixture()),
+    ).toMatchObject({
+      recommendation: "review_required",
+      privateReason: "stored_criteria_not_fully_supported",
+      warnings: expect.arrayContaining([
+        "incoherent_retry_normalized_downward",
+      ]),
+    });
+  });
+
+  it("normalizes a provider-only private reason mismatch without changing a safe recommendation", () => {
+    const mismatched = validCandidate();
+    mismatched.privateReason = "stored_criteria_not_fully_supported";
+
+    expect(
+      validateMultimodalJudgeCandidateV1(mismatched, inputFixture()),
+    ).toMatchObject({
+      recommendation: "pass",
+      privateReason: "all_stored_criteria_supported",
+    });
+  });
+
+  it("classifies a length finish reason as truncated output before JSON repair", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(completionWithFinishReason("{", "length"));
+
+    await expect(
+      providerWith(fetchImpl, { maxAttempts: 1 }).evaluate(
+        { ...inputFixture(), frames: [] },
+        contextFixture(),
+      ),
+    ).rejects.toMatchObject({
+      code: "INVALID_OUTPUT",
+      disposition: "review",
+      telemetry: {
+        lastFailureKind: "output_truncated",
+        transportAttemptCount: 1,
+      },
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("preserves the bounded response-too-large subtype", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(completionResponse(validCandidate()));
+
+    await expect(
+      providerWith(fetchImpl, {
+        maxAttempts: 1,
+        maxResponseBytes: 64,
+      }).evaluate({ ...inputFixture(), frames: [] }, contextFixture()),
+    ).rejects.toMatchObject({
+      code: "INVALID_OUTPUT",
+      disposition: "review",
+      telemetry: {
+        lastFailureKind: "response_too_large",
+        transportAttemptCount: 1,
+      },
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an exhausted mid-stream failure transport-hop eligible", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(brokenStreamResponse());
+
+    await expect(
+      providerWith(fetchImpl, { maxAttempts: 1 }).evaluate(
+        { ...inputFixture(), frames: [] },
+        contextFixture(),
+      ),
+    ).rejects.toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      disposition: "retryable",
+      telemetry: {
+        lastFailureKind: "response_stream",
+        transportAttemptCount: 1,
+      },
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
   it("normalizes an incoherent pass over bounded negative findings to retry", async () => {
@@ -1252,6 +1362,36 @@ function validCandidate(): MultimodalJudgeCandidateV1 {
 
 function completionResponse(candidate: unknown): Response {
   return completionTextResponse(JSON.stringify({ result: candidate }));
+}
+
+function completionWithFinishReason(
+  content: string,
+  finishReason: string,
+): Response {
+  const events = [
+    { choices: [{ delta: { content }, finish_reason: null }] },
+    { choices: [{ delta: {}, finish_reason: finishReason }] },
+  ];
+  return new Response(
+    `${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")}data: [DONE]\n\n`,
+    { headers: { "content-type": "text/event-stream" } },
+  );
+}
+
+function brokenStreamResponse(): Response {
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            `data: ${JSON.stringify({ choices: [{ delta: { content: "{" }, finish_reason: null }] })}\n\n`,
+          ),
+        );
+        controller.error(new Error("private stream failure"));
+      },
+    }),
+    { headers: { "content-type": "text/event-stream" } },
+  );
 }
 
 function completionTextResponse(content: string): Response {
