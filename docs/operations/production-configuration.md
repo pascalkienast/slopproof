@@ -165,6 +165,10 @@ controls: reasoning-capable endpoints can otherwise consume the budget without
 producing bounded JSON. Semantic generation may make one content-free repair
 attempt. Truncation, malformed output, oversized responses, stream failure,
 idle timeout and absolute deadline remain distinct safe failure classes.
+The judge permits at most 4 MiB of raw SSE wire data so token-granular
+OpenRouter envelopes cannot crowd out an otherwise valid result. The tighter
+512 KiB model-text limit, 256 KiB single-event limit, 20,000-event limit and
+strict candidate schema remain unchanged.
 
 Before frames are loaded or a judge provider is called, the Worker requires at
 least one non-empty question-bound transcript segment for every stored proof
