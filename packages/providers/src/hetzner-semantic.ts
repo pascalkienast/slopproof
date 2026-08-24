@@ -14,6 +14,7 @@ import {
   type ProofQuestionProviderInputV1,
   type SemanticProviderCallContextV1,
   type SemanticProviderDescriptorV1,
+  type SemanticMalformedOutputKindV1,
   type SemanticProviderRawResponseV1,
   type SemanticProviderRepairInstructionV1,
 } from "./learning-proof";
@@ -23,6 +24,7 @@ import {
   isTransientUpstreamHttpStatus,
   safeHttpStatus,
   type ProviderFailureTelemetry,
+  type ProviderFailureKind,
   type ProviderHttpStatusClass,
 } from "./errors";
 import {
@@ -37,7 +39,7 @@ const MAX_HTTP_ATTEMPTS = 3;
 // Only output tokens, finish_reason, or usage reset this timeout.
 // SSE comments and empty keepalives must not consume the generation budget.
 // The run deadline remains the hard upper bound once tokens are flowing.
-const DEFAULT_ATTEMPT_TIMEOUT_MS = 120_000;
+const DEFAULT_ATTEMPT_TIMEOUT_MS = 150_000;
 const MAX_RESPONSE_BYTES = 1024 * 1_024;
 const DEFAULT_MAX_RESPONSE_BYTES = MAX_RESPONSE_BYTES;
 const MAX_REQUEST_BYTES = 1024 * 1024;
@@ -109,7 +111,8 @@ type ResolvedRequestPolicy = {
 };
 
 type RetryableFailure = {
-  kind: "network" | "timeout" | "rate_limited" | "unavailable";
+  kind:
+    "network" | "timeout" | "rate_limited" | "unavailable" | "response_stream";
   httpStatusClass: ProviderHttpStatusClass | null;
   httpStatus?: number;
   retryAfterMs?: number;
@@ -206,11 +209,9 @@ const CompactPracticeFeedbackResponseSchema = z
   })
   .strict();
 
-// OpenRouter MiMo counts reasoning toward max_tokens. Learning needs room
-// for a compact bundle plus 3-5 practice questions and MiMo reasoning.
-// Proof and practice feedback share a 16_000 budget so a large PR's
-// reasoning cannot exhaust 6_000 before the JSON finishes.
-export const LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS = 32_000;
+// OpenRouter MiMo reasoning is disabled for deterministic schema completion.
+// The compact contracts fit inside 16k without depending on hidden reasoning.
+export const LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS = 16_000;
 export const PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS = 16_000;
 export const PROOF_QUESTIONS_MAXIMUM_OUTPUT_TOKENS = 16_000;
 
@@ -359,11 +360,18 @@ class HetznerSemanticHttpClient<TInput> {
       parsedOutput === undefined
         ? { malformedSemanticOutput: true }
         : unwrapResultEnvelope(parsedOutput);
+    const malformedOutputKind: SemanticMalformedOutputKindV1 | undefined =
+      parsedOutput !== undefined
+        ? undefined
+        : request.finishReason === "length"
+          ? "output_truncated"
+          : "invalid_output";
     return SemanticProviderRawResponseV1Schema.parse({
       output,
       tokenUsage: request.usage,
       transportAttemptCount: request.transportAttemptCount,
       answeredBy: this.descriptor,
+      ...(malformedOutputKind === undefined ? {} : { malformedOutputKind }),
     });
   }
 }
@@ -481,7 +489,15 @@ function buildChatRequest<TInput>(
     stream: true,
     ...(provider === "hetzner-inference"
       ? { chat_template_kwargs: { thinking: false } }
-      : {}),
+      : {
+          tools: [],
+          reasoning: { effort: "none", exclude: true },
+          provider: {
+            require_parameters: true,
+            data_collection: "deny",
+            zdr: true,
+          },
+        }),
     max_tokens: specification.maximumOutputTokens,
     response_format: {
       type: "json_schema",
@@ -545,7 +561,7 @@ async function requestStreamWithRetry(input: {
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let response: Response | undefined;
-    let timeoutExpired = false;
+    let timeoutKind: "idle" | "deadline" | undefined;
 
     try {
       let rejectTimeout: ((reason: typeof timeoutMarker) => void) | undefined;
@@ -554,15 +570,17 @@ async function requestStreamWithRetry(input: {
       });
       const registerActivity = (): void => {
         if (timeout !== undefined) clearTimeout(timeout);
+        const currentRemaining = input.deadlineAtMs - input.policy.now();
         const activityWindow = Math.max(
           1,
-          Math.min(
-            input.policy.attemptTimeoutMs,
-            input.deadlineAtMs - input.policy.now(),
-          ),
+          Math.min(input.policy.attemptTimeoutMs, currentRemaining),
         );
+        const expiryKind =
+          currentRemaining <= input.policy.attemptTimeoutMs
+            ? "deadline"
+            : "idle";
         timeout = setTimeout(() => {
-          timeoutExpired = true;
+          timeoutKind = expiryKind;
           controller.abort();
           rejectTimeout?.(timeoutMarker);
         }, activityWindow);
@@ -596,11 +614,21 @@ async function requestStreamWithRetry(input: {
       const payload = await Promise.race([operation, timeoutPromise]);
       return { ...payload, transportAttemptCount: attempt };
     } catch (error) {
+      if (
+        timeoutKind === "deadline" &&
+        (error === timeoutMarker || controller.signal.aborted)
+      ) {
+        throw deadlineError({
+          lastFailureKind: "deadline_exceeded",
+          httpStatusClass: null,
+          transportAttemptCount: attempt,
+        });
+      }
       if (error instanceof SafeProtocolError) {
         if (error.kind === "response_stream") {
-          lastFailure = { kind: "network", httpStatusClass: null };
+          lastFailure = { kind: "response_stream", httpStatusClass: null };
         } else {
-          throw invalidOutputError(attempt);
+          throw invalidOutputError(attempt, error.kind);
         }
       } else if (isResponseStatusMarker(error)) {
         try {
@@ -644,7 +672,8 @@ async function requestStreamWithRetry(input: {
         }
       } else {
         lastFailure =
-          error === timeoutMarker || timeoutExpired
+          error === timeoutMarker ||
+          (controller.signal.aborted && timeoutKind === "idle")
             ? { kind: "timeout", httpStatusClass: null }
             : { kind: "network", httpStatusClass: null };
       }
@@ -959,7 +988,7 @@ function resolvePolicy(
         .number()
         .int()
         .positive()
-        .max(120_000)
+        .max(150_000)
         .default(DEFAULT_ATTEMPT_TIMEOUT_MS),
       maxResponseBytes: z
         .number()
@@ -1075,13 +1104,19 @@ function safeProviderError(
   );
 }
 
-function invalidOutputError(transportAttemptCount = 0): ProviderError {
+function invalidOutputError(
+  transportAttemptCount = 0,
+  failureKind: Extract<
+    ProviderFailureKind,
+    "invalid_output" | "malformed_response" | "response_too_large"
+  > = "invalid_output",
+): ProviderError {
   return safeProviderError(
     "INVALID_OUTPUT",
     "review",
     "Semantic provider returned invalid bounded output",
     {
-      lastFailureKind: "invalid_output",
+      lastFailureKind: failureKind,
       httpStatusClass: null,
       transportAttemptCount,
     },
@@ -1106,7 +1141,12 @@ function retryableProviderError(
   transportAttemptCount: number,
 ): ProviderError {
   return failure?.kind === "timeout"
-    ? deadlineError(retryableFailureTelemetry(failure, transportAttemptCount))
+    ? safeProviderError(
+        "PROVIDER_TIMEOUT",
+        "retryable",
+        "Semantic provider exhausted its stream idle timeout budget",
+        retryableFailureTelemetry(failure, transportAttemptCount),
+      )
     : safeProviderError(
         "PROVIDER_UNAVAILABLE",
         "retryable",

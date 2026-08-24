@@ -24,6 +24,7 @@ import {
   type SemanticProviderFailureV1,
   type SemanticProviderInputV1,
   type SemanticProviderInvocationMetadataV1,
+  type SemanticMalformedOutputKindV1,
   type SemanticProviderPurposeV1,
   type SemanticProviderRawResponseV1,
   type SemanticTokenUsageV1,
@@ -377,6 +378,7 @@ async function invokeWithOneRepair<
   let rejectedOutput: unknown = null;
   let validationCode: SemanticContentValidationCode = "schema_invalid";
   let repairEligible = false;
+  let malformedOutputKind: SemanticMalformedOutputKindV1 | null = null;
   let knownTransportAttemptCount: number | null = null;
   let failure: SemanticProviderFailureV1 | undefined;
   let answeredBy = descriptor.success ? descriptor.data : undefined;
@@ -405,6 +407,7 @@ async function invokeWithOneRepair<
       rejectedOutput = response.success ? response.data.output : rawResponse;
       if (response.success) {
         tokenUsage = addUsage(tokenUsage, response.data.tokenUsage);
+        malformedOutputKind = response.data.malformedOutputKind ?? null;
         if (response.data.answeredBy !== undefined) {
           answeredBy = response.data.answeredBy;
         }
@@ -455,6 +458,7 @@ async function invokeWithOneRepair<
         }
         if (repair.success) {
           tokenUsage = addUsage(tokenUsage, repair.data.tokenUsage);
+          malformedOutputKind = repair.data.malformedOutputKind ?? null;
           if (repair.data.answeredBy !== undefined) {
             answeredBy = repair.data.answeredBy;
           }
@@ -466,7 +470,10 @@ async function invokeWithOneRepair<
         outcome = "repaired";
       } catch (error) {
         if (error instanceof SemanticContentValidationError) {
-          failure = semanticValidationFailure(knownTransportAttemptCount);
+          failure = semanticValidationFailure(
+            knownTransportAttemptCount,
+            malformedOutputKind,
+          );
         } else {
           const captured = captureProviderFailure(
             error,
@@ -602,7 +609,17 @@ function providerErrorFailure(
 
 function semanticValidationFailure(
   transportAttemptCount: number | null,
+  malformedOutputKind: SemanticMalformedOutputKindV1 | null = null,
 ): SemanticProviderFailureV1 {
+  if (malformedOutputKind !== null) {
+    return {
+      schemaVersion: "semantic-provider-failure-v1",
+      failureCode: "INVALID_OUTPUT",
+      lastFailureKind: malformedOutputKind,
+      httpStatusClass: null,
+      transportAttemptCount,
+    };
+  }
   return {
     schemaVersion: "semantic-provider-failure-v1",
     failureCode: "SEMANTIC_VALIDATION_FAILED",

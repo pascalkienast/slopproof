@@ -94,6 +94,8 @@ describe("Hetzner semantic provider adapters", () => {
         },
       });
       expect(body).not.toHaveProperty("tools");
+      expect(body).not.toHaveProperty("reasoning");
+      expect(body).not.toHaveProperty("provider");
     }
     const serialized = JSON.stringify(bodies[0]);
     expect(serialized).toContain(
@@ -119,21 +121,20 @@ describe("Hetzner semantic provider adapters", () => {
     ).toMatchObject({ minItems: 1, maxItems: 1 });
   });
 
-  it("sizes the learning output budget for a max compact bundle plus reasoning", () => {
-    expect(LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS).toBe(32_000);
+  it("fits the maximum compact learning bundle inside the no-reasoning budget with headroom", () => {
+    expect(LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS).toBe(16_000);
     expect(PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS).toBe(16_000);
     expect(PROOF_QUESTIONS_MAXIMUM_OUTPUT_TOKENS).toBe(16_000);
     const compactJsonTokens = conservativeJsonTokenEstimate(
       maximumCompactLearningEnvelope(),
     );
-    const reasoningReserve = PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS;
     expect(compactJsonTokens).toBeGreaterThan(1_000);
-    expect(compactJsonTokens + reasoningReserve).toBeLessThanOrEqual(
+    expect(compactJsonTokens * 2).toBeLessThanOrEqual(
       LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS,
     );
   });
 
-  it("omits Hetzner-only request fields when the same client speaks OpenRouter", async () => {
+  it("uses the same private parameter-compatible no-reasoning route for every OpenRouter semantic purpose", async () => {
     const bodies: unknown[] = [];
     const fetchImpl = vi.fn(
       async (_url: string | URL | Request, init?: RequestInit) => {
@@ -141,32 +142,55 @@ describe("Hetzner semantic provider adapters", () => {
         return completionResponse({ ok: true });
       },
     );
-    const provider = new HetznerLearningMaterialProvider(
-      {
-        provider: "openrouter",
-        baseUrl: "https://openrouter.example.test/api/v1",
-        apiKey: API_KEY,
-        model: "xiaomi/mimo-v2.5",
-      },
-      testDependencies(fetchImpl),
-    );
+    const configuration = {
+      provider: "openrouter" as const,
+      baseUrl: "https://openrouter.example.test/api/v1",
+      apiKey: API_KEY,
+      model: "xiaomi/mimo-v2.5",
+    };
+    const providers = [
+      new HetznerLearningMaterialProvider(
+        configuration,
+        testDependencies(fetchImpl),
+      ),
+      new HetznerPracticeCoachProvider(
+        configuration,
+        testDependencies(fetchImpl),
+      ),
+      new HetznerProofQuestionProvider(
+        configuration,
+        testDependencies(fetchImpl),
+      ),
+    ] as const;
 
-    expect(provider.descriptor).toEqual({
-      provider: "openrouter",
-      model: "xiaomi/mimo-v2.5",
-    });
-    const result = await provider.generate(
-      learningInput(),
-      context("learning_material"),
-    );
-    expect(result.answeredBy).toEqual(provider.descriptor);
-    expect(bodies[0]).toMatchObject({
-      model: "xiaomi/mimo-v2.5",
-      store: false,
-      stream: true,
-      max_tokens: LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS,
-    });
-    expect(bodies[0]).not.toHaveProperty("chat_template_kwargs");
+    const results = await Promise.all([
+      providers[0].generate(learningInput(), context("learning_material")),
+      providers[1].generate(practiceInput(), context("practice_feedback")),
+      providers[2].generate(proofInput(), context("proof_questions")),
+    ]);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    for (const [index, body] of bodies.entries()) {
+      expect(body).toMatchObject({
+        model: "xiaomi/mimo-v2.5",
+        store: false,
+        stream: true,
+        tools: [],
+        reasoning: { effort: "none", exclude: true },
+        provider: {
+          require_parameters: true,
+          data_collection: "deny",
+          zdr: true,
+        },
+        max_tokens: [
+          LEARNING_MATERIAL_MAXIMUM_OUTPUT_TOKENS,
+          PRACTICE_FEEDBACK_MAXIMUM_OUTPUT_TOKENS,
+          PROOF_QUESTIONS_MAXIMUM_OUTPUT_TOKENS,
+        ][index],
+      });
+      expect(body).not.toHaveProperty("chat_template_kwargs");
+      expect(results[index]?.answeredBy).toEqual(providers[index]?.descriptor);
+    }
   });
 
   it("extracts the validated result envelope even when the model adds metadata", async () => {
@@ -312,7 +336,7 @@ describe("Hetzner semantic provider adapters", () => {
     await expect(
       provider.generate(proofInput(), liveContext),
     ).rejects.toMatchObject({
-      code: "DEADLINE_EXCEEDED",
+      code: "PROVIDER_TIMEOUT",
       telemetry: {
         lastFailureKind: "timeout",
         httpStatusClass: null,
@@ -320,6 +344,33 @@ describe("Hetzner semantic provider adapters", () => {
       },
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the absolute run deadline distinct from a stream idle timeout", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(
+      async () => new Promise<Response>(() => undefined),
+    );
+    const provider = new HetznerLearningMaterialProvider(
+      configuration("learning-model"),
+      testDependencies(fetchImpl, {
+        maxAttempts: 1,
+        attemptTimeoutMs: 100,
+        now: Date.now,
+      }),
+    );
+
+    await expect(
+      provider.generate(learningInput(), {
+        ...context("learning_material"),
+        deadlineAt: new Date(Date.now() + 20),
+      }),
+    ).rejects.toMatchObject({
+      code: "DEADLINE_EXCEEDED",
+      telemetry: {
+        lastFailureKind: "deadline_exceeded",
+        transportAttemptCount: 1,
+      },
+    });
   });
 
   it("times out keepalive-only SSE and hops so the fallback can generate", async () => {
@@ -340,6 +391,48 @@ describe("Hetzner semantic provider adapters", () => {
         testDependencies(primaryFetch, {
           maxAttempts: 1,
           attemptTimeoutMs: 40,
+          now: Date.now,
+        }),
+      ),
+      new HetznerProofQuestionProvider(
+        configuration("hetzner-proof"),
+        testDependencies(fallbackFetch, { now: Date.now }),
+      ),
+    );
+
+    await expect(
+      provider.generate(proofInput(), {
+        ...context("proof_questions"),
+        deadlineAt: new Date(Date.now() + 2_000),
+      }),
+    ).resolves.toMatchObject({
+      output: { hopped: true },
+      answeredBy: {
+        provider: "hetzner-inference",
+        model: "hetzner-proof",
+      },
+    });
+    expect(primaryFetch).toHaveBeenCalledTimes(1);
+    expect(fallbackFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a mid-stream read failure transport-eligible and hops", async () => {
+    const primaryFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(brokenSseResponse());
+    const fallbackFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(completionResponse({ hopped: true }));
+    const provider = new TransportFallbackSemanticProvider(
+      new HetznerProofQuestionProvider(
+        {
+          provider: "openrouter",
+          baseUrl: "https://openrouter.example.test/api/v1",
+          apiKey: API_KEY,
+          model: "xiaomi/mimo-v2.5",
+        },
+        testDependencies(primaryFetch, {
+          maxAttempts: 1,
           now: Date.now,
         }),
       ),
@@ -448,7 +541,7 @@ describe("Hetzner semantic provider adapters", () => {
     expect(JSON.stringify(result)).not.toContain(API_KEY);
   });
 
-  it("returns a content-free learning marker when the raised output budget is exhausted", async () => {
+  it("returns a content-free learning marker with a safe truncated-output subtype", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       sseResponse([
         {
@@ -484,6 +577,7 @@ describe("Hetzner semantic provider adapters", () => {
       },
       transportAttemptCount: 1,
       answeredBy: { provider: "hetzner-inference", model: "learning-model" },
+      malformedOutputKind: "output_truncated",
     });
   });
 
@@ -517,6 +611,7 @@ describe("Hetzner semantic provider adapters", () => {
       tokenUsage: { inputTokens: 20, outputTokens: 6_000 },
       transportAttemptCount: 1,
       answeredBy: { provider: "hetzner-inference", model: "proof-model" },
+      malformedOutputKind: "output_truncated",
     });
   });
 
@@ -544,7 +639,10 @@ describe("Hetzner semantic provider adapters", () => {
 
     await expect(
       provider.generate(learningInput(), context("learning_material")),
-    ).rejects.toMatchObject({ code: "INVALID_OUTPUT" });
+    ).rejects.toMatchObject({
+      code: "INVALID_OUTPUT",
+      telemetry: { lastFailureKind: "malformed_response" },
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
@@ -810,6 +908,7 @@ describe("Hetzner semantic provider adapters", () => {
         tokenUsage: null,
         transportAttemptCount: 1,
         answeredBy: { provider: "hetzner-inference", model: "proof-model" },
+        malformedOutputKind: "invalid_output",
       },
     );
     await expect(
@@ -842,13 +941,19 @@ describe("Hetzner semantic provider adapters", () => {
     );
     await expect(
       malformedProvider.generate(learningInput(), context("learning_material")),
-    ).rejects.toMatchObject({ code: "INVALID_OUTPUT" });
+    ).rejects.toMatchObject({
+      code: "INVALID_OUTPUT",
+      telemetry: { lastFailureKind: "malformed_response" },
+    });
     expect(malformedFetch).toHaveBeenCalledTimes(1);
 
     const oversizedFetch = vi.fn<typeof fetch>().mockResolvedValue(
       new Response("{}", {
         status: 200,
-        headers: { "content-length": String(513 * 1_024) },
+        headers: {
+          "content-type": "text/event-stream",
+          "content-length": String(1_024 * 1_024 + 1),
+        },
       }),
     );
     const oversizedProvider = new HetznerLearningMaterialProvider(
@@ -857,7 +962,10 @@ describe("Hetzner semantic provider adapters", () => {
     );
     await expect(
       oversizedProvider.generate(learningInput(), context("learning_material")),
-    ).rejects.toMatchObject({ code: "INVALID_OUTPUT" });
+    ).rejects.toMatchObject({
+      code: "INVALID_OUTPUT",
+      telemetry: { lastFailureKind: "response_too_large" },
+    });
     expect(oversizedFetch).toHaveBeenCalledTimes(1);
   });
 
@@ -1061,6 +1169,23 @@ function keepaliveOnlySseResponse(): Response {
       },
       cancel() {
         // Attempt timeout aborts the fetch; closing is best effort.
+      },
+    }),
+    { headers: { "content-type": "text/event-stream; charset=utf-8" } },
+  );
+}
+
+function brokenSseResponse(): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            'data: {"choices":[{"index":0,"delta":{"content":"{\\"result\\":"},"finish_reason":null}]}\n\n',
+          ),
+        );
+        controller.error(new Error("private stream failure"));
       },
     }),
     { headers: { "content-type": "text/event-stream; charset=utf-8" } },

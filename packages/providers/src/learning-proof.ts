@@ -64,6 +64,15 @@ export const SemanticTokenUsageV1Schema = z
 
 export type SemanticTokenUsageV1 = z.infer<typeof SemanticTokenUsageV1Schema>;
 
+export const SemanticMalformedOutputKindV1Schema = z.enum([
+  "invalid_output",
+  "output_truncated",
+]);
+
+export type SemanticMalformedOutputKindV1 = z.infer<
+  typeof SemanticMalformedOutputKindV1Schema
+>;
+
 /** Raw content is always validated by the worker; only usage metadata is trusted here. */
 export const SemanticProviderRawResponseV1Schema = z
   .object({
@@ -71,6 +80,7 @@ export const SemanticProviderRawResponseV1Schema = z
     tokenUsage: SemanticTokenUsageV1Schema.nullable(),
     transportAttemptCount: z.number().int().min(1).max(3).optional(),
     answeredBy: SemanticProviderDescriptorV1Schema.optional(),
+    malformedOutputKind: SemanticMalformedOutputKindV1Schema.optional(),
   })
   .strict();
 
