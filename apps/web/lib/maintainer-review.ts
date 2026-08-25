@@ -156,7 +156,7 @@ export type ReviewDecisionPlan = {
   databaseDecision: "pass" | "retry";
   targetStatus: "passed" | "retry_required" | "technical_retry";
   reasonCode: "maintainer_approved" | "maintainer_rejected" | "manual_retry";
-  checkConclusion: "success" | "action_required" | "neutral";
+  checkConclusion: "success" | "action_required";
   publicSummary: string;
 };
 
@@ -186,7 +186,7 @@ export function planReviewDecision(
         databaseDecision: "retry",
         targetStatus: "technical_retry",
         reasonCode: "manual_retry",
-        checkConclusion: "neutral",
+        checkConclusion: "action_required",
         publicSummary: `technical retry ${headSha}`,
       };
   }

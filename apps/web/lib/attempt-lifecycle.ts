@@ -6,6 +6,7 @@ import {
   IdempotencyKeySchema,
   UuidSchema,
 } from "@slopproof/domain";
+import { TECHNICAL_RETRY_GITHUB_CHECK } from "@slopproof/github";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { z } from "zod";
@@ -47,7 +48,7 @@ export type CheckIntentWriterInput = {
   revisionId: string;
   headSha: string;
   status: "queued" | "in_progress" | "completed";
-  conclusion: "action_required" | "success" | "neutral" | "cancelled" | null;
+  conclusion: "action_required" | "success" | "cancelled" | null;
   summary: string;
   reason: "technical_retry" | "contributor_retry" | "maintainer_decision";
   idempotencyKey: string;
@@ -230,8 +231,7 @@ export async function abortAttemptForTechnicalRetry(
     await dependencies.checkIntents.write(client, {
       revisionId: attempt.revision_id,
       headSha: attempt.head_sha,
-      status: "completed",
-      conclusion: "neutral",
+      ...TECHNICAL_RETRY_GITHUB_CHECK,
       summary: `technical retry required for head ${attempt.head_sha}`,
       reason: "technical_retry",
       idempotencyKey: command.idempotencyKey,

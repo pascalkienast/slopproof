@@ -229,6 +229,36 @@ const GithubCheckIntentSchema = z
           "review_required checks must stay in_progress without a conclusion",
       });
     }
+    if (
+      intent.reason === "contributor_retry" &&
+      (intent.status !== "in_progress" || intent.conclusion !== null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["status"],
+        message:
+          "contributor_retry checks must stay in_progress without a conclusion",
+      });
+    }
+    if (
+      ["technical_retry", "attempt_expired"].includes(intent.reason) &&
+      (intent.status !== "completed" || intent.conclusion !== "action_required")
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["conclusion"],
+        message:
+          "technical_retry and attempt_expired checks must complete with action_required",
+      });
+    }
+    if (intent.conclusion === "neutral") {
+      context.addIssue({
+        code: "custom",
+        path: ["conclusion"],
+        message:
+          "neutral conclusions satisfy GitHub required checks and are forbidden",
+      });
+    }
   });
 
 export type GithubOauthFlow = {

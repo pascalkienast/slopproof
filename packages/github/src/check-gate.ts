@@ -1,8 +1,10 @@
 /**
  * GitHub required status checks treat `queued` / `in_progress` as pending
  * (merge blocked) and treat `completed` + `neutral` as successful (merge
- * allowed). Waiting for a maintainer must therefore stay pending. `neutral`
- * is only for a true technical retry, never for "waiting for human review".
+ * allowed). Waiting for a maintainer must therefore stay pending, while any
+ * terminal state that still needs contributor action must be
+ * `action_required`. SlopProof must never emit `neutral` for its required
+ * understanding check.
  */
 export const REVIEW_REQUIRED_GITHUB_CHECK = {
   status: "in_progress",
@@ -11,7 +13,12 @@ export const REVIEW_REQUIRED_GITHUB_CHECK = {
 
 export const TECHNICAL_RETRY_GITHUB_CHECK = {
   status: "completed",
-  conclusion: "neutral",
+  conclusion: "action_required",
+} as const;
+
+export const ATTEMPT_EXPIRED_GITHUB_CHECK = {
+  status: "completed",
+  conclusion: "action_required",
 } as const;
 
 export type RequiredCheckStatus = "queued" | "in_progress" | "completed";

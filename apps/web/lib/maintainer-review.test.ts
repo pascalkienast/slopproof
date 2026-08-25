@@ -18,7 +18,13 @@ describe("maintainer review decisions", () => {
       "action_required",
       "maintainer_rejected",
     ],
-    ["manual_retry", "retry", "technical_retry", "neutral", "manual_retry"],
+    [
+      "manual_retry",
+      "retry",
+      "technical_retry",
+      "action_required",
+      "manual_retry",
+    ],
   ] as const)(
     "maps %s to a manual append-only decision",
     (action, databaseDecision, targetStatus, conclusion, reasonCode) => {

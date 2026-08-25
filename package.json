@@ -18,6 +18,7 @@
     "db:seed": "tsx scripts/seed-demo.ts",
     "production:env": "tsx scripts/compile-production-env.ts",
     "smoke:r2-browser": "node --import tsx scripts/live-smoke-r2-browser.ts",
+    "smoke:openrouter-semantic": "node --import tsx scripts/live-smoke-openrouter-mimo-semantic.ts",
     "build": "pnpm -r --if-present build",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit -p tsconfig.json",

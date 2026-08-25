@@ -155,13 +155,20 @@ rate-limit failures. Invalid model output stays on the provider that
 produced it. Persisted provider/model metadata names the provider that
 answered. Transcription stays OpenRouter Whisper.
 
-The OpenRouter MiMo judge request keeps a bounded 6,000-token completion
-budget, disables model reasoning, excludes reasoning deltas, and requires an
-endpoint that supports every requested parameter. It also requests denied data
-collection and zero-data-retention routing. A larger output budget is not an
-availability control: reasoning-capable endpoints can otherwise consume the
-budget without producing the bounded JSON candidate. Any finish reason other
-than `stop` fails closed with a safe protocol subtype.
+The canonical OpenRouter configuration uses MiMo for Learning, Practice, Proof
+questions and both judge slots. Semantic generation keeps a bounded
+16,000-token completion budget; the judge keeps 6,000. Both paths disable model
+reasoning, exclude reasoning deltas, require an endpoint that supports every
+requested parameter, and request denied data collection plus
+zero-data-retention routing. Larger output budgets are not availability
+controls: reasoning-capable endpoints can otherwise consume the budget without
+producing bounded JSON. Semantic generation may make one content-free repair
+attempt. Truncation, malformed output, oversized responses, stream failure,
+idle timeout and absolute deadline remain distinct safe failure classes.
+The judge permits at most 4 MiB of raw SSE wire data so token-granular
+OpenRouter envelopes cannot crowd out an otherwise valid result. The tighter
+512 KiB model-text limit, 256 KiB single-event limit, 20,000-event limit and
+strict candidate schema remain unchanged.
 
 Before frames are loaded or a judge provider is called, the Worker requires at
 least one non-empty question-bound transcript segment for every stored proof
@@ -179,6 +186,7 @@ LIVE_SMOKE=1 node scripts/live-smoke-hetzner-text-json.mjs
 LIVE_SMOKE=1 node scripts/live-smoke-hetzner-vision.mjs
 LIVE_SMOKE=1 node scripts/live-smoke-openrouter-stt.mjs
 LIVE_SMOKE=1 node scripts/live-smoke-openrouter-mimo.mjs
+LIVE_SMOKE=1 pnpm smoke:openrouter-semantic
 ```
 
 They use only the canonical provider variables already loaded in the shell.
@@ -198,9 +206,14 @@ Contract tests are non-networked:
 pnpm test:live-smoke-contracts
 ```
 
-The capability result proves only that the configured endpoint can satisfy the
-small transport/schema fixture. It does not prove production semantic quality,
-privacy terms, zero-data-retention enforcement or the complete proof pipeline.
+The compact capability scripts prove only that the configured endpoint can
+satisfy their small transport/schema fixtures. The semantic MiMo smoke is the
+stronger pre-deploy gate: it uses the production context builder and generation
+service with a 90–180 KiB, 30-anchor synthetic patch; requires three consecutive
+first-attempt Learning, Proof-question and Practice-feedback successes; forbids
+a Hetzner hop; and never prints generated content. It still does not prove
+production semantic quality, provider privacy terms, zero-data-retention
+enforcement or the complete video-proof pipeline.
 
 ## GitHub control boundary
 

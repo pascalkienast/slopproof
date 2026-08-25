@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ATTEMPT_EXPIRED_GITHUB_CHECK,
   REVIEW_REQUIRED_GITHUB_CHECK,
   TECHNICAL_RETRY_GITHUB_CHECK,
   requiredCheckSatisfiesMergeGate,
@@ -24,14 +25,20 @@ describe("GitHub required-check merge gate", () => {
     expect(requiredCheckSatisfiesMergeGate("in_progress", null)).toBe(false);
   });
 
-  it("treats completed+neutral as a satisfied required check, so it cannot wait for review", () => {
+  it("models completed+neutral as satisfied but never uses it for retry or expiry", () => {
     expect(requiredCheckSatisfiesMergeGate("completed", "neutral")).toBe(true);
-    expect(
-      requiredCheckSatisfiesMergeGate(
-        TECHNICAL_RETRY_GITHUB_CHECK.status,
-        TECHNICAL_RETRY_GITHUB_CHECK.conclusion,
-      ),
-    ).toBe(true);
+    for (const check of [
+      TECHNICAL_RETRY_GITHUB_CHECK,
+      ATTEMPT_EXPIRED_GITHUB_CHECK,
+    ]) {
+      expect(check).toEqual({
+        status: "completed",
+        conclusion: "action_required",
+      });
+      expect(
+        requiredCheckSatisfiesMergeGate(check.status, check.conclusion),
+      ).toBe(false);
+    }
     expect(REVIEW_REQUIRED_GITHUB_CHECK).not.toEqual(
       TECHNICAL_RETRY_GITHUB_CHECK,
     );

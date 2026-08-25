@@ -221,6 +221,34 @@ describe("Gate 4 worker-only semantic generation", () => {
     expect(provider.repairCalls).toBe(1);
   });
 
+  it("preserves a safe truncated-output subtype when the one repair is also truncated", async () => {
+    const context = contextFixture();
+    const truncated = {
+      ...response({ malformedSemanticOutput: true }),
+      transportAttemptCount: 1,
+      malformedOutputKind: "output_truncated" as const,
+    };
+    const provider = new StubSemanticProvider({
+      initial: () => truncated,
+      repair: () => truncated,
+    });
+
+    const result = await serviceWith(provider).generateProofQuestionPlan(
+      proofRequest(context, 3),
+    );
+
+    expect(result.providerMetadata.outcome).toBe("fallback");
+    expect(result.providerMetadata.invocationCount).toBe(2);
+    expect(result.providerFailure).toEqual({
+      schemaVersion: "semantic-provider-failure-v1",
+      failureCode: "INVALID_OUTPUT",
+      lastFailureKind: "output_truncated",
+      httpStatusClass: null,
+      transportAttemptCount: 2,
+    });
+    expect(provider.repairCalls).toBe(1);
+  });
+
   it("repairs malformed bounded Hetzner model content exactly once", async () => {
     const context = contextFixture();
     const valid = deterministicProofFallbackV2(context, 2);

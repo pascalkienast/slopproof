@@ -409,6 +409,13 @@ export function buildOpenRouterMimoCapabilityBody(model) {
     store: false,
     temperature: 0,
     stream: true,
+    tools: [],
+    reasoning: { effort: "none", exclude: true },
+    provider: {
+      require_parameters: true,
+      data_collection: "deny",
+      zdr: true,
+    },
     max_tokens: 64,
     response_format: {
       type: "json_schema",

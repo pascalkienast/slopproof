@@ -153,6 +153,24 @@ describe("HetznerMultimodalJudgeProvider", () => {
     });
   });
 
+  it("accepts bounded token-granular SSE overhead above the former 512 KiB ceiling", async () => {
+    const streamed = microChunkedCompletionResponse(validCandidate());
+    expect(streamed.wireBytes).toBeGreaterThan(512 * 1_024);
+    expect(streamed.wireBytes).toBeLessThan(4 * 1_024 * 1_024);
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(streamed.response);
+
+    const result = await providerWith(fetchImpl).evaluate(
+      { ...inputFixture(), frames: [] },
+      contextFixture(),
+    );
+
+    expect(result.candidate.recommendation).toBe("pass");
+    expect(result.metadata.outcome).toBe("generated");
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
   it("accepts the single fenced JSON object emitted by the live Ox stream", async () => {
     const fenced = [
       "```json",
@@ -1455,4 +1473,32 @@ function fragmentedCompletionResponse(candidate: unknown): Response {
     }),
     { headers: { "content-type": "text/event-stream" } },
   );
+}
+
+function microChunkedCompletionResponse(candidate: unknown): {
+  response: Response;
+  wireBytes: number;
+} {
+  const content = `${" ".repeat(12_000)}${JSON.stringify({ result: candidate })}`;
+  const events: unknown[] = [...content].map((delta, index) => ({
+    id: `generation-safe-fixture-${String(index)}`,
+    provider: "openrouter",
+    model: "xiaomi/mimo-v2.5",
+    choices: [{ delta: { content: delta }, finish_reason: null }],
+  }));
+  events.push({
+    id: "generation-safe-fixture-finish",
+    provider: "openrouter",
+    model: "xiaomi/mimo-v2.5",
+    choices: [{ delta: {}, finish_reason: "stop" }],
+  });
+  const payload = `${events
+    .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+    .join("")}data: [DONE]\n\n`;
+  return {
+    response: new Response(payload, {
+      headers: { "content-type": "text/event-stream" },
+    }),
+    wireBytes: Buffer.byteLength(payload, "utf8"),
+  };
 }

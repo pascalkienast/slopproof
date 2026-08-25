@@ -18,6 +18,7 @@ import {
   type DatabaseConnection,
   type JobPayload,
 } from "@slopproof/db";
+import { TECHNICAL_RETRY_GITHUB_CHECK } from "@slopproof/github";
 import type { S3EvidenceStore } from "@slopproof/storage";
 import type { PgBoss } from "pg-boss";
 import {
@@ -535,8 +536,7 @@ export async function recordMediaFinalizationFailure(
       await dependencies.checkIntents.write(client, {
         revisionId: row.revision_id,
         headSha: row.head_sha,
-        status: "completed",
-        conclusion: "neutral",
+        ...TECHNICAL_RETRY_GITHUB_CHECK,
         summary: `technical retry required for head ${row.head_sha}`,
         reason: "technical_retry",
         idempotencyKey: `media-failed:${row.upload_session_id}`,

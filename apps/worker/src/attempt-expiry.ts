@@ -3,6 +3,7 @@ import {
   parseJobPayload,
   type JobPayload,
 } from "@slopproof/db";
+import { ATTEMPT_EXPIRED_GITHUB_CHECK } from "@slopproof/github";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { CheckIntentWriter } from "./revision-preparation";
@@ -115,8 +116,7 @@ export async function expireAttempt(
     await dependencies.checkIntents.write(client, {
       revisionId: attempt.revision_id,
       headSha: attempt.head_sha,
-      status: "completed",
-      conclusion: "neutral",
+      ...ATTEMPT_EXPIRED_GITHUB_CHECK,
       summary: `proof attempt expired for head ${attempt.head_sha}`,
       reason: "attempt_expired",
       idempotencyKey: payload.idempotencyKey,

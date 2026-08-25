@@ -241,6 +241,13 @@ test("OpenRouter MiMo capability body matches the streamed json_schema wire", ()
     store: false,
     temperature: 0,
     stream: true,
+    tools: [],
+    reasoning: { effort: "none", exclude: true },
+    provider: {
+      require_parameters: true,
+      data_collection: "deny",
+      zdr: true,
+    },
     max_tokens: 64,
     response_format: {
       type: "json_schema",
@@ -268,7 +275,6 @@ test("OpenRouter MiMo capability body matches the streamed json_schema wire", ()
     ],
   });
   assert.equal(Object.hasOwn(body, "chat_template_kwargs"), false);
-  assert.equal(Object.hasOwn(body, "tools"), false);
   assert.throws(
     () => buildOpenRouterMimoCapabilityBody("model\nname"),
     (error) =>

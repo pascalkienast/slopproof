@@ -18,8 +18,12 @@ const MAX_TRANSPORT_ATTEMPTS = 3;
 // Only content deltas, finish_reason, or usage reset this timeout. The absolute
 // provider-hop deadline remains the hard upper bound while tokens are flowing.
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 150_000;
-const DEFAULT_MAX_RESPONSE_BYTES = 512 * 1_024;
-const MAX_RESPONSE_BYTES = 1024 * 1_024;
+// Token-granular OpenRouter SSE can spend substantially more bytes on repeated
+// JSON envelopes than on the bounded model text itself. Keep a separate hard
+// wire budget while preserving the tighter event, event-count and model-text
+// limits below.
+const MAX_RESPONSE_BYTES = 4 * 1_024 * 1_024;
+const DEFAULT_MAX_RESPONSE_BYTES = MAX_RESPONSE_BYTES;
 const MAX_REQUEST_BYTES = 4 * 1_024 * 1_024;
 const MAX_MODEL_TEXT_BYTES = 512 * 1_024;
 const MAX_SSE_EVENT_BYTES = 256 * 1_024;
