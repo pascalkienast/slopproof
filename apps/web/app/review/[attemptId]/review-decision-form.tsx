@@ -118,7 +118,7 @@ export function ReviewDecisionForm({
       </div>
       <p className="review-help">
         Approve passes the current SHA. Reject requests a new contributor proof.
-        Technical retry records a neutral system retry.
+        Technical retry blocks the current check until a fresh proof is ready.
       </p>
       <div aria-live="polite">
         {state.kind === "submitting" ? (

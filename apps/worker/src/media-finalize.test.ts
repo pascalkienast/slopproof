@@ -127,7 +127,7 @@ describe("media finalization failure handling", () => {
         revisionId: row.revision_id,
         headSha: row.head_sha,
         status: "completed",
-        conclusion: "neutral",
+        conclusion: "action_required",
         summary: `technical retry required for head ${row.head_sha}`,
         reason: "technical_retry",
         idempotencyKey: `media-failed:${row.upload_session_id}`,

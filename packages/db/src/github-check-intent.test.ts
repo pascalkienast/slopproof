@@ -36,20 +36,58 @@ describe("GitHub check intent persist contract", () => {
     ).toThrow(/review_required checks must stay in_progress/);
   });
 
-  it("keeps completed+neutral only for technical_retry", () => {
+  it.each(["technical_retry", "attempt_expired"] as const)(
+    "keeps %s fail-closed as completed+action_required",
+    (reason) => {
+      expect(
+        parseGithubCheckIntent({
+          ...baseIntent,
+          idempotencyKey: `check:intent:${reason}`,
+          reason,
+          status: "completed",
+          conclusion: "action_required",
+          publicSummary: `${reason} for head`,
+        }),
+      ).toMatchObject({
+        reason,
+        status: "completed",
+        conclusion: "action_required",
+      });
+    },
+  );
+
+  it.each([
+    "technical_retry",
+    "attempt_expired",
+    "maintainer_decision",
+  ] as const)(
+    "rejects neutral for %s because it opens the merge gate",
+    (reason) => {
+      expect(() =>
+        parseGithubCheckIntent({
+          ...baseIntent,
+          idempotencyKey: `check:intent:neutral:${reason}`,
+          reason,
+          status: "completed",
+          conclusion: "neutral",
+          publicSummary: `${reason} for head`,
+        }),
+      ).toThrow(/neutral conclusions satisfy GitHub required checks/);
+    },
+  );
+
+  it("requires a replacement attempt to restore a pending check", () => {
     expect(
       parseGithubCheckIntent({
         ...baseIntent,
-        idempotencyKey: "check:intent:technical-retry",
-        reason: "technical_retry",
-        status: "completed",
-        conclusion: "neutral",
-        publicSummary: "technical retry required for head",
+        idempotencyKey: "check:intent:contributor-retry",
+        reason: "contributor_retry",
+        publicSummary: "replacement proof ready for head",
       }),
     ).toMatchObject({
-      reason: "technical_retry",
-      status: "completed",
-      conclusion: "neutral",
+      reason: "contributor_retry",
+      status: "in_progress",
+      conclusion: null,
     });
   });
 });

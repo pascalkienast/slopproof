@@ -367,7 +367,7 @@ databaseDescribe("complete current-SHA product flow", () => {
         revisionId: attempt.revision_id,
         headSha: attempt.head_sha,
         status: "completed",
-        conclusion: "neutral",
+        conclusion: "action_required",
         reason: "technical_retry",
         idempotencyKey: abortInput.idempotencyKey,
       },
@@ -510,6 +510,21 @@ databaseDescribe("complete current-SHA product flow", () => {
     expect(storage.calls).toContainEqual({
       objectKey: expiryUpload.objectKey,
       uploadId: expiryUpload.providerUploadId,
+    });
+    const expiredCheck = await connection.pool.query<{
+      status: string;
+      conclusion: string | null;
+      intent_reason: string | null;
+    }>(
+      `SELECT status, conclusion, intent_reason
+         FROM check_runs
+        WHERE revision_id = $1`,
+      [expiring.revision_id],
+    );
+    expect(expiredCheck.rows[0]).toEqual({
+      status: "completed",
+      conclusion: "action_required",
+      intent_reason: "attempt_expired",
     });
   });
 

@@ -51,7 +51,7 @@ export type WorkerCheckIntentWriterInput = {
   revisionId: string;
   headSha: string;
   status: "queued" | "in_progress" | "completed";
-  conclusion: "action_required" | "success" | "neutral" | "cancelled" | null;
+  conclusion: "action_required" | "success" | "cancelled" | null;
   summary: string;
   reason:
     | "analysis_ready"
