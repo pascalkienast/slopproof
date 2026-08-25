@@ -113,9 +113,11 @@ set the OAuth proxy-authenticator headers described in
 [production-configuration.md](production-configuration.md), reject direct Web
 access and preserve the camera/microphone policy for the mobile route.
 
-Serve exact `GET|HEAD /` from the static `landing/` payload, `index.html` and
-`landing.js`. That directory is the marketing page. Do not point `/` at the
-Next.js app shell in `apps/web/app/page.tsx`.
+Serve exact `GET|HEAD /`, `/landing.js`, and `/product-flow/*` from the static
+`landing/` payload. That directory is the marketing page. Do not point `/` at
+the Next.js app shell in `apps/web/app/page.tsx`. Run
+`node scripts/prepare-landing.mjs` so the five production screenshots are
+copied from `docs/assets/product-flow/` before publishing.
 
 During a live proof the recording tab stays in the foreground. Switch to
 another app, a second screen, the lock screen, or another tab, and the take
