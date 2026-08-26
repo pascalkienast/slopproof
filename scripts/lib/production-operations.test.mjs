@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
-  LANDING_ASSETS,
   LANDING_PUBLISH,
   LANDING_SOURCE,
   prepareLanding,
@@ -16,10 +15,6 @@ function read(relativePath) {
   );
 }
 
-function readBytes(relativePath) {
-  return readFileSync(new URL(`../../${relativePath}`, import.meta.url));
-}
-
 test("Caddy keeps the landing root exact and proxies only named app paths", () => {
   const caddy = read("infra/caddy/Caddyfile.production");
 
@@ -28,15 +23,7 @@ test("Caddy keeps the landing root exact and proxies only named app paths", () =
     caddy,
     /@landing_script \{\s*method GET HEAD\s*path \/landing\.js\s*\}/u,
   );
-  assert.match(
-    caddy,
-    /@landing_product_flow \{\s*method GET HEAD\s*path \/product-flow\/\*\s*\}/u,
-  );
   assert.match(caddy, /handle @landing_script \{[\s\S]*?file_server\s*\}/u);
-  assert.match(
-    caddy,
-    /handle @landing_product_flow \{[\s\S]*?file_server\s*\}/u,
-  );
   assert.match(caddy, /handle @landing \{[\s\S]*?file_server\s*\}/u);
   assert.match(
     caddy,
@@ -60,12 +47,6 @@ test("landing interactions obey the strict script policy and default to Proof", 
 
   assert.equal(landing, published);
   assert.equal(behavior, publishedBehavior);
-  for (const asset of LANDING_ASSETS) {
-    assert.deepEqual(
-      readBytes(`${LANDING_SOURCE.assetsDirectory}/${asset}`),
-      readBytes(`${LANDING_PUBLISH.assetsDirectory}/${asset}`),
-    );
-  }
   assert.match(landing, /<script src="\/landing\.js" defer><\/script>/u);
   assert.doesNotMatch(landing, /<script(?:\s|>)(?![^>]*\bsrc=)/u);
   assert.match(
@@ -74,15 +55,10 @@ test("landing interactions obey the strict script policy and default to Proof", 
   );
   assert.match(
     landing,
-    /class="mode-panel capture-panel proof-captures active"[^>]*id="proof-panel"/u,
+    /class="mode-panel proof-ui active"[^>]*id="proof-panel"/u,
   );
-  assert.match(landing, /Actual production UI/u);
-  assert.match(landing, /The real product, not a demo mockup\./u);
-  assert.match(landing, /src="\/product-flow\/contributor-proof\.webp"/u);
-  assert.match(landing, /src="\/product-flow\/practice\.webp"/u);
-  assert.match(landing, /src="\/product-flow\/one-take\.webp"/u);
-  assert.match(landing, /src="\/product-flow\/privacy-check\.webp"/u);
-  assert.match(landing, /src="\/product-flow\/review-evidence\.webp"/u);
+  assert.match(landing, /class="check-choice proof active"/u);
+  assert.match(landing, /class="check-choice optional"/u);
   assert.match(landing, /Optional: practice the patch/u);
   assert.match(
     landing,
@@ -104,10 +80,6 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.doesNotMatch(landing, /Open-source MVP|Open-source product concept/u);
   assert.doesNotMatch(landing, /15 sec|90 sec|open-proof|proof-dialog/u);
   assert.doesNotMatch(landing, /Preview mobile preflight/u);
-  assert.doesNotMatch(
-    landing,
-    /cachekit \/ pull \/ 184|src\/runtime\/reload\.ts|face in frame/u,
-  );
   assert.doesNotMatch(landing, /visibility_lost/u);
   assert.doesNotMatch(behavior, /#open-proof|#proof-dialog|#demo-start/u);
   assert.doesNotMatch(landing, /fonts\.(?:googleapis|gstatic)\.com/u);

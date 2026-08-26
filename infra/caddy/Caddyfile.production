@@ -41,19 +41,10 @@
 		method GET HEAD
 		path /landing.js
 	}
-	@landing_product_flow {
-		method GET HEAD
-		path /product-flow/*
-	}
 	root * {$LANDING_ROOT}
 	header @landing >Content-Security-Policy "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; connect-src 'self' https://bf2f734c49e05a3ed1cbad16f0049e6c.eu.r2.cloudflarestorage.com; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'"
 	header @landing_script >Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
-	header @landing_product_flow >Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
-	header @landing_product_flow >Cache-Control "public, max-age=86400"
 	handle @landing_script {
-		file_server
-	}
-	handle @landing_product_flow {
 		file_server
 	}
 	handle @landing {

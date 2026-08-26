@@ -42,45 +42,11 @@ SlopProof does not run pull-request code. It does not do face recognition,
 gaze tracking, room scanning, identity verification, or persistent contributor
 scoring.
 
-## Product tour
-
-These are captures from the hosted production flow. They are not the local
-`/demo` route or concept artwork. Repository identifiers are public; private
-video areas and the bound SHA are blurred where needed.
-
-![Production contributor proof page with separate Practice and Proof choices](docs/assets/product-flow/contributor-proof.webp)
-
-### Learn the patch
-
-Practice maps the current diff and keeps its coaching prompts separate from the
-immutable live questions.
-
-![Production Practice page with the patch map beside the understanding coach](docs/assets/product-flow/practice.webp)
-
-### Say it live
-
-The phone shows one patch-bound question at a time. The recording is one
-continuous take.
-
-<p align="center">
-  <img src="docs/assets/product-flow/one-take.webp" width="360" alt="Production mobile one-take proof with a patch reference and live question">
-  <img src="docs/assets/product-flow/privacy-check.webp" width="288" alt="Production camera and privacy preflight with the camera viewport blurred">
-</p>
-
-### Review the evidence
-
-If the model cannot support a pass, the required check waits. An authorized
-maintainer can open the short-lived evidence and decide what happens next.
-
-<p align="center">
-  <img src="docs/assets/product-flow/review-evidence.webp" width="360" alt="Production maintainer review with the evidence video blurred">
-</p>
-
 ## See it
 
 - Live landing: [slopproof.paskie.me](https://slopproof.paskie.me)
 - Local demo: <http://localhost:3000/demo> after `docker compose up --build`
-- Production screenshot provenance and privacy notes:
+- Screenshot slots, empty until real Ubuntu captures land:
   [docs/assets/](docs/assets/README.md)
 
 ## Local demo

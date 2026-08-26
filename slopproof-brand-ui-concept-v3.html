@@ -138,19 +138,30 @@
       transform: rotate(-1.3deg);
     }
     .hero-actions { display: flex; flex-wrap: wrap; gap: 14px; }
-    .hero-shot {
-      margin: 0;
+    .check-card {
       position: relative;
+      padding: 22px;
       background: var(--sheet);
       border: var(--line);
       border-radius: 34px 19px 29px 22px;
       box-shadow: 12px 14px 0 var(--ink);
-      overflow: visible;
       transform: rotate(1.2deg);
     }
-    .hero-shot::before { content: "Actual production UI"; position: absolute; z-index: 2; top: -18px; right: 30px; padding: 7px 13px; border: var(--line); border-radius: 999px; background: var(--yellow); color: var(--ink); font: 600 10px/1 var(--mono); text-transform: uppercase; transform: rotate(3deg); }
-    .hero-shot img { width: 100%; height: auto; display: block; border-radius: 31px 16px 26px 19px; }
-    .hero-shot figcaption { padding: 12px 18px 15px; color: var(--muted); font: 500 10px/1.45 var(--mono); transform: rotate(-1.2deg); }
+    .check-card::before { content: "GitHub check"; position: absolute; top: -18px; right: 30px; padding: 7px 13px; border: var(--line); border-radius: 999px; background: var(--yellow); font: 600 10px/1 var(--mono); text-transform: uppercase; transform: rotate(3deg); }
+    .check-top { display: flex; justify-content: space-between; gap: 18px; padding-bottom: 18px; border-bottom: 2px dashed var(--ink); }
+    .check-title { font: 750 20px/1.15 var(--display); }
+    .status { display: inline-flex; align-items: center; gap: 7px; font: 600 10px/1 var(--mono); text-transform: uppercase; }
+    .status i { width: 10px; height: 10px; border-radius: 50%; background: var(--yellow); border: 1px solid var(--ink); }
+    .check-meta { margin-top: 6px; color: var(--muted); font: 500 10px/1.5 var(--mono); }
+    .check-choice { width: 100%; margin-top: 16px; padding: 18px; display: grid; grid-template-columns: 48px 1fr auto; align-items: center; gap: 14px; border: var(--line); border-radius: 22px 13px 18px 15px; background: transparent; text-align: left; cursor: pointer; transition: background .2s ease, transform .2s ease; }
+    .check-choice:hover, .check-choice.active { background: #e9e7e1; transform: translateX(4px) rotate(-.4deg); }
+    .check-choice.proof:hover, .check-choice.proof.active { background: #ecf9c8; transform: translateX(4px) rotate(.4deg); }
+    .check-choice.optional { color: #5f5d57; border-color: #8a877e; }
+    .choice-icon { width: 46px; aspect-ratio: 1; display: grid; place-items: center; border: var(--line); border-radius: 50%; background: #d8d5ce; font: 700 17px/1 var(--mono); }
+    .proof .choice-icon { background: var(--green); }
+    .choice-copy strong { display: block; font: 700 16px/1.2 var(--display); }
+    .choice-copy span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .choice-arrow { font: 600 18px/1 var(--mono); }
     .loop-hero { position: absolute; width: 290px; height: 190px; left: -90px; bottom: -92px; pointer-events: none; }
     .loop-path { fill: none; stroke: var(--orange); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 8 11; animation: crawl 12s linear infinite; }
     @keyframes crawl { to { stroke-dashoffset: -190; } }
@@ -191,19 +202,50 @@
     .mode-tab[aria-selected="true"] { background: var(--ink); color: var(--sheet); }
     .mode-panel { display: none; }
     .mode-panel.active { display: grid; }
-    .capture-panel { padding: clamp(18px, 3vw, 38px); background: #15150f; gap: 24px; }
-    .practice-capture { grid-template-columns: 1fr; }
-    .proof-captures { grid-template-columns: minmax(0, 1fr) minmax(230px, .38fr); align-items: start; }
-    .capture-card { margin: 0; overflow: hidden; border: var(--line); border-radius: 28px 14px 25px 17px; background: var(--sheet); box-shadow: 7px 8px 0 rgba(255,79,34,.86); }
-    .capture-card:nth-child(2) { transform: rotate(.7deg); }
-    .capture-card img { width: 100%; height: auto; display: block; }
-    .capture-card figcaption { padding: 15px 18px 17px; color: var(--muted); font: 500 11px/1.45 var(--mono); }
-    .capture-card strong { color: var(--ink); }
 
-    .after-grid { display: grid; grid-template-columns: minmax(260px, .62fr) minmax(0, 1.38fr); gap: 40px; align-items: start; }
-    .after-grid .capture-card { box-shadow: 7px 8px 0 var(--ink); }
-    .after-grid .pipeline { grid-template-columns: repeat(2, 1fr); }
-    .after-grid .pipe-card:last-child { grid-column: 1 / -1; }
+    .practice-ui { min-height: 590px; grid-template-columns: .9fr 1.1fr; }
+    .diff-pane { padding: 28px; border-right: var(--line); background: #e9e3d5; }
+    .diff-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 20px; }
+    .pill { padding: 7px 10px; border: 1px solid var(--ink); border-radius: 999px; font: 600 9px/1 var(--mono); background: var(--sheet); }
+    .code { padding: 20px; border: var(--line); border-radius: 18px 10px 17px 12px; background: #171711; color: #eae4d8; font: 500 11px/1.8 var(--mono); overflow: auto; }
+    .code .plus { color: #c9f15c; }
+    .code .minus { color: #ff8f78; }
+    .hotspots { display: grid; gap: 10px; margin-top: 17px; }
+    .hotspot { padding: 13px 14px; border: 1px solid var(--ink); border-radius: 14px 20px 12px 19px; background: var(--sheet); text-align: left; font: 600 11px/1.4 var(--mono); cursor: pointer; }
+    .hotspot.active { background: var(--yellow); transform: rotate(-.5deg); }
+    .coach-pane { padding: 38px; background: var(--sheet); position: relative; }
+    .coach-pane h3 { margin: 0; font: 750 clamp(34px, 4vw, 54px)/1 var(--display); letter-spacing: -.035em; }
+    .coach-card { margin-top: 28px; padding: 25px; border: var(--line); border-radius: 30px 14px 26px 17px; background: #fff4cd; }
+    .coach-label { color: var(--orange); font: 600 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .11em; }
+    .coach-card h4 { margin: 14px 0 10px; font: 700 23px/1.15 var(--display); }
+    .coach-progress { margin-top: 25px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .coach-progress i { height: 8px; border: 1px solid var(--ink); border-radius: 999px; background: var(--green); }
+    .coach-progress i:last-child { background: transparent; }
+    .ready-row { margin-top: 28px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+
+    .proof-ui { min-height: 590px; grid-template-columns: .9fr 1.1fr; }
+    .handoff { padding: 38px; background: var(--sheet); border-right: var(--line); display: flex; flex-direction: column; justify-content: center; }
+    .handoff h3 { margin: 0; font: 750 clamp(36px, 4.5vw, 58px)/.98 var(--display); letter-spacing: -.035em; }
+    .qr-row { margin-top: 30px; display: grid; grid-template-columns: 164px 1fr; gap: 24px; align-items: center; }
+    .qr { width: 164px; aspect-ratio: 1; padding: 10px; border: var(--line); border-radius: 25px 12px 20px 15px; background: var(--sheet); transform: rotate(-2deg); }
+    .qr svg { width: 100%; height: 100%; display: block; }
+    .handoff-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 11px; font: 500 11px/1.4 var(--mono); }
+    .handoff-list li::before { content: "↳ "; color: var(--orange); }
+    .handoff-note { margin: 22px 0 0; max-width: 34em; color: var(--muted); font: 500 13px/1.45 var(--body); }
+    .phone-stage { min-height: 590px; padding: 34px; display: grid; place-items: center; background: var(--orange); position: relative; overflow: hidden; }
+    .phone { width: min(312px, 100%); padding: 10px; border: 3px solid var(--ink); border-radius: 47px; background: var(--ink); box-shadow: 8px 10px 0 rgba(23,23,17,.28); transform: rotate(1.6deg); }
+    .phone-screen { min-height: 505px; padding: 20px; border-radius: 37px; background: #f8f1e3; overflow: hidden; display: flex; flex-direction: column; }
+    .phone-top { display: flex; justify-content: space-between; align-items: center; font: 600 9px/1 var(--mono); }
+    .rec { display: flex; align-items: center; gap: 7px; color: var(--red); }
+    .rec i { width: 10px; height: 10px; border-radius: 50%; background: var(--red); animation: pulse 1.1s ease infinite; }
+    @keyframes pulse { 50% { opacity: .35; transform: scale(.75); } }
+    .camera { flex: 1; margin-top: 14px; border: var(--line); border-radius: 26px 16px 23px 19px; background: radial-gradient(circle at 50% 38%, #d7b28f 0 11%, transparent 11.5%), radial-gradient(ellipse at 50% 73%, #41443f 0 27%, transparent 27.5%), linear-gradient(145deg, #a8c0a0, #546c68); position: relative; overflow: hidden; }
+    .camera::before { content: "face in frame"; position: absolute; left: 50%; top: 50%; width: 48%; height: 65%; border: 2px dashed rgba(255,255,255,.9); border-radius: 47% 47% 38% 38%; transform: translate(-50%,-50%); color: white; display: grid; place-items: end center; padding-bottom: 11px; font: 500 8px/1 var(--mono); }
+    .timer { margin: 14px 0 8px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .timer strong { font: 700 30px/1 var(--mono); }
+    .phone-question { margin: 0; font: 700 16px/1.18 var(--display); }
+    .one-take { margin-top: 11px; color: var(--muted); font: 500 9px/1.4 var(--mono); }
+    .phone-loop { position: absolute; width: 220px; right: -76px; top: 90px; opacity: .55; }
 
     .pipeline { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; align-items: stretch; }
     .pipe-card { min-height: 190px; padding: 22px; border: var(--line); border-radius: 27px 14px 24px 17px; background: var(--sheet); position: relative; }
@@ -218,12 +260,7 @@
 
     .privacy { padding: 120px 0; background: var(--ink); color: var(--sheet); }
     .privacy .section-intro { color: #c7c2b6; }
-    .privacy-proof { display: grid; grid-template-columns: minmax(260px, .62fr) minmax(0, 1.38fr); gap: 36px; align-items: start; }
-    .privacy-proof .capture-card { box-shadow: 7px 8px 0 var(--orange); }
-    .privacy-proof .capture-card figcaption { color: var(--muted); }
     .security-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
-    .privacy-proof .security-board { grid-template-columns: 1fr 1fr; }
-    .privacy-proof .security-card:last-child { grid-column: 1 / -1; }
     .security-card { min-height: 260px; padding: 30px; border: 2px solid var(--sheet); border-radius: 42px 19px 35px 24px; display: flex; flex-direction: column; position: relative; }
     .security-card:nth-child(2) { border-radius: 22px 48px 24px 39px; transform: rotate(-.5deg); }
     .security-card:nth-child(3) { border-radius: 51px 22px 42px 27px; background: var(--green); color: var(--ink); transform: rotate(.45deg); }
@@ -248,10 +285,11 @@
 
     @media (max-width: 980px) {
       .hero { grid-template-columns: 1fr; padding-top: 72px; }
-      .hero-shot { max-width: 760px; }
+      .check-card { max-width: 690px; }
       .manifesto .shell, .section-head { grid-template-columns: 1fr; gap: 20px; }
       .manifesto .eyebrow, .section-head > .eyebrow { max-width: none; }
-      .proof-captures, .after-grid, .privacy-proof { grid-template-columns: 1fr; }
+      .practice-ui, .proof-ui { grid-template-columns: 1fr; }
+      .diff-pane, .handoff { border-right: 0; border-bottom: var(--line); }
       .pipeline { grid-template-columns: 1fr 1fr; }
       .pipe-card::after { display: none; }
       .pipe-card:last-child { grid-column: 1 / -1; }
@@ -269,8 +307,10 @@
       .brand-claim { width: auto; font-size: 19px; text-align: center; }
       .hero-actions { display: grid; }
       .button { width: 100%; }
-      .hero-shot { border-radius: 25px 15px 24px 17px; box-shadow: 7px 8px 0 var(--ink); }
-      .hero-shot img { border-radius: 22px 12px 20px 14px; }
+      .check-card { padding: 16px; border-radius: 25px 15px 24px 17px; box-shadow: 7px 8px 0 var(--ink); }
+      .check-choice { grid-template-columns: 42px 1fr; padding: 14px; }
+      .choice-icon { width: 40px; }
+      .choice-arrow { display: none; }
       .loop-hero { left: auto; right: -8px; bottom: -95px; width: 210px; }
       .manifesto, .section, .product, .privacy { padding: 82px 0; }
       .manifesto h2, .section h2 { font-size: clamp(43px, 13vw, 62px); }
@@ -281,7 +321,11 @@
       .window-bar { padding: 12px; align-items: flex-start; flex-direction: column; }
       .mode-tabs { width: 100%; }
       .mode-tab { flex: 1; }
-      .capture-panel { padding: 15px; }
+      .diff-pane, .coach-pane, .handoff, .phone-stage { padding: 22px; }
+      .qr-row { grid-template-columns: 128px 1fr; gap: 15px; }
+      .qr { width: 128px; }
+      .ready-row { align-items: stretch; flex-direction: column; }
+      .phone-stage { min-height: 560px; }
       .pipeline { grid-template-columns: 1fr; }
       .pipe-card:last-child { grid-column: auto; }
       .security-card, .security-card:last-child { min-height: 230px; padding: 26px; grid-column: auto; transform: none; }
@@ -322,11 +366,23 @@
         </div>
       </div>
 
-      <figure class="hero-shot">
-        <img src="/product-flow/contributor-proof.webp" width="1600" height="1000" alt="Production contributor proof page with separate Practice and Proof choices" fetchpriority="high" />
-        <figcaption>Production capture. The head SHA is intentionally blurred.</figcaption>
+      <div class="check-card" aria-label="Example GitHub check">
+        <div class="check-top">
+          <div><div class="check-title">SlopProof / understanding required</div><div class="check-meta">PR #184 · head 9f31c2e · callback rollback</div></div>
+          <span class="status"><i></i> action needed</span>
+        </div>
+        <button class="check-choice optional" type="button" data-open-mode="practice">
+          <span class="choice-icon">OPT</span>
+          <span class="choice-copy"><strong>Practice your understanding</strong><span>More time with the change, if you want it.</span></span>
+          <span class="choice-arrow">↗</span>
+        </button>
+        <button class="check-choice proof active" type="button" data-open-mode="proof">
+          <span class="choice-icon">GO</span>
+          <span class="choice-copy"><strong>Prove your understanding</strong><span>The live challenge. Required.</span></span>
+          <span class="choice-arrow">↗</span>
+        </button>
         <svg class="loop-hero" viewBox="0 0 290 190" aria-hidden="true"><path class="loop-path" d="M12 31C55 2 132 16 126 69c-7 58-113 34-91 89 18 44 109 17 161-18 35-24 57-28 83-20"/><path d="m264 106 17 14-20 9" fill="none" stroke="var(--orange)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </figure>
+      </div>
     </section>
 
     <div class="marquee" aria-hidden="true"><div class="marquee-track"><span>Prove you know what you ship.</span><span>Practice your understanding. Prove your understanding.</span><span>Fast code still deserves a slow thought.</span><span>Focused questions. One take. Your patch.</span><span>Prove you know what you ship.</span><span>Practice your understanding. Prove your understanding.</span><span>Fast code still deserves a slow thought.</span><span>Focused questions. One take. Your patch.</span></div></div>
@@ -367,34 +423,69 @@
       <div class="shell">
         <div class="section-head">
           <p class="eyebrow">The product</p>
-          <div><h2>The real product, not a demo mockup.</h2><p class="section-intro">These captures come from the hosted production flow. Practice is optional. The live questions stay hidden until recording starts. One continuous take. The tab stays in front. Leave the tab, open another app, or use a second screen, and the proof aborts.</p></div>
+          <div><h2>Practice first, or go straight to Proof.</h2><p class="section-intro">Both sit on the same check. Practice is optional. The live questions stay hidden until recording starts.</p></div>
         </div>
 
         <div class="product-frame">
           <div class="window-bar">
-            <span class="window-name">Production capture · private details removed</span>
+            <span class="window-name">cachekit / pull / 184 · 9f31c2e</span>
             <div class="mode-tabs" role="tablist" aria-label="SlopProof modes">
               <button class="mode-tab" id="practice-tab" role="tab" aria-selected="false" aria-controls="practice-panel" tabindex="-1">Practice · optional</button>
               <button class="mode-tab" id="proof-tab" role="tab" aria-selected="true" aria-controls="proof-panel">Prove · required</button>
             </div>
           </div>
 
-          <section class="mode-panel capture-panel practice-capture" id="practice-panel" role="tabpanel" aria-labelledby="practice-tab" hidden>
-            <figure class="capture-card">
-              <img src="/product-flow/practice.webp" width="1600" height="1000" decoding="async" alt="Production Practice page showing a patch map beside the understanding coach" />
-              <figcaption><strong>Practice.</strong> The coach stays patch-bound and separate from the live proof.</figcaption>
-            </figure>
+          <section class="mode-panel practice-ui" id="practice-panel" role="tabpanel" aria-labelledby="practice-tab" hidden>
+            <div class="diff-pane">
+              <div class="diff-head"><strong class="mono">src/runtime/reload.ts</strong><span class="pill">3 learning goals</span></div>
+              <div class="code"><span class="minus">- state.publish(candidate)</span><br/><span class="plus">+ const snapshot = state.capture()</span><br/><span class="plus">+ state.publish(candidate)</span><br/><span class="plus">+ try { await callback() }</span><br/><span class="plus">+ catch (error) {</span><br/><span class="plus">+ &nbsp;state.restore(snapshot)</span><br/><span class="plus">+ &nbsp;throw error</span><br/><span class="plus">+ }</span></div>
+              <div class="hotspots" aria-label="Patch learning goals">
+                <button class="hotspot active" data-title="Atomic visibility" data-question="Can a concurrent reader observe candidate state before the callback succeeds?" data-note="Trace publish → callback → restore. Name the exact interval in which another reader can enter.">01 · Atomic visibility</button>
+                <button class="hotspot" data-title="Rollback semantics" data-question="What state is restored when the callback fails, and what cannot be undone?" data-note="Separate in-memory state from any external side effect the callback may already have caused.">02 · Rollback semantics</button>
+                <button class="hotspot" data-title="Missing test" data-question="Which interleaving would expose a half-applied candidate to a reader?" data-note="Describe the two actors and the synchronization point. A generic happy-path test is not enough.">03 · Missing concurrency test</button>
+              </div>
+            </div>
+            <div class="coach-pane">
+              <p class="eyebrow">Understanding coach</p>
+              <h3 id="coach-title">Atomic visibility</h3>
+              <div class="coach-card">
+                <span class="coach-label">Practice question · never reused in live proof</span>
+                <h4 id="coach-question">Can a concurrent reader observe candidate state before the callback succeeds?</h4>
+                <p id="coach-note">Trace publish → callback → restore. Name the exact interval in which another reader can enter.</p>
+              </div>
+              <div class="coach-progress" aria-label="Two of three learning goals explored"><i></i><i></i><i></i></div>
+              <div class="ready-row"><span class="scribble-note">study the edge<br/>case ↗</span><button class="button green" type="button" data-open-mode="proof">I'm ready to prove it</button></div>
+            </div>
           </section>
 
-          <section class="mode-panel capture-panel proof-captures active" id="proof-panel" role="tabpanel" aria-labelledby="proof-tab">
-            <figure class="capture-card">
-              <img src="/product-flow/contributor-proof.webp" width="1600" height="1000" decoding="async" alt="Production contributor proof overview bound to a pull request" />
-              <figcaption><strong>Proof starts on the exact SHA.</strong> The contributor chooses the required live take.</figcaption>
-            </figure>
-            <figure class="capture-card">
-              <img src="/product-flow/one-take.webp" width="900" height="1600" decoding="async" alt="Production mobile one-take proof showing a patch reference and a live question" />
-              <figcaption><strong>One take.</strong> Each question stays anchored to the current patch.</figcaption>
-            </figure>
+          <section class="mode-panel proof-ui active" id="proof-panel" role="tabpanel" aria-labelledby="proof-tab">
+            <div class="handoff">
+              <p class="eyebrow">Live proof handoff</p>
+              <h3>Scan when you're ready. The questions stay hidden until you record.</h3>
+              <div class="qr-row">
+                <div class="qr" role="img" aria-label="Decorative QR code for mobile handoff"><svg viewBox="0 0 100 100"><rect width="100" height="100" fill="#fffdf7"/><g fill="#171711"><path d="M4 4h28v28H4zm7 7v14h14V11zM68 4h28v28H68zm7 7v14h14V11zM4 68h28v28H4zm7 7v14h14V75z" fill-rule="evenodd"/><path d="M39 5h8v8h-8zm13 0h8v8h-8zM39 18h20v8H39zm-1 14h8v8h-8zm14 0h8v14h-8zm14 7h8v8h-8zm14-1h15v8H80zM38 51h8v8h-8zm13 0h22v8H51zm29 0h15v8H80zM38 65h15v8H38zm22 0h8v16h-8zm14 0h21v8H74zM38 80h8v15h-8zm14 7h15v8H52zm22-7h8v15h-8zm13 0h8v8h-8z"/></g></svg></div>
+                <ul class="handoff-list">
+                  <li>One-time mobile link</li>
+                  <li>Camera + microphone</li>
+                  <li>One continuous take. The tab stays in front.</li>
+                  <li>Leave the tab, open another app, or use a second screen, and the proof aborts.</li>
+                  <li>No pause or retake</li>
+                </ul>
+              </div>
+              <p class="handoff-note">Scan when you can keep this tab in front. Leave the tab and the take is over.</p>
+            </div>
+            <div class="phone-stage">
+              <svg class="phone-loop" viewBox="0 0 220 280" aria-hidden="true"><path d="M19 203c59 34 182-17 165-93-16-68-134-78-155-7-20 68 77 104 131 68 39-25 42-78 21-113" fill="none" stroke="var(--sheet)" stroke-width="6" stroke-linecap="round" stroke-dasharray="9 12"/></svg>
+              <div class="phone" aria-label="Live proof mobile preview">
+                <div class="phone-screen">
+                  <div class="phone-top"><span>SLOP/PROOF</span><span class="rec"><i></i> LIVE</span></div>
+                  <div class="camera"></div>
+                  <div class="timer"><span class="mono">QUESTION 2/3</span><strong>01:17</strong></div>
+                  <p class="phone-question">Why can another reader still observe candidate state before rollback?</p>
+                  <p class="one-take">One take · uploading encrypted · head 9f31c2e</p>
+                </div>
+              </div>
+            </div>
           </section>
         </div>
       </div>
@@ -405,18 +496,12 @@
         <p class="eyebrow">After the take</p>
         <div><h2>A multimodal model reviews the recording. A maintainer can review it too.</h2><p class="section-intro">The model sees the transcript, a few frames, timing, the patch, and the rubric.</p></div>
       </div>
-      <div class="after-grid">
-        <figure class="capture-card">
-          <img src="/product-flow/review-evidence.webp" width="900" height="1500" decoding="async" alt="Production maintainer review page with the evidence video intentionally blurred" />
-          <figcaption><strong>Fail closed.</strong> If the model cannot support a pass, the check waits for a maintainer.</figcaption>
-        </figure>
-        <div class="pipeline">
-          <article class="pipe-card"><span class="pipe-no">01</span><h3>Live capture</h3><p>A risk-sized question set, one take, bound to this PR revision.</p></article>
-          <article class="pipe-card"><span class="pipe-no">02</span><h3>Encrypted vault</h3><p>A per-attempt key protects the original recording.</p></article>
-          <article class="pipe-card"><span class="pipe-no">03</span><h3>Extract</h3><p>Transcript, timestamps and a few reasoned frames.</p></article>
-          <article class="pipe-card"><span class="pipe-no">04</span><h3>Multimodal LLM judge</h3><p>Patch references, transcript, frames, rubric, gaps and contradictions.</p></article>
-          <article class="pipe-card"><span class="pipe-no">05</span><h3>Outcome</h3><p>A maintainer can review the take and close the check.</p></article>
-        </div>
+      <div class="pipeline">
+        <article class="pipe-card"><span class="pipe-no">01</span><h3>Live capture</h3><p>A risk-sized question set, one take, bound to this PR revision.</p></article>
+        <article class="pipe-card"><span class="pipe-no">02</span><h3>Encrypted vault</h3><p>A per-attempt key protects the original recording.</p></article>
+        <article class="pipe-card"><span class="pipe-no">03</span><h3>Extract</h3><p>Transcript, timestamps and a few reasoned frames.</p></article>
+        <article class="pipe-card"><span class="pipe-no">04</span><h3>Multimodal LLM judge</h3><p>Patch references, transcript, frames, rubric, gaps and contradictions.</p></article>
+        <article class="pipe-card"><span class="pipe-no">05</span><h3>Outcome</h3><p>A maintainer can review the take and close the check.</p></article>
       </div>
     </section>
 
@@ -426,16 +511,10 @@
           <p class="eyebrow">Video security</p>
           <div><h2>The recording is encrypted, then deleted.</h2><p class="section-intro">A live proof can include your face, voice, and how you reason about the patch. The recording is evidence with a short life.</p></div>
         </div>
-        <div class="privacy-proof">
-          <figure class="capture-card">
-            <img src="/product-flow/privacy-check.webp" width="1200" height="1500" decoding="async" alt="Production camera and privacy preflight with the camera viewport intentionally blurred" />
-            <figcaption><strong>Production preflight.</strong> The camera viewport is blurred in this public capture.</figcaption>
-          </figure>
-          <div class="security-board">
-            <article class="security-card"><span class="security-no">01 · AT REST</span><h3>Encrypted per attempt</h3><p>Each live proof gets its own encryption key. Private object storage alone is never enough to play the recording back.</p></article>
-            <article class="security-card"><span class="security-no">02 · IN REVIEW</span><h3>Need-to-see access</h3><p>Only authorized maintainers can open evidence when review is required. Every access is short-lived and auditable.</p></article>
-            <article class="security-card"><span class="security-no">03 · END OF LIFE</span><h3>Deleted on a short clock</h3><p>Recordings disappear after 24 hours by default, and sooner after a clear pass. Storage lifecycle rules are a second deletion backstop.</p></article>
-          </div>
+        <div class="security-board">
+          <article class="security-card"><span class="security-no">01 · AT REST</span><h3>Encrypted per attempt</h3><p>Each live proof gets its own encryption key. Private object storage alone is never enough to play the recording back.</p></article>
+          <article class="security-card"><span class="security-no">02 · IN REVIEW</span><h3>Need-to-see access</h3><p>Only authorized maintainers can open evidence when review is required. Every access is short-lived and auditable.</p></article>
+          <article class="security-card"><span class="security-no">03 · END OF LIFE</span><h3>Deleted on a short clock</h3><p>Recordings disappear after 24 hours by default, and sooner after a clear pass. Storage lifecycle rules are a second deletion backstop.</p></article>
         </div>
         <div class="security-provider"><strong>Bounded model access</strong><span>SlopProof exposes only a temporary, job-scoped media reference. Deployment operators choose the model endpoint and are responsible for its processing and retention terms.</span></div>
         <div class="privacy-limits"><strong>Hard limits</strong><span>No face recognition</span><span>No gaze tracking or room scan</span><span>No public video or transcript</span><span>No permanent evidence archive</span></div>
