@@ -12,7 +12,7 @@ AI-generated code or guess how the patch was written.
 
 [![CI](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml)
 [![Supply chain](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml)
-[![License: AGPL v3+](https://img.shields.io/badge/license-AGPL--3.0--or-later-663399.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 The hosted app is [slopproof.paskie.me](https://slopproof.paskie.me). `GET /`
 is the static marketing page. `/demo`, `/revisions`, `/m`, and `/review` are
@@ -145,6 +145,4 @@ The project is maintained by [Pascal Kienast](https://github.com/pascalkienast).
 ## License
 
 Copyright © 2026 Pascal Kienast and contributors. SlopProof is licensed under
-the [GNU Affero General Public License, version 3 or later](LICENSE). If you
-run a modified SlopProof service over a network, the license requires you to
-offer its corresponding source code to the users of that service.
+the [Apache License, Version 2.0](LICENSE).
