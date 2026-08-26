@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
+  LANDING_ASSETS,
   LANDING_PUBLISH,
   LANDING_SOURCE,
   prepareLanding,
@@ -15,6 +16,10 @@ function read(relativePath) {
   );
 }
 
+function readBytes(relativePath) {
+  return readFileSync(new URL(`../../${relativePath}`, import.meta.url));
+}
+
 test("Caddy keeps the landing root exact and proxies only named app paths", () => {
   const caddy = read("infra/caddy/Caddyfile.production");
 
@@ -23,7 +28,15 @@ test("Caddy keeps the landing root exact and proxies only named app paths", () =
     caddy,
     /@landing_script \{\s*method GET HEAD\s*path \/landing\.js\s*\}/u,
   );
+  assert.match(
+    caddy,
+    /@landing_product_tour \{\s*method GET HEAD\s*path \/product-tour\/\*\s*\}/u,
+  );
   assert.match(caddy, /handle @landing_script \{[\s\S]*?file_server\s*\}/u);
+  assert.match(
+    caddy,
+    /handle @landing_product_tour \{[\s\S]*?file_server\s*\}/u,
+  );
   assert.match(caddy, /handle @landing \{[\s\S]*?file_server\s*\}/u);
   assert.match(
     caddy,
@@ -47,6 +60,12 @@ test("landing interactions obey the strict script policy and default to Proof", 
 
   assert.equal(landing, published);
   assert.equal(behavior, publishedBehavior);
+  for (const asset of LANDING_ASSETS) {
+    assert.deepEqual(
+      readBytes(`${LANDING_SOURCE.assetsDirectory}/${asset}`),
+      readBytes(`${LANDING_PUBLISH.assetsDirectory}/${asset}`),
+    );
+  }
   assert.match(landing, /<script src="\/landing\.js" defer><\/script>/u);
   assert.doesNotMatch(landing, /<script(?:\s|>)(?![^>]*\bsrc=)/u);
   assert.match(
@@ -59,6 +78,20 @@ test("landing interactions obey the strict script policy and default to Proof", 
   );
   assert.match(landing, /class="check-choice proof active"/u);
   assert.match(landing, /class="check-choice optional"/u);
+  assert.match(landing, /aria-roledescription="carousel"/u);
+  assert.match(landing, /The real product · 8 steps/u);
+  assert.equal(
+    [...landing.matchAll(/src="\/product-tour\/[^"\s]+\.webp"/gu)].length,
+    LANDING_ASSETS.length,
+  );
+  for (const asset of LANDING_ASSETS) {
+    assert.match(landing, new RegExp(`src="/product-tour/${asset}"`, "u"));
+  }
+  assert.match(behavior, /function showJourneyStep\(index\)/u);
+  assert.match(behavior, /data-journey-direction/u);
+  assert.match(behavior, /ArrowLeft/u);
+  assert.match(behavior, /ArrowRight/u);
+  assert.doesNotMatch(behavior, /setInterval|setTimeout/u);
   assert.match(landing, /Optional: practice the patch/u);
   assert.match(
     landing,

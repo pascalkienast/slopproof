@@ -61,3 +61,44 @@ document.querySelectorAll(".hotspot").forEach((button) => {
     document.querySelector("#coach-note").textContent = button.dataset.note;
   });
 });
+
+const journeyCarousel = document.querySelector(".journey-carousel");
+
+if (journeyCarousel) {
+  const journeySlides = [...journeyCarousel.querySelectorAll(".journey-slide")];
+  const journeyDots = [...journeyCarousel.querySelectorAll(".journey-dot")];
+  let journeyIndex = 0;
+
+  function showJourneyStep(index) {
+    journeyIndex = (index + journeySlides.length) % journeySlides.length;
+    journeySlides.forEach((slide, slideIndex) => {
+      slide.hidden = slideIndex !== journeyIndex;
+    });
+    journeyDots.forEach((dot, dotIndex) => {
+      if (dotIndex === journeyIndex) {
+        dot.setAttribute("aria-current", "step");
+      } else {
+        dot.removeAttribute("aria-current");
+      }
+    });
+  }
+
+  journeyDots.forEach((dot) => {
+    dot.addEventListener("click", () => {
+      showJourneyStep(Number(dot.dataset.journeyIndex));
+    });
+  });
+
+  journeyCarousel
+    .querySelector('[data-journey-direction="previous"]')
+    ?.addEventListener("click", () => showJourneyStep(journeyIndex - 1));
+  journeyCarousel
+    .querySelector('[data-journey-direction="next"]')
+    ?.addEventListener("click", () => showJourneyStep(journeyIndex + 1));
+
+  journeyCarousel.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    showJourneyStep(journeyIndex + (event.key === "ArrowRight" ? 1 : -1));
+  });
+}

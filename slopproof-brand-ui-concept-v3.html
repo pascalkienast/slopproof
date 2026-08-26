@@ -192,6 +192,28 @@
     .moment:nth-child(2) p { color: #c9c6bc; }
     .moment-scribble { position: absolute; width: 150px; right: 20px; top: 20px; transform: rotate(9deg); }
 
+    .journey-carousel { margin-top: 38px; border: var(--line); border-radius: 33px 18px 30px 21px; background: var(--ink); color: var(--sheet); box-shadow: 9px 10px 0 var(--orange); overflow: hidden; }
+    .journey-head { padding: 22px 26px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 2px solid var(--sheet); }
+    .journey-head .eyebrow { color: var(--green); }
+    .journey-head p { margin: 0; }
+    .journey-note { max-width: 560px; color: #c7c2b6; font-size: 14px; text-align: right; }
+    .journey-viewport { min-height: 0; aspect-ratio: 16 / 10; display: grid; background: #ded8cc; overflow: hidden; }
+    .journey-slide { grid-area: 1 / 1; min-width: 0; min-height: 0; margin: 0; display: grid; grid-template-rows: minmax(0, 1fr) 104px; overflow: hidden; }
+    .journey-slide[hidden] { display: none; }
+    .journey-image { min-height: 0; padding: 18px; display: grid; place-items: center; background: var(--paper); overflow: hidden; }
+    .journey-image img { width: 100%; height: 100%; display: block; object-fit: contain; object-position: center; }
+    .journey-caption { min-height: 104px; padding: 20px 26px; display: grid; grid-template-columns: 92px 1fr; gap: 22px; align-items: center; border-top: var(--line); background: var(--sheet); color: var(--ink); }
+    .journey-step { color: var(--orange); font: 650 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+    .journey-copy strong { display: block; font: 720 24px/1.05 var(--display); letter-spacing: -.02em; }
+    .journey-copy span { display: block; margin-top: 7px; color: var(--muted); font-size: 14px; }
+    .journey-controls { min-height: 70px; padding: 13px 18px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 18px; border-top: 2px solid var(--sheet); }
+    .journey-arrow { width: 44px; aspect-ratio: 1; display: grid; place-items: center; border: 2px solid var(--sheet); border-radius: 50%; background: transparent; color: var(--sheet); font: 650 20px/1 var(--mono); cursor: pointer; }
+    .journey-arrow:hover, .journey-arrow:focus-visible { background: var(--green); color: var(--ink); }
+    .journey-dots { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+    .journey-dot { width: 30px; height: 10px; padding: 0; border: 1px solid var(--sheet); border-radius: 999px; background: transparent; cursor: pointer; }
+    .journey-dot[aria-current="step"] { background: var(--green); border-color: var(--green); }
+    .journey-arrow:focus-visible, .journey-dot:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+
     .product { padding: 120px 0; background: #222119; color: var(--sheet); }
     .product .section-intro { color: #c5c0b4; }
     .product-frame { border: 2px solid var(--sheet); border-radius: 35px 18px 35px 22px; background: var(--paper); color: var(--ink); box-shadow: 10px 12px 0 var(--orange); overflow: hidden; }
@@ -288,6 +310,7 @@
       .check-card { max-width: 690px; }
       .manifesto .shell, .section-head { grid-template-columns: 1fr; gap: 20px; }
       .manifesto .eyebrow, .section-head > .eyebrow { max-width: none; }
+      .journey-viewport { aspect-ratio: 4 / 3; }
       .practice-ui, .proof-ui { grid-template-columns: 1fr; }
       .diff-pane, .handoff { border-right: 0; border-bottom: var(--line); }
       .pipeline { grid-template-columns: 1fr 1fr; }
@@ -317,6 +340,17 @@
       .manifesto p { font-size: 18px; }
       .two-moments, .security-board { grid-template-columns: 1fr; }
       .moment { min-height: 350px; padding: 26px; }
+      .journey-carousel { border-radius: 24px 14px 22px 16px; box-shadow: 6px 7px 0 var(--orange); }
+      .journey-head { align-items: flex-start; flex-direction: column; gap: 8px; }
+      .journey-note { text-align: left; }
+      .journey-viewport { aspect-ratio: 4 / 5; }
+      .journey-slide { grid-template-rows: minmax(0, 1fr) 146px; }
+      .journey-image { padding: 10px; }
+      .journey-caption { min-height: 146px; padding: 18px; grid-template-columns: 1fr; gap: 8px; align-content: center; }
+      .journey-copy strong { font-size: 21px; }
+      .journey-controls { gap: 10px; }
+      .journey-arrow { width: 40px; }
+      .journey-dot { width: 20px; }
       .product-frame { border-radius: 23px 14px 22px 16px; box-shadow: 6px 7px 0 var(--orange); }
       .window-bar { padding: 12px; align-items: flex-start; flex-direction: column; }
       .mode-tabs { width: 100%; }
@@ -416,6 +450,61 @@
           <h3>Prove your understanding.</h3>
           <p>Open the challenge on your phone. Questions show one at a time. You answer on live video in one continuous take. Keep that tab in front. Leave it, switch apps, or look at a second screen, and the proof aborts.</p>
         </article>
+      </div>
+
+      <div class="journey-carousel" role="region" aria-roledescription="carousel" aria-label="SlopProof product journey" tabindex="0">
+        <div class="journey-head">
+          <p class="eyebrow">The real product · 8 steps</p>
+          <p class="journey-note">One contributor path, from the pull request to the required check.</p>
+        </div>
+        <div class="journey-viewport" aria-live="polite">
+          <figure class="journey-slide" id="journey-slide-1" aria-label="Step 1 of 8">
+            <div class="journey-image"><img src="/product-tour/github-entry.webp" width="2140" height="1628" decoding="async" alt="SlopProof understanding check opened from pull request 20" /></div>
+            <figcaption class="journey-caption"><span class="journey-step">01 / 08</span><span class="journey-copy"><strong>Open from the pull request.</strong><span>The SHA-bound check links the contributor into SlopProof.</span></span></figcaption>
+          </figure>
+          <figure class="journey-slide" id="journey-slide-2" aria-label="Step 2 of 8" hidden>
+            <div class="journey-image"><img src="/product-tour/github-auth.webp" width="2140" height="1628" loading="lazy" decoding="async" alt="SlopProof contributor authorization screen with a GitHub authorization button" /></div>
+            <figcaption class="journey-caption"><span class="journey-step">02 / 08</span><span class="journey-copy"><strong>Authorize the contributor.</strong><span>GitHub confirms the current PR author before private proof material is shown.</span></span></figcaption>
+          </figure>
+          <figure class="journey-slide" id="journey-slide-3" aria-label="Step 3 of 8" hidden>
+            <div class="journey-image"><img src="/product-tour/contributor-proof.webp" width="2200" height="1294" loading="lazy" decoding="async" alt="Production contributor proof page with separate Practice and Proof choices" /></div>
+            <figcaption class="journey-caption"><span class="journey-step">03 / 08</span><span class="journey-copy"><strong>Choose Practice or Proof.</strong><span>Practice is optional. The live take remains the required gate.</span></span></figcaption>
+          </figure>
+          <figure class="journey-slide" id="journey-slide-4" aria-label="Step 4 of 8" hidden>
+            <div class="journey-image"><img src="/product-tour/practice.webp" width="1812" height="1608" loading="lazy" decoding="async" alt="Production Practice page showing a patch map beside the understanding coach" /></div>
+            <figcaption class="journey-caption"><span class="journey-step">04 / 08</span><span class="journey-copy"><strong>Rehearse against the patch.</strong><span>The coach stays patch-bound and never reveals the live questions.</span></span></figcaption>
+          </figure>
+          <figure class="journey-slide" id="journey-slide-5" aria-label="Step 5 of 8" hidden>
+            <div class="journey-image"><img src="/product-tour/privacy-check.webp" width="2200" height="1376" loading="lazy" decoding="async" alt="Production camera and privacy check before a live proof" /></div>
+            <figcaption class="journey-caption"><span class="journey-step">05 / 08</span><span class="journey-copy"><strong>Check the camera and privacy terms.</strong><span>The contributor sees the one-take and retention rules before recording.</span></span></figcaption>
+          </figure>
+          <figure class="journey-slide" id="journey-slide-6" aria-label="Step 6 of 8" hidden>
+            <div class="journey-image"><img src="/product-tour/one-take.webp" width="2200" height="1560" loading="lazy" decoding="async" alt="Production one-take proof showing a patch reference and a live question" /></div>
+            <figcaption class="journey-caption"><span class="journey-step">06 / 08</span><span class="journey-copy"><strong>Answer one question at a time.</strong><span>The recording stays live and bound to the current revision.</span></span></figcaption>
+          </figure>
+          <figure class="journey-slide" id="journey-slide-7" aria-label="Step 7 of 8" hidden>
+            <div class="journey-image"><img src="/product-tour/review-evidence.webp" width="2064" height="1782" loading="lazy" decoding="async" alt="Production maintainer review with transcript, recommendation, video timestamps, and decision controls" /></div>
+            <figcaption class="journey-caption"><span class="journey-step">07 / 08</span><span class="journey-copy"><strong>Review the private evidence.</strong><span>A maintainer can inspect transcript, timestamps, and video when the model asks for review.</span></span></figcaption>
+          </figure>
+          <figure class="journey-slide" id="journey-slide-8" aria-label="Step 8 of 8" hidden>
+            <div class="journey-image"><img src="/product-tour/github-passed.webp" width="1550" height="1090" loading="lazy" decoding="async" alt="GitHub pull request with all required checks passed, including SlopProof understanding required" /></div>
+            <figcaption class="journey-caption"><span class="journey-step">08 / 08</span><span class="journey-copy"><strong>Return the result to GitHub.</strong><span>The required check closes on the exact head SHA.</span></span></figcaption>
+          </figure>
+        </div>
+        <div class="journey-controls">
+          <button class="journey-arrow" type="button" data-journey-direction="previous" aria-label="Show previous product step">←</button>
+          <div class="journey-dots" aria-label="Choose a product step">
+            <button class="journey-dot" type="button" data-journey-index="0" aria-label="Show step 1: Open from the pull request" aria-controls="journey-slide-1" aria-current="step"></button>
+            <button class="journey-dot" type="button" data-journey-index="1" aria-label="Show step 2: Authorize the contributor" aria-controls="journey-slide-2"></button>
+            <button class="journey-dot" type="button" data-journey-index="2" aria-label="Show step 3: Choose Practice or Proof" aria-controls="journey-slide-3"></button>
+            <button class="journey-dot" type="button" data-journey-index="3" aria-label="Show step 4: Rehearse against the patch" aria-controls="journey-slide-4"></button>
+            <button class="journey-dot" type="button" data-journey-index="4" aria-label="Show step 5: Check the camera and privacy terms" aria-controls="journey-slide-5"></button>
+            <button class="journey-dot" type="button" data-journey-index="5" aria-label="Show step 6: Answer one question at a time" aria-controls="journey-slide-6"></button>
+            <button class="journey-dot" type="button" data-journey-index="6" aria-label="Show step 7: Review the private evidence" aria-controls="journey-slide-7"></button>
+            <button class="journey-dot" type="button" data-journey-index="7" aria-label="Show step 8: Return the result to GitHub" aria-controls="journey-slide-8"></button>
+          </div>
+          <button class="journey-arrow" type="button" data-journey-direction="next" aria-label="Show next product step">→</button>
+        </div>
       </div>
     </section>
 

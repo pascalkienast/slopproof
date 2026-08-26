@@ -35,10 +35,11 @@ credential or configuration rotation is reviewed.
 - Caddy keeps only exact `GET|HEAD /` on the landing root. Named app paths are
   proxied to loopback. Camera and microphone are allowed only on `/m` and
   `/m/*`. `LANDING_ROOT` at `/var/www/slopproof/landing` is a host static
-  directory. Publish `landing/index.html` and `landing/landing.js` with
-  `node scripts/prepare-landing.mjs`. Sources are
-  `slopproof-brand-ui-concept-v3.html` and root `landing.js`. Production Caddy
-  does not serve `apps/web/app/page.tsx` at `/`.
+  directory. Publish `landing/index.html`, `landing/landing.js`, and the exact
+  `landing/product-tour/` assets with `node scripts/prepare-landing.mjs`.
+  Sources are `slopproof-brand-ui-concept-v3.html`, root `landing.js`, and
+  `docs/assets/product-tour/`. Production Caddy does not serve
+  `apps/web/app/page.tsx` at `/`.
 
 ## Preflight
 
