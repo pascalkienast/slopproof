@@ -134,11 +134,17 @@ test("landing interactions obey the strict script policy and default to Proof", 
     landing,
     /Small batches · manual admission · no newsletter/iu,
   );
+  assert.doesNotMatch(landing, /We admit a few repositories at a time/iu);
+  assert.match(landing, /personal account or for an organization/iu);
+  assert.match(landing, /permission to install GitHub Apps/iu);
+  assert.match(landing, /choose the exact repositories during installation/iu);
+  assert.match(landing, /Request access →/u);
+  assert.match(landing, /receive setup instructions by email/iu);
   assert.match(landing, /id="closed-beta-form"/u);
   assert.match(landing, /name="email"[^>]*type="email"/u);
   assert.match(landing, /name="githubUsername"/u);
   assert.match(landing, /name="contactConsent"[^>]*required/u);
-  assert.match(landing, /not added to a newsletter/u);
+  assert.match(landing, /not used for a newsletter/u);
   assert.match(landing, /role="status" aria-live="polite"/u);
   assert.match(behavior, /fetch\("\/api\/public\/closed-beta"/u);
   assert.match(behavior, /response\.status === 202/u);
