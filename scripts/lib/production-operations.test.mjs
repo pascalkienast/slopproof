@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { test } from "node:test";
 
 import {
@@ -19,6 +19,24 @@ function read(relativePath) {
 function readBytes(relativePath) {
   return readFileSync(new URL(`../../${relativePath}`, import.meta.url));
 }
+
+test("the repository root exposes only public project markdown", () => {
+  const rootMarkdown = readdirSync(new URL("../..", import.meta.url))
+    .filter((entry) => entry.endsWith(".md"))
+    .sort();
+
+  assert.deepEqual(rootMarkdown, [
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "GOVERNANCE.md",
+    "README.md",
+    "SECURITY.md",
+    "SUPPORT.md",
+    "THIRD_PARTY_NOTICES.md",
+  ]);
+  assert.match(read("docs/README.md"), /# SlopProof documentation/u);
+  assert.match(read("docs/project-status.md"), /# Project status/u);
+});
 
 test("Caddy keeps the landing root exact and proxies only named app paths", () => {
   const caddy = read("infra/caddy/Caddyfile.production");

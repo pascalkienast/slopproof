@@ -13,5 +13,4 @@ the contributor choice, the full GitHub App comment with its avatar, the
 privacy check, one-take proof, optional Practice, maintainer review, and the
 completed GitHub check.
 
-Skip the archived V2 Civic images in `/assets` and `archive/`. The product
-demo video is separate and is not stored here.
+The product demo video is separate and is not stored here.

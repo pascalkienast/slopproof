@@ -181,12 +181,11 @@ party's retention or training policy.
   transport
 - `packages/analysis`, `packages/questions`, `packages/providers`: bounded patch
   analysis, planning, and provider adapters
-- `docs`: security, privacy, and operations
+- `docs`: project status, security, privacy, maintainer, and operations guides
 - `scripts`: verification, release, backup, and deployment tooling
 
-[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) records what is
-implemented. Older product and interface notes stay in the numbered design
-documents and `archive/`.
+[Browse the documentation](docs/README.md) or read the current
+[project status](docs/project-status.md).
 
 ## Contributing
 

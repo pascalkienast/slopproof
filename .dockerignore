@@ -20,4 +20,3 @@ backups
 *.backup
 *.bak
 infra/docker/secrets/*
-archive

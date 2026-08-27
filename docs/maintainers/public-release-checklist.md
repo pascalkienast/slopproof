@@ -12,9 +12,9 @@
 
 Audit evidence from 2026-08-14: 451 working-tree files and 432 historical paths
 passed the secret scanners, including an exact-value run with the hosted
-operator environment loaded. The largest reachable blob is the archived
-2.1 MB generated contact sheet; no release bundle, backup, credential or
-evidence artifact is reachable from a Git ref.
+operator environment loaded. Repository history still contains a retired
+2.1 MB design contact sheet. No release bundle, backup, credential or evidence
+artifact is reachable from a Git ref.
 
 ## Repository surface
 
@@ -24,10 +24,12 @@ evidence artifact is reachable from a Git ref.
 - [x] CI actions and service images are pinned by full digest.
 - [x] Private vulnerability reporting is enabled.
 - [x] Repository description, homepage and topics are set.
+- [x] Internal concept drafts and retired design assets are absent from the
+      current public tree.
 
 Suggested metadata:
 
-- Description: `A self-hosted GitHub accountability gate: understand the patch, explain it live, let a maintainer decide.`
+- Description: `Patch-bound live proof for pull requests: contributors explain the change, maintainers merge with evidence.`
 - Homepage: `https://slopproof.paskie.me`
 - Topics: `github-app`, `pull-requests`, `code-review`, `self-hosted`,
   `accountability`, `typescript`, `privacy`

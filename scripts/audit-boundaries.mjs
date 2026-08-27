@@ -8,7 +8,7 @@ async function walk(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
-    if (["node_modules", ".next", "dist", "archive"].includes(entry.name)) {
+    if (["node_modules", ".next", "dist"].includes(entry.name)) {
       continue;
     }
     const path = join(directory, entry.name);

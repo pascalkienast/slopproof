@@ -6,7 +6,6 @@ export default tseslint.config(
       "**/node_modules/**",
       "**/.next/**",
       "**/dist/**",
-      "archive/**",
       "slopproof-brand-ui-concept-v3.html",
     ],
   },
