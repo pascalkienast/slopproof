@@ -290,6 +290,22 @@ export type GithubAccessibleAppInstallationsInput = z.infer<
   typeof GithubAccessibleAppInstallationsInputSchema
 >;
 
+export const GithubWritableAppRepositoriesInputSchema = z
+  .object({
+    userToken: userTokenSchema,
+    githubInstallationIds: z
+      .array(GithubAccessibleAppInstallationIdSchema)
+      .min(1)
+      .max(32),
+  })
+  .strict();
+
+export const GithubWritableAppRepositoryIdSchema = decimalIdSchema;
+
+export type GithubWritableAppRepositoriesInput = z.infer<
+  typeof GithubWritableAppRepositoriesInputSchema
+>;
+
 /** Request-scoped user-token port. Implementations must never cache tokens. */
 export interface GithubUserAuthorizationPort {
   getAuthenticatedUser(
@@ -300,6 +316,9 @@ export interface GithubUserAuthorizationPort {
   ): Promise<GithubCollaboratorPermission>;
   listAccessibleAppInstallations(
     input: GithubAccessibleAppInstallationsInput,
+  ): Promise<readonly string[]>;
+  listWritableAppRepositories(
+    input: GithubWritableAppRepositoriesInput,
   ): Promise<readonly string[]>;
 }
 

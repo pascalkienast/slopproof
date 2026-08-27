@@ -809,6 +809,7 @@ const GithubInstallationIdSchema = z
 export async function listActiveMaintainerRepositories(
   pool: SqlPool,
   githubInstallationIds: readonly string[],
+  githubRepositoryIds: readonly string[],
 ): Promise<readonly ActiveMaintainerRepositoryV1[]> {
   const parsedIds = githubInstallationIds.map((id) =>
     GithubInstallationIdSchema.safeParse(id),
@@ -817,7 +818,19 @@ export async function listActiveMaintainerRepositories(
     throw new GithubOAuthWiringError();
   }
   const uniqueIds = [...new Set(parsedIds.map((id) => id.data))];
-  if (uniqueIds.length === 0) return [];
+  const parsedRepositoryIds = githubRepositoryIds.map((id) =>
+    GithubInstallationIdSchema.safeParse(id),
+  );
+  if (
+    parsedRepositoryIds.some((id) => !id.success) ||
+    parsedRepositoryIds.length > 3_200
+  ) {
+    throw new GithubOAuthWiringError();
+  }
+  const uniqueRepositoryIds = [
+    ...new Set(parsedRepositoryIds.map((id) => id.data)),
+  ];
+  if (uniqueIds.length === 0 || uniqueRepositoryIds.length === 0) return [];
   const result = await pool.query<{
     id: string;
     owner: string;
@@ -828,12 +841,37 @@ export async function listActiveMaintainerRepositories(
        JOIN installations installation
          ON installation.id = repository.installation_id
       WHERE installation.github_installation_id = ANY($1::text[])
+        AND repository.github_repository_id = ANY($2::text[])
         AND repository.status = 'active'
         AND installation.status = 'active'
-      ORDER BY repository.owner, repository.name, repository.id`,
-    [uniqueIds],
+      ORDER BY repository.owner, repository.name, repository.id
+      LIMIT $3`,
+    [uniqueIds, uniqueRepositoryIds, MAX_ACTIVE_MAINTAINER_REPOSITORIES],
   );
   return result.rows.map(parseActiveMaintainerRepository);
+}
+
+export async function listActiveMaintainerInstallationIds(
+  pool: SqlPool,
+  githubInstallationIds: readonly string[],
+): Promise<readonly string[]> {
+  const parsedIds = githubInstallationIds.map((id) =>
+    GithubInstallationIdSchema.safeParse(id),
+  );
+  if (parsedIds.some((id) => !id.success)) {
+    throw new GithubOAuthWiringError();
+  }
+  const uniqueIds = [...new Set(parsedIds.map((id) => id.data))];
+  if (uniqueIds.length === 0) return [];
+  const result = await pool.query<{ github_installation_id: string }>(
+    `SELECT github_installation_id
+       FROM installations
+      WHERE github_installation_id = ANY($1::text[])
+        AND status = 'active'
+      ORDER BY github_installation_id`,
+    [uniqueIds],
+  );
+  return result.rows.map((row) => row.github_installation_id);
 }
 
 export async function loadActiveMaintainerRepository(

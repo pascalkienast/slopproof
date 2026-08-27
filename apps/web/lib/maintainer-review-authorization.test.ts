@@ -110,6 +110,7 @@ function githubAuthorization() {
       getAuthenticatedUser,
       getCollaboratorPermission,
       listAccessibleAppInstallations: vi.fn(async () => []),
+      listWritableAppRepositories: vi.fn(async () => []),
     } satisfies GithubUserAuthorizationPort,
     getAuthenticatedUser,
     getCollaboratorPermission,

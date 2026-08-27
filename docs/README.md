@@ -20,6 +20,7 @@ the public contracts needed to evaluate, operate, or contribute to SlopProof.
 
 ## Operations
 
+- [GitHub App access gate](operations/github-app-access.md)
 - [Production configuration](operations/production-configuration.md)
 - [Deployment and rollback](operations/production-deployment.md)
 - [Database backup and restore](operations/database-backup-restore.md)

@@ -30,6 +30,7 @@ function port(
       async (input: { repositoryName: string }) => lookup(input.repositoryName),
     ),
     listAccessibleAppInstallations: vi.fn(async () => []),
+    listWritableAppRepositories: vi.fn(async () => []),
   };
 }
 
@@ -100,14 +101,25 @@ describe("maintainer directory filter", () => {
 
   it("resolves Identify from the user's App installations instead of every tenant", async () => {
     const query = vi.fn(async (sql: string, parameters: unknown[] = []) => {
+      if (sql.includes("SELECT github_installation_id")) {
+        expect(parameters).toEqual([["17"]]);
+        return {
+          rows: [{ github_installation_id: "17" }],
+          rowCount: 1,
+        };
+      }
       expect(sql).toContain(
         "installation.github_installation_id = ANY($1::text[])",
       );
-      expect(sql).not.toContain("LIMIT");
-      expect(parameters).toEqual([["17"]]);
+      expect(sql).toContain(
+        "repository.github_repository_id = ANY($2::text[])",
+      );
+      expect(sql).toContain("LIMIT $3");
+      expect(parameters).toEqual([["17"], ["42"], 32]);
       return { rows: [FIRST], rowCount: 1 };
     });
     const listAccessibleAppInstallations = vi.fn(async () => ["17"]);
+    const listWritableAppRepositories = vi.fn(async () => ["42"]);
     const identified = await resolveProductionIdentifyDirectory(
       {
         config: {
@@ -127,6 +139,7 @@ describe("maintainer directory filter", () => {
         authorizationPort: {
           ...port(async () => ({ permission: "admin", roleName: "admin" })),
           listAccessibleAppInstallations,
+          listWritableAppRepositories,
         },
       },
     );
@@ -134,29 +147,30 @@ describe("maintainer directory filter", () => {
     expect(listAccessibleAppInstallations).toHaveBeenCalledWith({
       userToken: "request-scoped-user-token",
     });
-    expect(query).toHaveBeenCalledTimes(1);
+    expect(listWritableAppRepositories).toHaveBeenCalledWith({
+      userToken: "request-scoped-user-token",
+      githubInstallationIds: ["17"],
+    });
+    expect(query).toHaveBeenCalledTimes(2);
   });
 
-  it("pages the directory after permission filter so a late-sorted maintained repo remains", async () => {
+  it("filters by GitHub repository id before the directory limit so a late-sorted maintained repo remains", async () => {
     const kept = {
       id: "20000000-0000-4000-8000-000000000039",
       owner: "acme",
       name: "zzz-kept",
     };
-    const repositories = [
-      ...Array.from({ length: 39 }, (_, index) => ({
-        id: `20000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
-        owner: "acme",
-        name: `aaa-${String(index).padStart(2, "0")}`,
-      })),
-      kept,
-    ];
-    const query = vi.fn(async (sql: string) => {
-      if (
-        sql.includes("installation.github_installation_id = ANY($1::text[])")
-      ) {
-        expect(sql).not.toContain("LIMIT");
-        return { rows: repositories, rowCount: repositories.length };
+    const query = vi.fn(async (sql: string, parameters: unknown[] = []) => {
+      if (sql.includes("SELECT github_installation_id")) {
+        return {
+          rows: [{ github_installation_id: "17" }],
+          rowCount: 1,
+        };
+      }
+      if (sql.includes("repository.github_repository_id = ANY($2::text[])")) {
+        expect(sql).toContain("LIMIT $3");
+        expect(parameters).toEqual([["17"], ["92040"], 32]);
+        return { rows: [kept], rowCount: 1 };
       }
       if (sql.includes("repository.id = ANY($1::uuid[])")) {
         return { rows: [kept], rowCount: 1 };
@@ -180,12 +194,11 @@ describe("maintainer directory filter", () => {
       },
       {
         authorizationPort: {
-          ...port(async (name) =>
-            name === kept.name
-              ? { permission: "admin", roleName: "admin" }
-              : { permission: "read", roleName: "read" },
-          ),
+          ...port(async () => {
+            throw new Error("Identify must not call permission per repository");
+          }),
           listAccessibleAppInstallations: vi.fn(async () => ["17"]),
+          listWritableAppRepositories: vi.fn(async () => ["92040"]),
         },
       },
     );

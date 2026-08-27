@@ -81,6 +81,12 @@ export type ListInstallationsForAuthenticatedUserRequest = {
   perPage: number;
 };
 
+export type ListInstallationReposForAuthenticatedUserRequest = {
+  installationId: number;
+  page: number;
+  perPage: number;
+};
+
 export type ListIssueCommentsRequest = PullRequestRequest & {
   page: number;
   perPage: number;
@@ -154,6 +160,10 @@ export interface GithubRestClient {
   ): Promise<GithubApiResponse>;
   listInstallationsForAuthenticatedUser(
     input: ListInstallationsForAuthenticatedUserRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse>;
+  listInstallationReposForAuthenticatedUser(
+    input: ListInstallationReposForAuthenticatedUserRequest,
     signal: AbortSignal,
   ): Promise<GithubApiResponse>;
 }
@@ -379,6 +389,18 @@ export class OctokitGithubRestClient implements GithubRestClient {
     signal: AbortSignal,
   ): Promise<GithubApiResponse> {
     return this.octokit.rest.apps.listInstallationsForAuthenticatedUser({
+      page: input.page,
+      per_page: input.perPage,
+      request: { signal },
+    });
+  }
+
+  async listInstallationReposForAuthenticatedUser(
+    input: ListInstallationReposForAuthenticatedUserRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse> {
+    return this.octokit.rest.apps.listInstallationReposForAuthenticatedUser({
+      installation_id: input.installationId,
       page: input.page,
       per_page: input.perPage,
       request: { signal },

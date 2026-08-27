@@ -131,15 +131,13 @@ databaseDescribe("inverted maintainer Identify", () => {
             id: "94001",
             login: "maintainer",
           })),
-          getCollaboratorPermission: vi.fn(async (input) => {
-            if (input.repositoryName === "kept-repo") {
-              return { permission: "admin" as const, roleName: "admin" };
-            }
-            throw new Error("must not walk every host tenant");
+          getCollaboratorPermission: vi.fn(async () => {
+            throw new Error("Identify must not walk repositories one by one");
           }),
           listAccessibleAppInstallations: vi.fn(async () => [
             KEPT_INSTALLATION_GITHUB_ID,
           ]),
+          listWritableAppRepositories: vi.fn(async () => ["92001"]),
         },
       },
     );
@@ -214,15 +212,13 @@ databaseDescribe("inverted maintainer Identify", () => {
             id: "94001",
             login: "maintainer",
           })),
-          getCollaboratorPermission: vi.fn(async (input) => {
-            if (input.repositoryName === kept.name) {
-              return { permission: "admin" as const, roleName: "admin" };
-            }
-            return { permission: "read" as const, roleName: "read" };
+          getCollaboratorPermission: vi.fn(async () => {
+            throw new Error("Identify must not walk repositories one by one");
           }),
           listAccessibleAppInstallations: vi.fn(async () => [
             KEPT_INSTALLATION_GITHUB_ID,
           ]),
+          listWritableAppRepositories: vi.fn(async () => ["92040"]),
         },
       },
     );

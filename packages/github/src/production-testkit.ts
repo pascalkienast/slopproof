@@ -22,6 +22,7 @@ export function githubRestClientStub(
     getAuthenticatedUser: unexpected,
     getCollaboratorPermissionLevel: unexpected,
     listInstallationsForAuthenticatedUser: unexpected,
+    listInstallationReposForAuthenticatedUser: unexpected,
     ...overrides,
   };
 }
