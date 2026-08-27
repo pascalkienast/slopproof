@@ -127,7 +127,12 @@ test("landing interactions obey the strict script policy and default to Proof", 
   );
   assert.match(
     landing,
-    /class="button primary" href="#closed-beta">Join the closed beta/u,
+    /class="button primary" href="#closed-beta">Join the beta/u,
+  );
+  assert.doesNotMatch(landing, /closed beta/iu);
+  assert.doesNotMatch(
+    landing,
+    /Small batches · manual admission · no newsletter/iu,
   );
   assert.match(landing, /id="closed-beta-form"/u);
   assert.match(landing, /name="email"[^>]*type="email"/u);
