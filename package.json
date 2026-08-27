@@ -2,7 +2,7 @@
   "name": "slopproof",
   "version": "0.1.0",
   "private": true,
-  "license": "AGPL-3.0-or-later",
+  "license": "Apache-2.0",
   "type": "module",
   "packageManager": "pnpm@10.8.1",
   "engines": {
@@ -13,6 +13,7 @@
     "dev:web": "pnpm --filter @slopproof/web dev",
     "dev:worker": "pnpm --filter @slopproof/worker dev",
     "dev:keys": "node scripts/generate-dev-keys.mjs",
+    "prepare:landing": "node scripts/prepare-landing.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate-db.ts",
     "db:seed": "tsx scripts/seed-demo.ts",

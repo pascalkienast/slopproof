@@ -6,41 +6,99 @@
 
 **Prove you know what you ship.**
 
-SlopProof is a self-hosted GitHub App for pull-request accountability. It asks
-the contributor to explain the current patch before a maintainer merges it.
-SlopProof does not attempt to detect AI-generated code or infer how a patch was
-written.
+SlopProof is a self-hosted GitHub App. Before a pull request merges, the
+author explains the current patch on live video. It does not try to detect
+AI-generated code or guess how the patch was written.
 
 [![CI](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml)
 [![Supply chain](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml)
-[![License: AGPL v3+](https://img.shields.io/badge/license-AGPL--3.0--or--later-663399.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-> SlopProof is pre-1.0 software. The complete hosted flow has been exercised
-> against a real pull request, including Practice, encrypted mobile recording,
-> provider processing, maintainer review, check completion, retention, backup
-> and restart. Configuration and migration contracts may still change before
-> the first stable release.
+The hosted app is [slopproof.paskie.me](https://slopproof.paskie.me). `GET /`
+is the static marketing page. `/demo`, `/revisions`, `/m`, and `/review` are
+the product.
+
+<p align="center">
+  <img src="docs/assets/product-tour/contributor-proof.webp" width="920" alt="SlopProof contributor page with optional Practice and required Proof choices">
+</p>
+<p align="center"><sub>The contributor view for a pull request: Practice is optional. Proof is required.</sub></p>
 
 ## How it works
 
-1. A GitHub App receives a pull-request event and binds a check to the exact
-   head SHA.
-2. The contributor may open **Practice** to study patch-bound learning goals
-   and private coaching. Practice is optional and never affects the proof.
-3. **Proof** hands the session to a phone by QR code. The contributor answers a
-   risk-adjusted set of patch questions in one continuous recording.
+1. The GitHub App receives a pull-request event and binds a check to that head
+   SHA.
+2. **Practice** is optional. You can study patch-bound learning goals and
+   private coaching. Practice never counts as the proof.
+3. **Proof** opens on a phone through a one-time QR link. You answer a
+   risk-adjusted set of patch questions in one continuous recording. The
+   recording tab has to stay in the foreground. Switch to another app, a
+   second screen, the lock screen, or another tab, and the take aborts as
+   `visibility_lost`. That is the help/no-help guarantee. You cannot read
+   notes on a second screen while the take runs.
 4. The browser encrypts each recording chunk before upload. The object store
-   receives ciphertext only.
-5. A worker produces a bounded transcript and frame selection. A multimodal
-   model compares those artifacts with the patch and rubric.
-6. A repository maintainer makes the decision. The model cannot turn the
-   GitHub check green by itself.
-7. A new push invalidates the attempt. Evidence expires after at most 24 hours
-   and may be deleted as soon as the maintainer accepts it.
+   gets ciphertext only.
+5. A worker builds a bounded transcript and a few frames. A multimodal model
+   compares those with the patch and rubric.
+6. A maintainer can review the take and the model finding.
+7. A new push invalidates the attempt. Evidence lasts at most 24 hours, and
+   may be deleted as soon as a maintainer accepts it.
 
-The MVP does not execute pull-request code. It does not perform face
-recognition, gaze tracking, room scanning, identity verification or persistent
-contributor scoring.
+SlopProof does not run pull-request code. It does not do face recognition,
+gaze tracking, room scanning, identity verification, or persistent contributor
+scoring.
+
+## Product tour
+
+The flow starts where contributors already work. The GitHub App posts a
+revision-bound link directly on the pull request.
+
+<p align="center">
+  <img src="docs/assets/product-tour/github-comment.webp" width="920" alt="Automatic SlopProof GitHub App comment linking to the contributor flow">
+</p>
+
+The contributor checks the camera and privacy terms, then answers the
+patch-bound questions in one continuous take.
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/assets/product-tour/privacy-check.webp" alt="Camera and privacy check before the live proof">
+      <br><sub>Preflight explains the one-take and retention rules.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/assets/product-tour/one-take.webp" alt="Live one-take proof with patch reference and question">
+      <br><sub>Each live question stays bound to the current revision.</sub>
+    </td>
+  </tr>
+</table>
+
+The result returns to the same head SHA on GitHub.
+
+<p align="center">
+  <img src="docs/assets/product-tour/github-passed.webp" width="760" alt="GitHub pull request with the SlopProof required check passed">
+</p>
+
+<details>
+  <summary><strong>Optional Practice</strong> — inspect the patch map and rehearse privately</summary>
+  <br>
+  <p align="center">
+    <img src="docs/assets/product-tour/practice.webp" width="820" alt="Practice page with patch map and understanding coach">
+  </p>
+</details>
+
+<details>
+  <summary><strong>Maintainer review</strong> — inspect private evidence when the model asks for review</summary>
+  <br>
+  <p align="center">
+    <img src="docs/assets/product-tour/review-evidence.webp" width="820" alt="Maintainer review with video, transcript, timestamps, and decision controls">
+  </p>
+</details>
+
+## See it
+
+- Live landing: [slopproof.paskie.me](https://slopproof.paskie.me)
+- Local demo: <http://localhost:3000/demo> after `docker compose up --build`
+- Curated production screenshots: [docs/assets/](docs/assets/README.md)
 
 ## Local demo
 
@@ -51,9 +109,9 @@ docker compose up --build
 ```
 
 Open <http://localhost:3000/demo>. The stack creates three synthetic pull
-requests and uses local fake adapters for GitHub, generation, transcription and
-multimodal evaluation. Demo ports bind to `127.0.0.1` by default. Do not expose
-`DEMO_MODE=true` to a network.
+requests and uses local fake adapters for GitHub, generation, transcription,
+and multimodal evaluation. Demo ports bind to `127.0.0.1` by default. Do not
+expose `DEMO_MODE=true` to a network.
 
 For development without the application containers, install Node.js 24 and
 pnpm 10.8:
@@ -65,8 +123,8 @@ pnpm dev:keys
 pnpm verify
 ```
 
-PostgreSQL integration tests also require `TEST_DATABASE_URL`. Playwright needs
-a migrated and seeded database; the CI workflow records the complete order.
+PostgreSQL integration tests also need `TEST_DATABASE_URL`. Playwright needs a
+migrated and seeded database. The CI workflow records the order.
 
 ## Production shape
 
@@ -77,21 +135,25 @@ A production deployment needs:
 - PostgreSQL 18 with `pg-boss` in the same database;
 - private S3-compatible object storage with browser CORS and a lifecycle
   backstop;
-- an HTTPS reverse proxy;
+- an HTTPS reverse proxy that serves the static `landing/` payload at `/`;
 - a transcription provider and a multimodal model provider;
 - a local RSA wrapping key pair or a compatible KMS adapter;
-- separate Web, Worker, GitHub Control and migration processes.
+- separate Web, Worker, GitHub Control, and migration processes.
 
-`DEPLOYMENT_PROFILE=production` rejects demo adapters, loopback/public HTTP
-endpoints, placeholder secrets and incomplete provider configuration. The
-checked-in production automation under `scripts/production-*` documents the
-maintainer's current hardened deployment. It is a reference profile, not a
-portable one-command installer.
+`DEPLOYMENT_PROFILE=production` rejects demo adapters, loopback or public HTTP
+endpoints, placeholder secrets, and incomplete provider configuration. The
+checked-in automation under `scripts/production-*` is the maintainer's current
+hardened profile. There is no one-command installer.
+
+SlopProof is pre-1.0. The hosted flow has run against a real pull request:
+Practice, encrypted phone recording, provider processing, maintainer review,
+check completion, retention, backup, and restart. Config and migrations can
+still change before a stable release.
 
 ## Security and privacy
 
-SlopProof handles video evidence and repository content. Read these documents
-before operating it for other people:
+SlopProof handles video evidence and repository content. Read these before you
+run it for other people:
 
 - [Threat model](docs/security/threat-model.md)
 - [Provider data flow](docs/privacy/provider-data-flow.md)
@@ -100,39 +162,38 @@ before operating it for other people:
 - [Incident response](docs/security/incident-response.md)
 - [Security reporting](SECURITY.md)
 
-Provider terms, lawful basis, retention notices and data-processing agreements
-remain the operator's responsibility. The technical controls in this repository
-do not prove a third party's retention or training policy.
+Provider terms, lawful basis, retention notices, and data-processing agreements
+stay with the operator. The controls in this repository do not prove a third
+party's retention or training policy.
 
 ## Repository map
 
-- `apps/web`: contributor, mobile and maintainer interfaces plus HTTP routes;
-- `apps/worker`: queues, private media processing, providers and retention;
-- `apps/github-control`: installation-token and GitHub reconciliation process;
+- `landing/`: static marketing page at `GET /` (`index.html` plus `landing.js`)
+- `apps/web`: contributor, mobile, and maintainer interfaces plus HTTP routes
+- `apps/worker`: queues, private media processing, providers, and retention
+- `apps/github-control`: installation-token and GitHub reconciliation process
 - `packages/domain`, `packages/db`, `packages/policy`: state machine, database
-  constraints and manual-review policy;
+  constraints, and review policy
 - `packages/media`, `packages/storage`: encrypted recording protocol and S3
-  transport;
+  transport
 - `packages/analysis`, `packages/questions`, `packages/providers`: bounded patch
-  analysis, planning and provider adapters;
-- `docs`: security, privacy and operations material;
-- `scripts`: verification, release, backup and deployment tooling.
+  analysis, planning, and provider adapters
+- `docs`: security, privacy, and operations
+- `scripts`: verification, release, backup, and deployment tooling
 
-The implementation record in [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)
-contains gate-by-gate evidence. Earlier product and interface explorations remain
-in the numbered design documents and `archive/` for provenance.
+[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) records what is
+implemented. Older product and interface notes stay in the numbered design
+documents and `archive/`.
 
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Security
-reports belong in GitHub's private vulnerability-reporting flow, not in public
-issues. General support routes are listed in [SUPPORT.md](SUPPORT.md).
+reports go through GitHub's private vulnerability-reporting flow, not public
+issues. Support routes are in [SUPPORT.md](SUPPORT.md).
 
 The project is maintained by [Pascal Kienast](https://github.com/pascalkienast).
 
 ## License
 
 Copyright © 2026 Pascal Kienast and contributors. SlopProof is licensed under
-the [GNU Affero General Public License, version 3 or later](LICENSE). If you run
-a modified SlopProof service over a network, the license requires you to offer
-its corresponding source code to the users of that service.
+the [Apache License, Version 2.0](LICENSE).

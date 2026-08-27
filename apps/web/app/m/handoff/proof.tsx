@@ -28,6 +28,10 @@ import {
   postTechnicalAbort,
   type TechnicalAbortReason,
 } from "./technical-recovery";
+import {
+  PostUploadStatusCard,
+  type PostUploadStatus,
+} from "./post-upload-status";
 import { waitForPostUploadStatus } from "../../../lib/attempt-status";
 import {
   captureProofQuestionIntervalV1,
@@ -79,6 +83,8 @@ export function MobileProof() {
   const [error, setError] = useState<string>();
   const [questionIndex, setQuestionIndex] = useState(0);
   const [progress, setProgress] = useState("Waiting for recording");
+  const [postUploadStatus, setPostUploadStatus] =
+    useState<PostUploadStatus>("processing");
   const [canRecover, setCanRecover] = useState(false);
   const [exchangePending, setExchangePending] = useState(false);
   const previewRef = useRef<HTMLVideoElement>(null);
@@ -226,23 +232,27 @@ export function MobileProof() {
       setPhase("recording");
       await recordEncryptAndUpload(context, upload.uploadSessionId);
       startedRef.current = false;
+      setPostUploadStatus("processing");
       setPhase("processing");
-      setProgress("Validating encrypted evidence before private review.");
+      setProgress(
+        "Your recording was uploaded successfully. SlopProof is checking your explanation now.",
+      );
       let status;
       try {
         status = await waitForPostUploadStatus(context.attemptId);
       } catch {
         setProgress(
-          "Encrypted evidence was received, but its processing state could not be confirmed yet. Reopen the contributor check before recording again.",
+          "Your recording was uploaded successfully. SlopProof could not refresh its status yet, so check the pull request for the result before trying again.",
         );
         return;
       }
       if (status === "review_required" || status === "passed") {
+        setPostUploadStatus(status);
         setPhase("reviewing");
         setProgress(
           status === "passed"
-            ? "This revision has already been approved."
-            : "Private processing completed. Waiting for maintainer review.",
+            ? "This revision has been approved."
+            : "Processing is complete. Your proof is waiting for a maintainer decision.",
         );
       } else if (status === "technical_retry") {
         setCanRecover(true);
@@ -256,7 +266,7 @@ export function MobileProof() {
         fail("This attempt needs a fresh proof before it can be reviewed.");
       } else {
         setProgress(
-          "Encrypted evidence is still processing. You may close this page and reopen the contributor check later.",
+          "Your recording was uploaded successfully and is still being checked.",
         );
       }
     } catch (caught) {
@@ -270,9 +280,10 @@ export function MobileProof() {
           if (aborted.status === "already_progressed") {
             startedRef.current = false;
             setCanRecover(false);
+            setPostUploadStatus("processing");
             setPhase("processing");
             setProgress(
-              "Finalization was accepted and is still being processed.",
+              "Your recording was uploaded successfully and is still being checked.",
             );
             return;
           }
@@ -685,26 +696,10 @@ export function MobileProof() {
         </section>
       ) : null}
       {phase === "processing" ? (
-        <section className="recording-card reviewing-card">
-          <p className="eyebrow">Protected processing</p>
-          <h1>Validating before review.</h1>
-          <p>{progress}</p>
-          <p>
-            Review is shown only after the server confirms that private
-            processing completed.
-          </p>
-        </section>
+        <PostUploadStatusCard status="processing" detail={progress} />
       ) : null}
       {phase === "reviewing" ? (
-        <section className="recording-card reviewing-card">
-          <p className="eyebrow">Review required</p>
-          <h1>Reviewing your explanation.</h1>
-          <p>{progress}</p>
-          <p>
-            No automated score can pass or fail this pull request. A maintainer
-            decides.
-          </p>
-        </section>
+        <PostUploadStatusCard status={postUploadStatus} detail={progress} />
       ) : null}
       {phase === "error" ? (
         <section className="recording-card error-card">

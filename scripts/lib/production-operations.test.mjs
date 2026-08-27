@@ -2,11 +2,22 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
+import {
+  LANDING_ASSETS,
+  LANDING_PUBLISH,
+  LANDING_SOURCE,
+  prepareLanding,
+} from "../prepare-landing.mjs";
+
 function read(relativePath) {
   return readFileSync(
     new URL(`../../${relativePath}`, import.meta.url),
     "utf8",
   );
+}
+
+function readBytes(relativePath) {
+  return readFileSync(new URL(`../../${relativePath}`, import.meta.url));
 }
 
 test("Caddy keeps the landing root exact and proxies only named app paths", () => {
@@ -17,7 +28,15 @@ test("Caddy keeps the landing root exact and proxies only named app paths", () =
     caddy,
     /@landing_script \{\s*method GET HEAD\s*path \/landing\.js\s*\}/u,
   );
+  assert.match(
+    caddy,
+    /@landing_product_tour \{\s*method GET HEAD\s*path \/product-tour\/\*\s*\}/u,
+  );
   assert.match(caddy, /handle @landing_script \{[\s\S]*?file_server\s*\}/u);
+  assert.match(
+    caddy,
+    /handle @landing_product_tour \{[\s\S]*?file_server\s*\}/u,
+  );
   assert.match(caddy, /handle @landing \{[\s\S]*?file_server\s*\}/u);
   assert.match(
     caddy,
@@ -33,9 +52,20 @@ test("Caddy keeps the landing root exact and proxies only named app paths", () =
 });
 
 test("landing interactions obey the strict script policy and default to Proof", () => {
-  const landing = read("slopproof-brand-ui-concept-v3.html");
-  const behavior = read("landing.js");
+  prepareLanding();
+  const landing = read(LANDING_SOURCE.html);
+  const published = read(LANDING_PUBLISH.html);
+  const behavior = read(LANDING_SOURCE.script);
+  const publishedBehavior = read(LANDING_PUBLISH.script);
 
+  assert.equal(landing, published);
+  assert.equal(behavior, publishedBehavior);
+  for (const asset of LANDING_ASSETS) {
+    assert.deepEqual(
+      readBytes(`${LANDING_SOURCE.assetsDirectory}/${asset}`),
+      readBytes(`${LANDING_PUBLISH.assetsDirectory}/${asset}`),
+    );
+  }
   assert.match(landing, /<script src="\/landing\.js" defer><\/script>/u);
   assert.doesNotMatch(landing, /<script(?:\s|>)(?![^>]*\bsrc=)/u);
   assert.match(
@@ -48,16 +78,87 @@ test("landing interactions obey the strict script policy and default to Proof", 
   );
   assert.match(landing, /class="check-choice proof active"/u);
   assert.match(landing, /class="check-choice optional"/u);
+  assert.match(landing, /aria-roledescription="carousel"/u);
+  assert.match(landing, /The real product · 9 steps/u);
+  assert.match(landing, /Start with the GitHub App comment\./u);
+  assert.match(landing, /Open the linked understanding check\./u);
+  assert.match(
+    landing,
+    /GitHub pull request comment from the SlopProof app, including its avatar and contributor-flow link/u,
+  );
+  assert.equal(
+    [...landing.matchAll(/src="\/product-tour\/[^"\s]+\.webp"/gu)].length,
+    LANDING_ASSETS.length,
+  );
+  for (const asset of LANDING_ASSETS) {
+    assert.match(landing, new RegExp(`src="/product-tour/${asset}"`, "u"));
+  }
+  assert.match(behavior, /function showJourneyStep\(index\)/u);
+  assert.match(behavior, /data-journey-direction/u);
+  assert.match(behavior, /ArrowLeft/u);
+  assert.match(behavior, /ArrowRight/u);
+  assert.doesNotMatch(behavior, /setInterval|setTimeout/u);
   assert.match(landing, /Optional: practice the patch/u);
   assert.match(
     landing,
-    /href="https:\/\/github\.com\/pascalkienast\/slopproof"[^>]*>Open-source MVP · Live on GitHub · 2026<\/a>/u,
+    /href="https:\/\/github\.com\/pascalkienast\/slopproof"[^>]*>Open source · Live on GitHub · 2026<\/a>/u,
   );
-  assert.doesNotMatch(landing, /Open-source product concept/u);
+  assert.match(landing, /One continuous take\. The tab stays in front\./u);
+  assert.match(
+    landing,
+    /Leave the tab, open another app, or use a second screen, and the proof aborts\./u,
+  );
+  assert.match(
+    landing,
+    /A multimodal model reviews the recording\. A maintainer can review it too\./u,
+  );
+  assert.doesNotMatch(
+    landing,
+    /A maintainer decides|The check stays with a human|cannot turn the GitHub check green/u,
+  );
+  assert.doesNotMatch(landing, /Open-source MVP|Open-source product concept/u);
+  assert.doesNotMatch(landing, /15 sec|90 sec|open-proof|proof-dialog/u);
+  assert.doesNotMatch(landing, /Preview mobile preflight/u);
+  assert.doesNotMatch(landing, /visibility_lost/u);
+  assert.doesNotMatch(behavior, /#open-proof|#proof-dialog|#demo-start/u);
   assert.doesNotMatch(landing, /fonts\.(?:googleapis|gstatic)\.com/u);
   assert.match(landing, /rel="icon" href="data:image\/svg\+xml/u);
   assert.match(behavior, /panel\.hidden = !selected/u);
   assert.match(behavior, /\[data-open-mode\]/u);
+});
+
+test("public product copy does not call the live product an MVP", () => {
+  assert.match(read("apps/web/app/page.tsx"), /Open the local demo/u);
+  assert.doesNotMatch(read("apps/web/app/page.tsx"), /Open the local MVP/u);
+  assert.doesNotMatch(
+    read("README.md"),
+    /The MVP does not|Open the local MVP/u,
+  );
+  assert.match(read("README.md"), /visibility_lost/u);
+  assert.match(read("README.md"), /help\/no-help guarantee/u);
+  assert.match(
+    read("README.md"),
+    /You cannot read\s+notes on a second screen while the take runs/u,
+  );
+  assert.match(read("README.md"), /## Product tour/u);
+  assert.match(
+    read("README.md"),
+    /docs\/assets\/product-tour\/github-comment\.webp/u,
+  );
+  assert.match(
+    read("README.md"),
+    /docs\/assets\/product-tour\/contributor-proof\.webp/u,
+  );
+  assert.doesNotMatch(read("README.md"), /Screenshot slots, empty/u);
+  assert.match(
+    read("docs/operations/self-hosting.md"),
+    /aborts as\s+`visibility_lost`/u,
+  );
+  assert.doesNotMatch(read("docs/operations/self-hosting.md"), /\bMVP\b/u);
+  assert.doesNotMatch(
+    read("docs/operations/production-deployment.md"),
+    /\bMVP\b/u,
+  );
 });
 
 test("production review chrome does not expose the local demo", () => {
