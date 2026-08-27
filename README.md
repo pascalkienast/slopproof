@@ -18,6 +18,11 @@ The hosted app is [slopproof.paskie.me](https://slopproof.paskie.me). `GET /`
 is the static marketing page. `/demo`, `/revisions`, `/m`, and `/review` are
 the product.
 
+<p align="center">
+  <img src="docs/assets/product-tour/contributor-proof.webp" width="920" alt="SlopProof contributor page with optional Practice and required Proof choices">
+</p>
+<p align="center"><sub>The contributor view for a pull request: Practice is optional. Proof is required.</sub></p>
+
 ## How it works
 
 1. The GitHub App receives a pull-request event and binds a check to that head
@@ -42,12 +47,58 @@ SlopProof does not run pull-request code. It does not do face recognition,
 gaze tracking, room scanning, identity verification, or persistent contributor
 scoring.
 
+## Product tour
+
+The flow starts where contributors already work. The GitHub App posts a
+revision-bound link directly on the pull request.
+
+<p align="center">
+  <img src="docs/assets/product-tour/github-comment.webp" width="920" alt="Automatic SlopProof GitHub App comment linking to the contributor flow">
+</p>
+
+The contributor checks the camera and privacy terms, then answers the
+patch-bound questions in one continuous take.
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/assets/product-tour/privacy-check.webp" alt="Camera and privacy check before the live proof">
+      <br><sub>Preflight explains the one-take and retention rules.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/assets/product-tour/one-take.webp" alt="Live one-take proof with patch reference and question">
+      <br><sub>Each live question stays bound to the current revision.</sub>
+    </td>
+  </tr>
+</table>
+
+The result returns to the same head SHA on GitHub.
+
+<p align="center">
+  <img src="docs/assets/product-tour/github-passed.webp" width="760" alt="GitHub pull request with the SlopProof required check passed">
+</p>
+
+<details>
+  <summary><strong>Optional Practice</strong> — inspect the patch map and rehearse privately</summary>
+  <br>
+  <p align="center">
+    <img src="docs/assets/product-tour/practice.webp" width="820" alt="Practice page with patch map and understanding coach">
+  </p>
+</details>
+
+<details>
+  <summary><strong>Maintainer review</strong> — inspect private evidence when the model asks for review</summary>
+  <br>
+  <p align="center">
+    <img src="docs/assets/product-tour/review-evidence.webp" width="820" alt="Maintainer review with video, transcript, timestamps, and decision controls">
+  </p>
+</details>
+
 ## See it
 
 - Live landing: [slopproof.paskie.me](https://slopproof.paskie.me)
 - Local demo: <http://localhost:3000/demo> after `docker compose up --build`
-- Screenshot slots, empty until real Ubuntu captures land:
-  [docs/assets/](docs/assets/README.md)
+- Curated production screenshots: [docs/assets/](docs/assets/README.md)
 
 ## Local demo
 

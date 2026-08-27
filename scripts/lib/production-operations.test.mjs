@@ -84,7 +84,7 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.match(landing, /Open the linked understanding check\./u);
   assert.match(
     landing,
-    /GitHub pull request comment from the SlopProof app linking to the contributor flow/u,
+    /GitHub pull request comment from the SlopProof app, including its avatar and contributor-flow link/u,
   );
   assert.equal(
     [...landing.matchAll(/src="\/product-tour\/[^"\s]+\.webp"/gu)].length,
@@ -140,6 +140,16 @@ test("public product copy does not call the live product an MVP", () => {
     read("README.md"),
     /You cannot read\s+notes on a second screen while the take runs/u,
   );
+  assert.match(read("README.md"), /## Product tour/u);
+  assert.match(
+    read("README.md"),
+    /docs\/assets\/product-tour\/github-comment\.webp/u,
+  );
+  assert.match(
+    read("README.md"),
+    /docs\/assets\/product-tour\/contributor-proof\.webp/u,
+  );
+  assert.doesNotMatch(read("README.md"), /Screenshot slots, empty/u);
   assert.match(
     read("docs/operations/self-hosting.md"),
     /aborts as\s+`visibility_lost`/u,
