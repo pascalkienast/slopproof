@@ -1,9 +1,10 @@
 # Product screenshots
 
 `product-tour/` contains eight manually curated production captures for the
-landing-page carousel. They tell one contributor journey: GitHub entry,
-authorization, Practice or Proof, optional Practice, camera/privacy check,
-one-take question, maintainer evidence, and the completed GitHub check.
+landing-page carousel. They tell one contributor journey: the automatic GitHub
+App comment with its contributor link, authorization, Practice or Proof,
+optional Practice, camera/privacy check, one-take question, maintainer evidence,
+and the completed GitHub check.
 
 `scripts/prepare-landing.mjs` copies these exact WebP bytes to
 `landing/product-tour/`. Do not hand-edit the published copies or replace the

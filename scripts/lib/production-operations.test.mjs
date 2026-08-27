@@ -80,6 +80,11 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.match(landing, /class="check-choice optional"/u);
   assert.match(landing, /aria-roledescription="carousel"/u);
   assert.match(landing, /The real product · 8 steps/u);
+  assert.match(landing, /Start with the GitHub App comment\./u);
+  assert.match(
+    landing,
+    /GitHub pull request comment from the SlopProof app linking to the contributor flow/u,
+  );
   assert.equal(
     [...landing.matchAll(/src="\/product-tour\/[^"\s]+\.webp"/gu)].length,
     LANDING_ASSETS.length,
