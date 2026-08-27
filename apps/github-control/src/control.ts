@@ -458,7 +458,10 @@ export async function handleGithubPullRequestJob(
     );
   } catch (error) {
     if (error instanceof InactiveGithubInstallationError) {
-      await acknowledgeInactiveGithubInstallationDelivery(payload, dependencies);
+      await acknowledgeInactiveGithubInstallationDelivery(
+        payload,
+        dependencies,
+      );
       return;
     }
     await handleGithubPullRequestFailure(payload, error, dependencies);
@@ -468,8 +471,11 @@ export async function handleGithubPullRequestJob(
 function canAuthorizeGithubInstallationWork(
   fence: GithubLifecycleAuthorizationFence,
 ): boolean {
-  const status = fence.installation?.status;
-  return status === "active" || status === "suspended";
+  if (!fence.installation) return false;
+  return (
+    fence.installation.status !== "pending" &&
+    fence.installation.status !== "removed"
+  );
 }
 
 async function acknowledgeInactiveGithubInstallationDelivery(

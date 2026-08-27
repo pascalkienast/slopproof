@@ -4,7 +4,7 @@ ALTER TABLE "installations" DROP CONSTRAINT "installations_lifecycle_timestamps"
 
 ALTER TABLE "installations" ADD CONSTRAINT "installations_lifecycle_timestamps" CHECK ((
   (
-    "status" IN ('active', 'pending')
+    "status" NOT IN ('suspended', 'removed')
     AND "suspended_at" IS NULL
     AND "removed_at" IS NULL
   ) OR (

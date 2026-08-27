@@ -134,7 +134,7 @@ type InstallationBinding = {
   githubInstallationId: string;
   accountId: string;
   accountLogin: string;
-  senderId?: string;
+  senderId?: string | undefined;
 };
 
 type InstallationTenantStatus = "active" | "pending";
@@ -250,10 +250,7 @@ async function applyInstallationEvent(
   // selected repositories. In that mode only installation_repositories
   // deliveries (and later repository-scoped fresh reads) may activate a row.
   // Pending installs must not activate repository rows.
-  if (
-    installationStatus === "active" &&
-    event.repositorySelection === "all"
-  ) {
+  if (installationStatus === "active" && event.repositorySelection === "all") {
     for (const repository of event.repositories) {
       await upsertRepository(client, existingInstallationId, repository);
     }
@@ -316,8 +313,7 @@ async function applyInstallationRepositoriesEvent(
   }
   if (!installationId) return;
   const installationStatus =
-    upserted?.status ??
-    (await loadInstallationStatus(client, installationId));
+    upserted?.status ?? (await loadInstallationStatus(client, installationId));
   if (installationStatus === "active") {
     for (const repository of event.repositoriesAdded) {
       await upsertRepository(client, installationId, repository);

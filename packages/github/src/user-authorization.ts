@@ -71,8 +71,7 @@ function parseAccessibleAppInstallationPage(data: unknown): {
   }
   return {
     ids,
-    hasMore:
-      page.data.installations.length >= USER_APP_INSTALLATIONS_PAGE_SIZE,
+    hasMore: page.data.installations.length >= USER_APP_INSTALLATIONS_PAGE_SIZE,
   };
 }
 
@@ -149,7 +148,8 @@ export class OctokitUserAuthorizationPort implements GithubUserAuthorizationPort
   async listAccessibleAppInstallations(
     rawInput: GithubAccessibleAppInstallationsInput,
   ): Promise<readonly string[]> {
-    const input = GithubAccessibleAppInstallationsInputSchema.safeParse(rawInput);
+    const input =
+      GithubAccessibleAppInstallationsInputSchema.safeParse(rawInput);
     if (!input.success) throw new GithubControlError("INVALID_INPUT");
     const client = this.createClient(input.data.userToken);
     const installationIds: string[] = [];
