@@ -52,7 +52,7 @@ export async function ingestGithubWebhook(input: {
             ...parsed.event,
           });
           if (
-            !(await hasActiveGithubInstallation(
+            !(await canEnqueueGithubPullRequest(
               client,
               payload.installation.githubInstallationId,
             ))
@@ -618,7 +618,7 @@ async function findInstallationId(
   return result.rows[0]?.id ?? null;
 }
 
-async function hasActiveGithubInstallation(
+async function canEnqueueGithubPullRequest(
   client: PoolClient,
   githubInstallationId: string,
 ): Promise<boolean> {
@@ -627,7 +627,7 @@ async function hasActiveGithubInstallation(
        SELECT 1
          FROM installations
         WHERE github_installation_id = $1
-          AND status = 'active'
+          AND status IN ('active', 'suspended')
      ) AS exists`,
     [githubInstallationId],
   );

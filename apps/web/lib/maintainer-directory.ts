@@ -12,6 +12,7 @@ import {
 import {
   listActiveMaintainerRepositories,
   loadMaintainerRepositoriesByIds,
+  MAX_ACTIVE_MAINTAINER_REPOSITORIES,
   type ActiveMaintainerRepositoryV1,
 } from "./github-oauth-production";
 import { isMaintainerPermission } from "./maintainer-authorization";
@@ -37,7 +38,8 @@ export class MaintainerDirectoryError extends Error {
 
 /**
  * Live intersection of this user's accessible App installations, active
- * SlopProof tenants, and collaborator permission. Any inconclusive permission
+ * SlopProof tenants, and collaborator permission. The directory page bound
+ * applies only after that permission filter. Any inconclusive permission
  * read fails the whole directory. The access token stays method-local.
  */
 export async function filterMaintainerDirectory(
@@ -109,12 +111,14 @@ export async function resolveProductionIdentifyDirectory(
       app.database.pool,
       githubInstallationIds,
     );
-    const allowed = await filterMaintainerDirectory({
-      user: input.user,
-      accessToken: input.accessToken,
-      repositories,
-      authorizationPort,
-    });
+    const allowed = (
+      await filterMaintainerDirectory({
+        user: input.user,
+        accessToken: input.accessToken,
+        repositories,
+        authorizationPort,
+      })
+    ).slice(0, MAX_ACTIVE_MAINTAINER_REPOSITORIES);
     const expiresAt = new Date(input.now.getTime() + GITHUB_USER_SEAL_TTL_MS);
     return Object.freeze({
       sealedCookie: sealGithubMaintainerDirectory(

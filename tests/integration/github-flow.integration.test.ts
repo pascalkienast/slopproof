@@ -614,6 +614,78 @@ databaseDescribe("signed fake GitHub ingress", () => {
       ),
     ).toBe(1);
   });
+
+  it("queues a new pull request after unsuspend while the install is still suspended", async () => {
+    const suspended = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000035",
+      eventName: "installation",
+      body: {
+        action: "suspend",
+        installation: {
+          id: 17,
+          account: { id: 7, login: "acme" },
+          repository_selection: "selected",
+        },
+        repositories: [],
+      },
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...suspended,
+    });
+    const unsuspended = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000036",
+      eventName: "installation",
+      body: {
+        action: "unsuspend",
+        installation: {
+          id: 17,
+          account: { id: 7, login: "acme" },
+          repository_selection: "selected",
+        },
+        repositories: [],
+      },
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...unsuspended,
+    });
+    expect(
+      await connection.pool.query<{ status: string }>(
+        "SELECT status FROM installations WHERE github_installation_id = '17'",
+      ),
+    ).toMatchObject({ rows: [{ status: "suspended" }] });
+
+    const opened = webhook({
+      deliveryId: "30000000-0000-4000-8000-000000000037",
+      action: "opened",
+      headSha: "a".repeat(40),
+    });
+    await expect(
+      ingestPullRequestWebhook({
+        pool: connection.pool,
+        queue,
+        secret: webhookSecret,
+        ...opened,
+      }),
+    ).resolves.toMatchObject({ ignored: false, duplicate: false });
+    const delivery = await connection.pool.query<{
+      processing_status: string;
+    }>(
+      `SELECT processing_status
+         FROM webhook_deliveries
+        WHERE delivery_id = $1`,
+      [opened.headers.deliveryId],
+    );
+    expect(delivery.rows[0]?.processing_status).not.toBe("ignored");
+    expect(["queued", "reserved", "processed"]).toContain(
+      delivery.rows[0]?.processing_status,
+    );
+  });
 });
 
 async function seedAllowlistedInstallation(

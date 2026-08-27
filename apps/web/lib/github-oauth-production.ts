@@ -91,7 +91,7 @@ export type ActiveMaintainerRepositoryV1 = z.infer<
   typeof ActiveMaintainerRepositorySchema
 >;
 
-const MAX_ACTIVE_MAINTAINER_REPOSITORIES = 32;
+export const MAX_ACTIVE_MAINTAINER_REPOSITORIES = 32;
 
 const BoundStateRowSchema = z
   .object({
@@ -830,9 +830,8 @@ export async function listActiveMaintainerRepositories(
       WHERE installation.github_installation_id = ANY($1::text[])
         AND repository.status = 'active'
         AND installation.status = 'active'
-      ORDER BY repository.owner, repository.name, repository.id
-      LIMIT $2`,
-    [uniqueIds, MAX_ACTIVE_MAINTAINER_REPOSITORIES],
+      ORDER BY repository.owner, repository.name, repository.id`,
+    [uniqueIds],
   );
   return result.rows.map(parseActiveMaintainerRepository);
 }

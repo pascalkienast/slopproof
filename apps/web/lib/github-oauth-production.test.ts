@@ -192,8 +192,8 @@ describe("production GitHub OAuth wiring", () => {
       expect(sql).toContain(
         "ORDER BY repository.owner, repository.name, repository.id",
       );
-      expect(sql).toContain("LIMIT $2");
-      expect(parameters).toEqual([["17"], 32]);
+      expect(sql).not.toContain("LIMIT");
+      expect(parameters).toEqual([["17"]]);
       return result([
         {
           id: REPOSITORY_ID,

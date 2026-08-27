@@ -155,4 +155,81 @@ databaseDescribe("inverted maintainer Identify", () => {
       },
     ]);
   });
+
+  it("identifies a late-sorted maintained repo when one install has more than 32 active repos", async () => {
+    const installation = await connection.pool.query<{ id: string }>(
+      `INSERT INTO installations
+         (id, github_installation_id, account_id, account_login, status)
+       VALUES ($1, $2, $3, $4, 'active')
+       RETURNING id`,
+      [KEPT_INSTALLATION_ID, KEPT_INSTALLATION_GITHUB_ID, "93001", "acme"],
+    );
+    const kept = {
+      id: KEPT_REPOSITORY_ID,
+      owner: "acme",
+      name: "zzz-kept",
+    };
+    for (let index = 0; index < 39; index += 1) {
+      await connection.pool.query(
+        `INSERT INTO repositories
+           (installation_id, github_repository_id, owner, name,
+            default_branch, status)
+         VALUES ($1, $2, $3, $4, 'main', 'active')`,
+        [
+          installation.rows[0]!.id,
+          String(92_001 + index),
+          "acme",
+          `aaa-${String(index).padStart(2, "0")}`,
+        ],
+      );
+    }
+    await connection.pool.query(
+      `INSERT INTO repositories
+         (id, installation_id, github_repository_id, owner, name,
+          default_branch, status)
+       VALUES ($1, $2, $3, $4, $5, 'main', 'active')`,
+      [kept.id, installation.rows[0]!.id, "92040", kept.owner, kept.name],
+    );
+
+    const app = {
+      config: {
+        DEPLOYMENT_PROFILE: "production",
+        GITHUB_ADAPTER: "octokit",
+        DEMO_MODE: false,
+        SESSION_SECRET,
+      },
+      database: { pool: connection.pool },
+    } as unknown as WebRuntime;
+
+    const identified = await resolveProductionIdentifyDirectory(
+      app,
+      {
+        user: { githubUserId: "94001", login: "maintainer" },
+        accessToken: "request-scoped-user-token",
+        now: NOW,
+      },
+      {
+        authorizationPort: {
+          getAuthenticatedUser: vi.fn(async () => ({
+            id: "94001",
+            login: "maintainer",
+          })),
+          getCollaboratorPermission: vi.fn(async (input) => {
+            if (input.repositoryName === kept.name) {
+              return { permission: "admin" as const, roleName: "admin" };
+            }
+            return { permission: "read" as const, roleName: "read" };
+          }),
+          listAccessibleAppInstallations: vi.fn(async () => [
+            KEPT_INSTALLATION_GITHUB_ID,
+          ]),
+        },
+      },
+    );
+
+    expect(identified).not.toBeNull();
+    await expect(
+      loadSealedMaintainerDirectory(app, identified!.sealedCookie, NOW),
+    ).resolves.toEqual([kept]);
+  });
 });

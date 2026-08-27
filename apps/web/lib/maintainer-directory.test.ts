@@ -2,6 +2,7 @@ import { GithubControlError } from "@slopproof/github";
 import { describe, expect, it, vi } from "vitest";
 import {
   filterMaintainerDirectory,
+  loadSealedMaintainerDirectory,
   resolveProductionIdentifyDirectory,
 } from "./maintainer-directory";
 import type { WebRuntime } from "./runtime";
@@ -102,8 +103,8 @@ describe("maintainer directory filter", () => {
       expect(sql).toContain(
         "installation.github_installation_id = ANY($1::text[])",
       );
-      expect(parameters[0]).toEqual(["17"]);
-      expect(parameters[1]).toBe(32);
+      expect(sql).not.toContain("LIMIT");
+      expect(parameters).toEqual([["17"]]);
       return { rows: [FIRST], rowCount: 1 };
     });
     const listAccessibleAppInstallations = vi.fn(async () => ["17"]);
@@ -134,5 +135,73 @@ describe("maintainer directory filter", () => {
       userToken: "request-scoped-user-token",
     });
     expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it("pages the directory after permission filter so a late-sorted maintained repo remains", async () => {
+    const kept = {
+      id: "20000000-0000-4000-8000-000000000039",
+      owner: "acme",
+      name: "zzz-kept",
+    };
+    const repositories = [
+      ...Array.from({ length: 39 }, (_, index) => ({
+        id: `20000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        owner: "acme",
+        name: `aaa-${String(index).padStart(2, "0")}`,
+      })),
+      kept,
+    ];
+    const query = vi.fn(async (sql: string) => {
+      if (
+        sql.includes("installation.github_installation_id = ANY($1::text[])")
+      ) {
+        expect(sql).not.toContain("LIMIT");
+        return { rows: repositories, rowCount: repositories.length };
+      }
+      if (sql.includes("repository.id = ANY($1::uuid[])")) {
+        return { rows: [kept], rowCount: 1 };
+      }
+      throw new Error(`unexpected SQL: ${sql}`);
+    });
+    const identified = await resolveProductionIdentifyDirectory(
+      {
+        config: {
+          DEPLOYMENT_PROFILE: "production",
+          GITHUB_ADAPTER: "octokit",
+          DEMO_MODE: false,
+          SESSION_SECRET: "production-session-secret-that-is-at-least-32-bytes",
+        },
+        database: { pool: { query } },
+      } as unknown as WebRuntime,
+      {
+        user: { githubUserId: "12345678", login: "octocat" },
+        accessToken: "request-scoped-user-token",
+        now: new Date("2026-08-27T12:00:00.000Z"),
+      },
+      {
+        authorizationPort: {
+          ...port(async (name) =>
+            name === kept.name
+              ? { permission: "admin", roleName: "admin" }
+              : { permission: "read", roleName: "read" },
+          ),
+          listAccessibleAppInstallations: vi.fn(async () => ["17"]),
+        },
+      },
+    );
+    expect(identified).not.toBeNull();
+    await expect(
+      loadSealedMaintainerDirectory(
+        {
+          config: {
+            SESSION_SECRET:
+              "production-session-secret-that-is-at-least-32-bytes",
+          },
+          database: { pool: { query } },
+        } as unknown as WebRuntime,
+        identified!.sealedCookie,
+        new Date("2026-08-27T12:00:00.000Z"),
+      ),
+    ).resolves.toEqual([kept]);
   });
 });
