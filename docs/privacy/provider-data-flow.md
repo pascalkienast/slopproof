@@ -23,7 +23,7 @@ Requests and responses have absolute deadlines and byte caps; transport retry is
 limited to rate limit, server, network, stream and timeout classes. Raw provider
 bodies and errors are never logged.
 
-## Closed-beta contact data
+## Beta contact data
 
 The public beta form is separate from proof evidence. It stores a normalized
 email address, GitHub login, consent version, consent timestamp and admission

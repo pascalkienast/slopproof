@@ -25,7 +25,7 @@ Stand: 2026-08-24
   deadline;
 - decrypted audio/frames/transcript and encrypted semantic/judge sidecars;
 - PostgreSQL, pg-boss, backups, logs and deployment secrets;
-- closed-beta email addresses, GitHub logins, consent and admission state;
+- beta email addresses, GitHub logins, consent and admission state;
 - external boundaries: GitHub, Cloudflare R2, Hetzner inference, OpenRouter
   inference/STT, host Caddy, Docker and the operator workstation.
 

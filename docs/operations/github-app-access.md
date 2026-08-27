@@ -10,7 +10,7 @@ installation tokens.
 This table is an admission gate, not a subscription or billing entitlement
 system. Repository-specific product settings also do not belong here.
 
-## Review the closed-beta queue
+## Review the beta queue
 
 The public landing page writes an explicitly consented email address and
 normalized GitHub login to `closed_beta_signups`. It does not activate an
