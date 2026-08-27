@@ -120,7 +120,24 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.match(behavior, /ArrowLeft/u);
   assert.match(behavior, /ArrowRight/u);
   assert.doesNotMatch(behavior, /setInterval|setTimeout/u);
-  assert.match(landing, /Optional: practice the patch/u);
+  assert.doesNotMatch(landing, /Optional: practice the patch/u);
+  assert.match(
+    landing,
+    /class="button github" href="https:\/\/github\.com\/pascalkienast\/slopproof"/u,
+  );
+  assert.match(
+    landing,
+    /class="button primary" href="#closed-beta">Join the closed beta/u,
+  );
+  assert.match(landing, /id="closed-beta-form"/u);
+  assert.match(landing, /name="email"[^>]*type="email"/u);
+  assert.match(landing, /name="githubUsername"/u);
+  assert.match(landing, /name="contactConsent"[^>]*required/u);
+  assert.match(landing, /not added to a newsletter/u);
+  assert.match(landing, /role="status" aria-live="polite"/u);
+  assert.match(behavior, /fetch\("\/api\/public\/closed-beta"/u);
+  assert.match(behavior, /response\.status === 202/u);
+  assert.doesNotMatch(landing, /forms\.google|typeform/iu);
   assert.match(
     landing,
     /href="https:\/\/github\.com\/pascalkienast\/slopproof"[^>]*>Open source · Live on GitHub · 2026<\/a>/u,

@@ -10,6 +10,62 @@ installation tokens.
 This table is an admission gate, not a subscription or billing entitlement
 system. Repository-specific product settings also do not belong here.
 
+## Review the closed-beta queue
+
+The public landing page writes an explicitly consented email address and
+normalized GitHub login to `closed_beta_signups`. It does not activate an
+account. Treat the email as personal data: inspect the queue only in the
+protected operator session, never paste rows into tickets or logs, and do not
+reuse the address for a newsletter.
+
+```sql
+SELECT id, github_username, email, created_at
+  FROM closed_beta_signups
+ WHERE status = 'pending'
+ ORDER BY created_at, id
+ LIMIT 25;
+```
+
+Resolve the chosen login through the authenticated GitHub CLI on the operator
+machine. Compare the returned login before copying the immutable numeric ID:
+
+```bash
+gh api "users/<validated-github-login>" --jq '{id, login}'
+```
+
+Admit the exact signup and its numeric GitHub account ID atomically. Require
+both statements to affect exactly one row; otherwise roll back and inspect the
+queue again.
+
+```sql
+BEGIN;
+
+INSERT INTO github_app_account_allowlist
+  (github_account_id, status)
+VALUES
+  ('<numeric-github-account-id>', 'active')
+ON CONFLICT (github_account_id) DO UPDATE SET
+  status = 'active',
+  updated_at = now();
+
+UPDATE closed_beta_signups
+   SET github_account_id = '<numeric-github-account-id>',
+       status = 'admitted',
+       decided_at = now(),
+       updated_at = now()
+ WHERE id = '<exact-signup-uuid>'
+   AND github_username = '<validated-github-login>'
+   AND status IN ('pending', 'contacted');
+
+COMMIT;
+```
+
+The public response is deliberately identical for a new row, a duplicate, and
+the form honeypot. Do not add a lookup endpoint: the admission queue must not
+be enumerable. Mark rejected or withdrawn entries with the matching status and
+`decided_at`, then delete personal contact data according to the deployment's
+documented retention policy.
+
 ## Admit an account before installation
 
 Use the immutable numeric GitHub account ID, not a mutable login. Run this only

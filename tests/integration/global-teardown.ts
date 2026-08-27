@@ -18,6 +18,7 @@ export async function teardown(): Promise<void> {
         github_revision_sources,
         github_recovery_candidates,
         github_oauth_flows, oauth_start_rate_limits, web_request_rate_limits,
+        closed_beta_signups,
         webhook_deliveries,
         pull_request_revisions, pull_requests, repository_policies,
         repositories, installations, github_app_account_allowlist

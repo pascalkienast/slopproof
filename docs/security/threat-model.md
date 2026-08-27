@@ -25,6 +25,7 @@ Stand: 2026-08-24
   deadline;
 - decrypted audio/frames/transcript and encrypted semantic/judge sidecars;
 - PostgreSQL, pg-boss, backups, logs and deployment secrets;
+- closed-beta email addresses, GitHub logins, consent and admission state;
 - external boundaries: GitHub, Cloudflare R2, Hetzner inference, OpenRouter
   inference/STT, host Caddy, Docker and the operator workstation.
 
@@ -43,6 +44,7 @@ Stand: 2026-08-24
 | Supply-chain compromise          | Frozen lockfile, boundary/secret audit, SBOM, dependency review, image vulnerability scan, non-root/read-only runtime                                                    | CI/action and base-image trust; actions are commit-pinned                                              |
 | Database/backup theft            | Provider/evidence payload encryption, protected DB network and encrypted backup handling                                                                                 | Repository metadata and access patterns remain sensitive                                               |
 | Unknown public-app install       | Operator allowlist on account.id or installer sender.id; unknown installs stay pending and cannot activate repos, enqueue PR work, or mint installation tokens           | The admission gate is not a recurring entitlement check; deactivation does not demote an active tenant |
+| Beta queue spam or enumeration   | Bounded JSON, authenticated-proxy HMAC quota, honeypot, strict input schema, uniqueness constraints, uniform value-free acceptance response, no public lookup            | Distributed abuse still requires operator monitoring; contact rows remain personal data in DB backups  |
 
 ## Explicit non-goals
 

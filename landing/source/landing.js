@@ -103,3 +103,71 @@ if (journeyCarousel) {
     showJourneyStep(journeyIndex + (event.key === "ArrowRight" ? 1 : -1));
   });
 }
+
+const closedBetaForm = document.querySelector("#closed-beta-form");
+const closedBetaStatus = document.querySelector("#closed-beta-status");
+
+function setClosedBetaStatus(message, state = "idle") {
+  if (!closedBetaStatus) return;
+  closedBetaStatus.textContent = message;
+  closedBetaStatus.dataset.state = state;
+}
+
+closedBetaForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submitButton = closedBetaForm.querySelector('button[type="submit"]');
+  const formData = new FormData(closedBetaForm);
+  const githubUsername = String(formData.get("githubUsername") ?? "")
+    .trim()
+    .replace(/^@/u, "");
+
+  if (!submitButton) return;
+  submitButton.disabled = true;
+  setClosedBetaStatus("Adding your request…");
+  try {
+    const response = await fetch("/api/public/closed-beta", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify({
+        email: String(formData.get("email") ?? "").trim(),
+        githubUsername,
+        contactConsent: formData.get("contactConsent") === "on",
+        website: String(formData.get("website") ?? "").trim(),
+      }),
+    });
+
+    if (response.status === 202) {
+      closedBetaForm.reset();
+      setClosedBetaStatus(
+        `You're in the queue, @${githubUsername}. We'll email you when a beta slot opens.`,
+        "success",
+      );
+    } else if (response.status === 400) {
+      setClosedBetaStatus(
+        "Check the email, GitHub username, and consent box, then try again.",
+        "error",
+      );
+    } else if (response.status === 429) {
+      setClosedBetaStatus(
+        "Too many requests from this connection. Give it a few minutes.",
+        "error",
+      );
+    } else {
+      setClosedBetaStatus(
+        "The queue is temporarily unavailable. Please try again later.",
+        "error",
+      );
+    }
+  } catch {
+    setClosedBetaStatus(
+      "The queue is temporarily unavailable. Please try again later.",
+      "error",
+    );
+  } finally {
+    submitButton.disabled = false;
+  }
+});

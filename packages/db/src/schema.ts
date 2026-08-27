@@ -68,6 +68,13 @@ export const githubAppAllowlistStatusEnum = pgEnum(
   "github_app_allowlist_status",
   ["active", "inactive"],
 );
+export const closedBetaSignupStatusEnum = pgEnum("closed_beta_signup_status", [
+  "pending",
+  "contacted",
+  "admitted",
+  "declined",
+  "withdrawn",
+]);
 export const githubOauthPurposeEnum = pgEnum("github_oauth_purpose", [
   "contributor_login",
   "maintainer_reauth",
@@ -123,6 +130,56 @@ export const githubAppAccountAllowlist = pgTable(
     index("github_app_account_allowlist_active_idx")
       .on(table.githubAccountId)
       .where(sql`${table.status} = 'active'`),
+  ],
+);
+
+export const closedBetaSignups = pgTable(
+  "closed_beta_signups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    email: text("email").notNull(),
+    githubUsername: text("github_username").notNull(),
+    githubAccountId: text("github_account_id"),
+    status: closedBetaSignupStatusEnum("status").notNull().default("pending"),
+    contactConsentVersion: text("contact_consent_version")
+      .notNull()
+      .default("closed-beta-v1"),
+    contactConsentAt: timestamp("contact_consent_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("closed_beta_signups_email_uq").on(sql`lower(${table.email})`),
+    uniqueIndex("closed_beta_signups_github_username_uq").on(
+      sql`lower(${table.githubUsername})`,
+    ),
+    index("closed_beta_signups_queue_idx").on(
+      table.status,
+      table.createdAt,
+      table.id,
+    ),
+    check(
+      "closed_beta_signups_email_format",
+      sql`char_length(${table.email}) BETWEEN 3 AND 254 AND ${table.email} = lower(btrim(${table.email})) AND ${table.email} ~ '^[^[:space:]@]+@[^[:space:]@]+$'`,
+    ),
+    check(
+      "closed_beta_signups_github_username_format",
+      sql`${table.githubUsername} ~ '^[a-z0-9]([a-z0-9-]{0,37}[a-z0-9])?$' AND position('--' in ${table.githubUsername}) = 0`,
+    ),
+    check(
+      "closed_beta_signups_github_account_id_format",
+      sql`${table.githubAccountId} IS NULL OR ${table.githubAccountId} ~ '^[1-9][0-9]{0,15}$'`,
+    ),
+    check(
+      "closed_beta_signups_consent_version",
+      sql`${table.contactConsentVersion} = 'closed-beta-v1'`,
+    ),
+    check(
+      "closed_beta_signups_decision_state",
+      sql`(${table.status} IN ('pending', 'contacted') AND ${table.decidedAt} IS NULL) OR (${table.status} IN ('admitted', 'declined', 'withdrawn') AND ${table.decidedAt} IS NOT NULL)`,
+    ),
   ],
 );
 
@@ -252,8 +309,8 @@ export const webRequestRateLimits = pgTable(
       sql`${table.subjectKeyHash} ~ '^[0-9a-f]{64}$'`,
     ),
     check(
-      "web_request_rate_limits_action_v1",
-      sql`${table.action} IN ('handoff_create', 'handoff_exchange', 'upload_start', 'upload_part_url', 'upload_part_complete', 'upload_finalize', 'review_queue', 'review_detail', 'review_context', 'evidence_capability', 'evidence_stream', 'review_decision')`,
+      "web_request_rate_limits_action_v2",
+      sql`${table.action} IN ('closed_beta_signup', 'handoff_create', 'handoff_exchange', 'upload_start', 'upload_part_url', 'upload_part_complete', 'upload_finalize', 'review_queue', 'review_detail', 'review_context', 'evidence_capability', 'evidence_stream', 'review_decision')`,
     ),
     check(
       "web_request_rate_limits_expiry_v1",
