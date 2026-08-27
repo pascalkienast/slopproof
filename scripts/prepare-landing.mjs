@@ -20,6 +20,7 @@ export const LANDING_PUBLISH = {
 };
 
 export const LANDING_ASSETS = [
+  "github-comment.webp",
   "github-entry.webp",
   "github-auth.webp",
   "contributor-proof.webp",

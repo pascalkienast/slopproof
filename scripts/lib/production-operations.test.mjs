@@ -79,8 +79,9 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.match(landing, /class="check-choice proof active"/u);
   assert.match(landing, /class="check-choice optional"/u);
   assert.match(landing, /aria-roledescription="carousel"/u);
-  assert.match(landing, /The real product · 8 steps/u);
+  assert.match(landing, /The real product · 9 steps/u);
   assert.match(landing, /Start with the GitHub App comment\./u);
+  assert.match(landing, /Open the linked understanding check\./u);
   assert.match(
     landing,
     /GitHub pull request comment from the SlopProof app linking to the contributor flow/u,
