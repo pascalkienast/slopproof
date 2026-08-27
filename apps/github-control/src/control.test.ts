@@ -173,6 +173,20 @@ describe("GitHub control canonical revision reconciliation", () => {
     );
   });
 
+  it("does not mint GitHub credentials for a pending installation", async () => {
+    const database = deliveryDatabase(webhookPayload(), "pending", "active");
+    const pullRequests = pullRequestPort(snapshot(oldBaseSha));
+    const dependencies = controlDependencies(database, pullRequests);
+
+    await expect(
+      handleGithubPullRequestJob(webhookPayload(), dependencies),
+    ).resolves.toBeUndefined();
+
+    expect(pullRequests.load).not.toHaveBeenCalled();
+    expect(pullRequests.loadFresh).not.toHaveBeenCalled();
+    expect(githubMocks.processPullRequestJob).not.toHaveBeenCalled();
+  });
+
   it("forces fresh installation authorization before an inactive binding can be reactivated", async () => {
     const database = deliveryDatabase(
       webhookPayload(),

@@ -60,9 +60,14 @@ export const jobStateEnum = pgEnum("deletion_job_state", [
 
 export const githubLifecycleStatusEnum = pgEnum("github_lifecycle_status", [
   "active",
+  "pending",
   "suspended",
   "removed",
 ]);
+export const githubAppAllowlistStatusEnum = pgEnum(
+  "github_app_allowlist_status",
+  ["active", "inactive"],
+);
 export const githubOauthPurposeEnum = pgEnum("github_oauth_purpose", [
   "contributor_login",
   "maintainer_reauth",
@@ -102,6 +107,24 @@ export const installations = pgTable("installations", {
   removedAt: timestamp("removed_at", { withTimezone: true }),
   ...timestamps,
 });
+
+export const githubAppAccountAllowlist = pgTable(
+  "github_app_account_allowlist",
+  {
+    githubAccountId: text("github_account_id").primaryKey(),
+    status: githubAppAllowlistStatusEnum("status").notNull().default("active"),
+    ...timestamps,
+  },
+  (table) => [
+    check(
+      "github_app_account_allowlist_github_account_id_format",
+      sql`${table.githubAccountId} ~ '^[1-9][0-9]{0,15}$'`,
+    ),
+    index("github_app_account_allowlist_active_idx")
+      .on(table.githubAccountId)
+      .where(sql`${table.status} = 'active'`),
+  ],
+);
 
 export const repositories = pgTable(
   "repositories",

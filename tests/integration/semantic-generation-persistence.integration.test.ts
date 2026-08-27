@@ -73,7 +73,7 @@ databaseDescribe("Gate 4 semantic persistence and served Proof V2", () => {
         audit_events, attempts, proof_questions, proof_plans,
         generation_contexts, analysis_snapshots, github_revision_sources,
         pull_request_revisions, pull_requests, repository_policies,
-        repositories, installations
+        repositories, installations, github_app_account_allowlist
       RESTART IDENTITY CASCADE
     `);
     const seeded = await seed(database);

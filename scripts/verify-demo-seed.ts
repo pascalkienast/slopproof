@@ -6,6 +6,7 @@ if (!databaseUrl) throw new Error("DATABASE_URL is required");
 const database = connectDatabase(databaseUrl);
 try {
   const result = await database.pool.query<{
+    allowlist_count: number;
     installation_count: number;
     repository_count: number;
     policy_count: number;
@@ -54,6 +55,9 @@ try {
       WHERE plan.status = 'ready'
     )
     SELECT
+      (SELECT count(*)::int FROM github_app_account_allowlist
+        WHERE github_account_id = '500002'
+          AND status = 'active') AS allowlist_count,
       (SELECT count(*)::int FROM installations
         WHERE github_installation_id = '500001'
           AND account_id = '500002') AS installation_count,
@@ -114,6 +118,7 @@ try {
 
   const actual = result.rows[0];
   const expected = {
+    allowlist_count: 1,
     installation_count: 1,
     repository_count: 1,
     policy_count: 1,

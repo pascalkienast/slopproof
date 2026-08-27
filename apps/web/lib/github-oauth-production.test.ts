@@ -5,6 +5,7 @@ import {
   PgGithubOAuthSessionPort,
   PgGithubOAuthStateRepository,
   createGithubOAuthProductionRuntime,
+  listActiveMaintainerInstallationIds,
   listActiveMaintainerRepositories,
   loadActiveMaintainerRepository,
   loadMaintainerRepositoriesByIds,
@@ -181,15 +182,22 @@ describe("production GitHub OAuth wiring", () => {
     expect(unknown.query).toHaveBeenCalledTimes(1);
   });
 
-  it("lists only active owner/name pairs for the authenticated directory filter", async () => {
+  it("lists only the current user's intersected active owner/name pairs", async () => {
     const database = fakePool(async (sql, parameters) => {
       expect(sql).toContain(
         "SELECT repository.id, repository.owner, repository.name",
       );
       expect(sql).toContain(
+        "installation.github_installation_id = ANY($1::text[])",
+      );
+      expect(sql).toContain(
+        "repository.github_repository_id = ANY($2::text[])",
+      );
+      expect(sql).toContain(
         "ORDER BY repository.owner, repository.name, repository.id",
       );
-      expect(parameters).toEqual([33]);
+      expect(sql).toContain("LIMIT $3");
+      expect(parameters).toEqual([["17"], ["41", "42"], 32]);
       return result([
         {
           id: REPOSITORY_ID,
@@ -204,7 +212,7 @@ describe("production GitHub OAuth wiring", () => {
       ]);
     });
     await expect(
-      listActiveMaintainerRepositories(database.pool),
+      listActiveMaintainerRepositories(database.pool, ["17"], ["41", "42"]),
     ).resolves.toEqual([
       {
         id: REPOSITORY_ID,
@@ -217,6 +225,29 @@ describe("production GitHub OAuth wiring", () => {
         name: "slopproof",
       },
     ]);
+  });
+
+  it("returns no tenant directory when the user has no accessible App installations", async () => {
+    const database = fakePool(async () => {
+      throw new Error("must not scan every active tenant");
+    });
+    await expect(
+      listActiveMaintainerRepositories(database.pool, [], ["41"]),
+    ).resolves.toEqual([]);
+    expect(database.query).not.toHaveBeenCalled();
+  });
+
+  it("intersects user-accessible App installations with active local tenants", async () => {
+    const database = fakePool(async (sql, parameters) => {
+      expect(sql).toContain("SELECT github_installation_id");
+      expect(sql).toContain("status = 'active'");
+      expect(parameters).toEqual([["17", "18"]]);
+      return result([{ github_installation_id: "18" }]);
+    });
+
+    await expect(
+      listActiveMaintainerInstallationIds(database.pool, ["17", "18"]),
+    ).resolves.toEqual(["18"]);
   });
 
   it("reloads only the sealed directory's still-active repositories", async () => {

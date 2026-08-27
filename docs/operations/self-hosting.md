@@ -31,6 +31,11 @@ The webhook secret, OAuth client secret and App private key belong in the
 operator's secret store. The App key must be a bounded RSA private-key file; do
 not paste it into an environment variable.
 
+If the App is publicly installable, unknown installations stay pending until
+an operator admits the numeric GitHub account ID. Follow the
+[GitHub App access-gate runbook](github-app-access.md); do not manually seed
+repository or pull-request rows.
+
 ## 2. Prepare storage
 
 Create one private bucket and bucket-scoped S3 credentials. The control and

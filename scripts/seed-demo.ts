@@ -116,6 +116,14 @@ const seeds: readonly {
 const client = await database.pool.connect();
 try {
   await client.query("BEGIN");
+  await client.query(
+    `INSERT INTO github_app_account_allowlist (github_account_id, status)
+     VALUES ($1, 'active')
+     ON CONFLICT (github_account_id) DO UPDATE SET
+       status = 'active',
+       updated_at = now()`,
+    [githubAccountId],
+  );
   const installation = await client.query<{ id: string }>(
     `INSERT INTO installations
       (id, github_installation_id, account_id, account_login)

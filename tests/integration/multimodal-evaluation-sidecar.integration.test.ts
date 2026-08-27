@@ -65,7 +65,7 @@ databaseDescribe("authoritative multimodal sidecar PostgreSQL contract", () => {
         wrapping_materials, handoff_tokens, auth_sessions, attempt_transitions,
         attempts, proof_questions, proof_plans, practice_sessions,
         analysis_snapshots, webhook_deliveries, pull_request_revisions,
-        pull_requests, repository_policies, repositories, installations
+        pull_requests, repository_policies, repositories, installations, github_app_account_allowlist
       RESTART IDENTITY CASCADE
     `);
     createdAt = new Date();

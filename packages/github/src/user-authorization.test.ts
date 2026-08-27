@@ -93,6 +93,131 @@ describe("OctokitUserAuthorizationPort", () => {
     ).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
+  it("pages this user's App installations and keeps a full last page without throwing", async () => {
+    const listInstallationsForAuthenticatedUser = vi.fn(
+      async (input: { page: number }) => ({
+        data: {
+          total_count: 1_000,
+          installations:
+            input.page <= 10
+              ? Array.from({ length: 100 }, (_, index) => ({
+                  id: input.page * 1_000 + index + 1,
+                }))
+              : [],
+        },
+      }),
+    );
+    const port = new OctokitUserAuthorizationPort({
+      clientFactory: () =>
+        githubRestClientStub({ listInstallationsForAuthenticatedUser }),
+    });
+
+    await expect(
+      port.listAccessibleAppInstallations({ userToken: token }),
+    ).resolves.toHaveLength(1_000);
+    expect(listInstallationsForAuthenticatedUser).toHaveBeenCalledTimes(10);
+  });
+
+  it("fails closed when the App installation result exceeds its bounded pagination", async () => {
+    const port = new OctokitUserAuthorizationPort({
+      clientFactory: () =>
+        githubRestClientStub({
+          listInstallationsForAuthenticatedUser: async () => ({
+            data: { total_count: 1_001, installations: [] },
+          }),
+        }),
+    });
+
+    await expect(
+      port.listAccessibleAppInstallations({ userToken: token }),
+    ).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
+  it("pages writable repositories through the request-scoped App-user endpoint", async () => {
+    const listInstallationReposForAuthenticatedUser = vi.fn(
+      async (input: { installationId: number; page: number }) => ({
+        data:
+          input.page === 1
+            ? {
+                total_count: 4,
+                repositories: [
+                  {
+                    id: 201,
+                    permissions: { admin: true, push: false },
+                  },
+                  {
+                    id: 202,
+                    permissions: { admin: false, push: true },
+                  },
+                  {
+                    id: 203,
+                    permissions: {
+                      admin: false,
+                      push: false,
+                      maintain: true,
+                    },
+                  },
+                  {
+                    id: 204,
+                    permissions: { admin: false, push: false },
+                  },
+                ],
+              }
+            : { total_count: 4, repositories: [] },
+      }),
+    );
+    const port = new OctokitUserAuthorizationPort({
+      clientFactory: () =>
+        githubRestClientStub({
+          listInstallationReposForAuthenticatedUser,
+        }),
+    });
+
+    await expect(
+      port.listWritableAppRepositories({
+        userToken: token,
+        githubInstallationIds: ["17"],
+      }),
+    ).resolves.toEqual(["201", "202", "203"]);
+    expect(listInstallationReposForAuthenticatedUser).toHaveBeenCalledWith(
+      { installationId: 17, page: 1, perPage: 100 },
+      expect.any(AbortSignal),
+    );
+    expect(listInstallationReposForAuthenticatedUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects incomplete or unstable writable-repository pagination", async () => {
+    const listInstallationReposForAuthenticatedUser = vi.fn(
+      async (input: { page: number }) => ({
+        data:
+          input.page === 1
+            ? {
+                total_count: 2,
+                repositories: [
+                  {
+                    id: 201,
+                    permissions: { admin: true, push: false },
+                  },
+                ],
+              }
+            : { total_count: 3, repositories: [] },
+      }),
+    );
+    const port = new OctokitUserAuthorizationPort({
+      clientFactory: () =>
+        githubRestClientStub({
+          listInstallationReposForAuthenticatedUser,
+        }),
+    });
+
+    await expect(
+      port.listWritableAppRepositories({
+        userToken: token,
+        githubInstallationIds: ["17"],
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
   it("strictly rejects extra request fields and never exposes a token in errors", async () => {
     const port = new OctokitUserAuthorizationPort({
       clientFactory: () =>

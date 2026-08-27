@@ -30,7 +30,7 @@ databaseDescribe("production GitHub OAuth flow quotas", () => {
 
   beforeEach(async () => {
     await database.pool.query(
-      "TRUNCATE TABLE github_oauth_flows, repositories, installations CASCADE",
+      "TRUNCATE TABLE github_oauth_flows, repositories, installations, github_app_account_allowlist CASCADE",
     );
     await database.pool.query(
       `INSERT INTO installations

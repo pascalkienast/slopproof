@@ -52,7 +52,7 @@ databaseDescribe("GenerationContextV1 PostgreSQL persistence", () => {
     await database.pool.query(`
       TRUNCATE TABLE
         generation_contexts, github_revision_sources, analysis_snapshots,
-        pull_request_revisions, pull_requests, repositories, installations
+        pull_request_revisions, pull_requests, repositories, installations, github_app_account_allowlist
       RESTART IDENTITY CASCADE
     `);
     const seeded = await seedRevision(database);

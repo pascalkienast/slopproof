@@ -94,7 +94,7 @@ databaseDescribe("provider pipeline PostgreSQL persistence", () => {
         attempt_transitions, attempts, proof_questions, proof_plans,
         practice_sessions, analysis_snapshots, webhook_deliveries,
         pull_request_revisions, pull_requests, repository_policies,
-        repositories, installations
+        repositories, installations, github_app_account_allowlist
       RESTART IDENTITY CASCADE
     `);
     proofPlan = await seedProviderAttempt(database);

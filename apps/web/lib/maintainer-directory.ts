@@ -10,6 +10,7 @@ import {
   type GithubUserAuthorizationPort,
 } from "@slopproof/github";
 import {
+  listActiveMaintainerInstallationIds,
   listActiveMaintainerRepositories,
   loadMaintainerRepositoriesByIds,
   type ActiveMaintainerRepositoryV1,
@@ -36,9 +37,9 @@ export class MaintainerDirectoryError extends Error {
 }
 
 /**
- * Live intersection of active SlopProof installations and this GitHub user's
- * collaborator permission. Any inconclusive permission read fails the whole
- * directory. The access token stays method-local.
+ * Exact repository permission helper retained for narrow authorization
+ * callers and tests. Identify uses GitHub's paginated user-installation
+ * repository endpoint instead. The access token stays method-local.
  */
 export async function filterMaintainerDirectory(
   input: Readonly<{
@@ -99,16 +100,28 @@ export async function resolveProductionIdentifyDirectory(
     ) {
       return null;
     }
-    const repositories = await listActiveMaintainerRepositories(
+    const authorizationPort =
+      dependencies.authorizationPort ?? new OctokitUserAuthorizationPort();
+    const githubInstallationIds =
+      await authorizationPort.listAccessibleAppInstallations({
+        userToken: input.accessToken,
+      });
+    const activeInstallationIds = await listActiveMaintainerInstallationIds(
       app.database.pool,
+      githubInstallationIds,
     );
-    const allowed = await filterMaintainerDirectory({
-      user: input.user,
-      accessToken: input.accessToken,
-      repositories,
-      authorizationPort:
-        dependencies.authorizationPort ?? new OctokitUserAuthorizationPort(),
-    });
+    const writableRepositoryIds =
+      activeInstallationIds.length === 0
+        ? []
+        : await authorizationPort.listWritableAppRepositories({
+            userToken: input.accessToken,
+            githubInstallationIds: [...activeInstallationIds],
+          });
+    const allowed = await listActiveMaintainerRepositories(
+      app.database.pool,
+      activeInstallationIds,
+      writableRepositoryIds,
+    );
     const expiresAt = new Date(input.now.getTime() + GITHUB_USER_SEAL_TTL_MS);
     return Object.freeze({
       sealedCookie: sealGithubMaintainerDirectory(
