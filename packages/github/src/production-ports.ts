@@ -281,6 +281,15 @@ export type GithubCollaboratorPermission = z.infer<
   typeof GithubCollaboratorPermissionSchema
 >;
 
+export const GithubAccessibleAppInstallationsInputSchema =
+  GithubAuthenticatedUserInputSchema;
+
+export const GithubAccessibleAppInstallationIdSchema = decimalIdSchema;
+
+export type GithubAccessibleAppInstallationsInput = z.infer<
+  typeof GithubAccessibleAppInstallationsInputSchema
+>;
+
 /** Request-scoped user-token port. Implementations must never cache tokens. */
 export interface GithubUserAuthorizationPort {
   getAuthenticatedUser(
@@ -289,6 +298,9 @@ export interface GithubUserAuthorizationPort {
   getCollaboratorPermission(
     input: GithubCollaboratorPermissionInput,
   ): Promise<GithubCollaboratorPermission>;
+  listAccessibleAppInstallations(
+    input: GithubAccessibleAppInstallationsInput,
+  ): Promise<readonly string[]>;
 }
 
 export const GITHUB_CHECK_NAME = "SlopProof / understanding required" as const;

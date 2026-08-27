@@ -93,6 +93,30 @@ describe("OctokitUserAuthorizationPort", () => {
     ).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
+  it("pages this user's App installations and keeps a full last page without throwing", async () => {
+    const listInstallationsForAuthenticatedUser = vi.fn(
+      async (input: { page: number }) => ({
+        data: {
+          installations:
+            input.page <= 10
+              ? Array.from({ length: 100 }, (_, index) => ({
+                  id: input.page * 1_000 + index + 1,
+                }))
+              : [],
+        },
+      }),
+    );
+    const port = new OctokitUserAuthorizationPort({
+      clientFactory: () =>
+        githubRestClientStub({ listInstallationsForAuthenticatedUser }),
+    });
+
+    await expect(
+      port.listAccessibleAppInstallations({ userToken: token }),
+    ).resolves.toHaveLength(1_000);
+    expect(listInstallationsForAuthenticatedUser).toHaveBeenCalledTimes(10);
+  });
+
   it("strictly rejects extra request fields and never exposes a token in errors", async () => {
     const port = new OctokitUserAuthorizationPort({
       clientFactory: () =>

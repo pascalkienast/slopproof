@@ -42,6 +42,7 @@ Stand: 2026-08-24
 | Log/metric leakage               | Allowlisted value-free fields, Pino redaction, Caddy query/header/IP filters, no payload metrics                                                                         | Operator debug changes can reintroduce leakage and require review                          |
 | Supply-chain compromise          | Frozen lockfile, boundary/secret audit, SBOM, dependency review, image vulnerability scan, non-root/read-only runtime                                                    | CI/action and base-image trust; actions are commit-pinned                                  |
 | Database/backup theft            | Provider/evidence payload encryption, protected DB network and encrypted backup handling                                                                                 | Repository metadata and access patterns remain sensitive                                   |
+| Unknown public-app install       | Operator allowlist on account.id or installer sender.id; unknown installs stay pending and cannot activate repos, enqueue PR work, or mint installation tokens          | An already-active tenant is never demoted by a later webhook; operator INSERT is required before a public App flip |
 
 ## Explicit non-goals
 

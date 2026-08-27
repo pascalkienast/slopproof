@@ -36,9 +36,9 @@ export class MaintainerDirectoryError extends Error {
 }
 
 /**
- * Live intersection of active SlopProof installations and this GitHub user's
- * collaborator permission. Any inconclusive permission read fails the whole
- * directory. The access token stays method-local.
+ * Live intersection of this user's accessible App installations, active
+ * SlopProof tenants, and collaborator permission. Any inconclusive permission
+ * read fails the whole directory. The access token stays method-local.
  */
 export async function filterMaintainerDirectory(
   input: Readonly<{
@@ -99,15 +99,21 @@ export async function resolveProductionIdentifyDirectory(
     ) {
       return null;
     }
+    const authorizationPort =
+      dependencies.authorizationPort ?? new OctokitUserAuthorizationPort();
+    const githubInstallationIds =
+      await authorizationPort.listAccessibleAppInstallations({
+        userToken: input.accessToken,
+      });
     const repositories = await listActiveMaintainerRepositories(
       app.database.pool,
+      githubInstallationIds,
     );
     const allowed = await filterMaintainerDirectory({
       user: input.user,
       accessToken: input.accessToken,
       repositories,
-      authorizationPort:
-        dependencies.authorizationPort ?? new OctokitUserAuthorizationPort(),
+      authorizationPort,
     });
     const expiresAt = new Date(input.now.getTime() + GITHUB_USER_SEAL_TTL_MS);
     return Object.freeze({

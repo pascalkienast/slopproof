@@ -76,6 +76,11 @@ export type CollaboratorPermissionRequest = {
   username: string;
 };
 
+export type ListInstallationsForAuthenticatedUserRequest = {
+  page: number;
+  perPage: number;
+};
+
 export type ListIssueCommentsRequest = PullRequestRequest & {
   page: number;
   perPage: number;
@@ -145,6 +150,10 @@ export interface GithubRestClient {
   getAuthenticatedUser(signal: AbortSignal): Promise<GithubApiResponse>;
   getCollaboratorPermissionLevel(
     input: CollaboratorPermissionRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse>;
+  listInstallationsForAuthenticatedUser(
+    input: ListInstallationsForAuthenticatedUserRequest,
     signal: AbortSignal,
   ): Promise<GithubApiResponse>;
 }
@@ -361,6 +370,17 @@ export class OctokitGithubRestClient implements GithubRestClient {
       owner: input.owner,
       repo: input.repositoryName,
       username: input.username,
+      request: { signal },
+    });
+  }
+
+  async listInstallationsForAuthenticatedUser(
+    input: ListInstallationsForAuthenticatedUserRequest,
+    signal: AbortSignal,
+  ): Promise<GithubApiResponse> {
+    return this.octokit.rest.apps.listInstallationsForAuthenticatedUser({
+      page: input.page,
+      per_page: input.perPage,
       request: { signal },
     });
   }

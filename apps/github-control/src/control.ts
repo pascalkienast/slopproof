@@ -27,6 +27,7 @@ import {
   type GithubPullRequestPort,
   type PullRequestJobPayload,
   type RevisionPreparationPublisher,
+  InactiveGithubInstallationError,
   processPullRequestJob,
   processVerifiedPullRequestSnapshot,
 } from "@slopproof/github";
@@ -325,6 +326,13 @@ export async function handleGithubPullRequestJob(
         dependencies.database,
         payload,
       );
+      if (!canAuthorizeGithubInstallationWork(authorizationFence)) {
+        await acknowledgeInactiveGithubInstallationDelivery(
+          payload,
+          dependencies,
+        );
+        return;
+      }
       const source = authorizationFence.freshAuthorization
         ? await dependencies.pullRequests.loadFresh?.(readInput)
         : await dependencies.pullRequests.load(readInput);
@@ -366,6 +374,13 @@ export async function handleGithubPullRequestJob(
             dependencies.database,
             payload,
           );
+          if (!canAuthorizeGithubInstallationWork(authorizationFence)) {
+            await acknowledgeInactiveGithubInstallationDelivery(
+              payload,
+              dependencies,
+            );
+            return;
+          }
           const currentInput = {
             installationId: payload.installation.githubInstallationId,
             repositoryId: payload.repository.githubRepositoryId,
@@ -442,7 +457,42 @@ export async function handleGithubPullRequestJob(
       revisionSource,
     );
   } catch (error) {
+    if (error instanceof InactiveGithubInstallationError) {
+      await acknowledgeInactiveGithubInstallationDelivery(payload, dependencies);
+      return;
+    }
     await handleGithubPullRequestFailure(payload, error, dependencies);
+  }
+}
+
+function canAuthorizeGithubInstallationWork(
+  fence: GithubLifecycleAuthorizationFence,
+): boolean {
+  const status = fence.installation?.status;
+  return status === "active" || status === "suspended";
+}
+
+async function acknowledgeInactiveGithubInstallationDelivery(
+  payload: PullRequestJobPayload,
+  dependencies: GithubControlDependencies,
+): Promise<void> {
+  const client = await dependencies.database.pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `UPDATE webhook_deliveries
+          SET processing_status = 'processed', processed_at = now(),
+              queued_at = NULL, next_retry_at = NULL
+        WHERE delivery_id = $1
+          AND processing_status IN ('reserved', 'queued')`,
+      [payload.deliveryId],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
   }
 }
 
@@ -452,7 +502,7 @@ async function loadLifecycleAuthorizationFence(
 ): Promise<GithubLifecycleAuthorizationFence> {
   const installation = await database.pool.query<{
     github_installation_id: string;
-    status: "active" | "suspended" | "removed";
+    status: "active" | "pending" | "suspended" | "removed";
     version: string;
   }>(
     `SELECT github_installation_id, status, updated_at::text AS version

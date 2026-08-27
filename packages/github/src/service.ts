@@ -19,6 +19,15 @@ export class WebhookDeliveryConflictError extends Error {
   readonly code = "WEBHOOK_DELIVERY_CONFLICT" as const;
 }
 
+export class InactiveGithubInstallationError extends Error {
+  readonly code = "INACTIVE_GITHUB_INSTALLATION" as const;
+
+  constructor() {
+    super("GitHub installation is not an active tenant");
+    this.name = "InactiveGithubInstallationError";
+  }
+}
+
 export type WebhookReservation = {
   duplicate: boolean;
   shouldEnqueue: boolean;
@@ -209,7 +218,7 @@ export type ProcessPullRequestResult = {
   invalidatedAttempts: number;
 };
 
-type GithubLifecycleState = "active" | "suspended" | "removed";
+type GithubLifecycleState = "active" | "pending" | "suspended" | "removed";
 
 export type GithubLifecycleAuthorizationFence = {
   freshAuthorization: boolean;
@@ -360,30 +369,30 @@ async function processVerifiedPullRequestSnapshotOperation(
       installationFence !== null &&
       installationFence.status === "suspended";
     const installation = await client.query<{ id: string; status: string }>(
-      `INSERT INTO installations (github_installation_id, account_id, account_login)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (github_installation_id) DO UPDATE SET
-         account_id = EXCLUDED.account_id,
-         account_login = EXCLUDED.account_login,
-         status = CASE WHEN $4::boolean THEN 'active'::github_lifecycle_status
-                       ELSE installations.status END,
-         suspended_at = CASE WHEN $4::boolean THEN NULL
-                             ELSE installations.suspended_at END,
-         updated_at = CASE
-           WHEN installations.account_id IS DISTINCT FROM EXCLUDED.account_id
-             OR installations.account_login IS DISTINCT FROM EXCLUDED.account_login
-             OR ($4::boolean AND installations.status <> 'active')
-           THEN now() ELSE installations.updated_at END
-       WHERE installations.status <> 'removed'
-         AND (
-           ($5::text IS NULL AND installations.status = 'active')
-           OR (
-             installations.status::text = $6
-             AND installations.updated_at::text = $5
-             AND (installations.status = 'active' OR $4::boolean)
-           )
-         )
-       RETURNING id, status`,
+      `UPDATE installations
+          SET account_id = $2,
+              account_login = $3,
+              status = CASE WHEN $4::boolean THEN 'active'::github_lifecycle_status
+                            ELSE installations.status END,
+              suspended_at = CASE WHEN $4::boolean THEN NULL
+                                  ELSE installations.suspended_at END,
+              updated_at = CASE
+                WHEN installations.account_id IS DISTINCT FROM $2
+                  OR installations.account_login IS DISTINCT FROM $3
+                  OR ($4::boolean AND installations.status <> 'active')
+                THEN now() ELSE installations.updated_at END
+        WHERE github_installation_id = $1
+          AND installations.status <> 'removed'
+          AND installations.status <> 'pending'
+          AND (
+            ($5::text IS NULL AND installations.status = 'active')
+            OR (
+              installations.status::text = $6
+              AND installations.updated_at::text = $5
+              AND (installations.status = 'active' OR $4::boolean)
+            )
+          )
+        RETURNING id, status`,
       [
         payload.installation.githubInstallationId,
         payload.installation.accountId,
@@ -394,7 +403,7 @@ async function processVerifiedPullRequestSnapshotOperation(
       ],
     );
     if (installation.rows[0]?.status !== "active") {
-      throw new Error("GitHub installation is not active");
+      throw new InactiveGithubInstallationError();
     }
     const mayReactivateRepository =
       authorizationFence?.freshAuthorization === true &&

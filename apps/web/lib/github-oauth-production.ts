@@ -801,9 +801,23 @@ function requestedReviewRepositoryId(request: Request): string | undefined {
   return repositoryId.data;
 }
 
+const GithubInstallationIdSchema = z
+  .string()
+  .regex(/^[1-9][0-9]{0,15}$/u)
+  .refine((value) => Number.isSafeInteger(Number(value)));
+
 export async function listActiveMaintainerRepositories(
   pool: SqlPool,
+  githubInstallationIds: readonly string[],
 ): Promise<readonly ActiveMaintainerRepositoryV1[]> {
+  const parsedIds = githubInstallationIds.map((id) =>
+    GithubInstallationIdSchema.safeParse(id),
+  );
+  if (parsedIds.some((id) => !id.success)) {
+    throw new GithubOAuthWiringError();
+  }
+  const uniqueIds = [...new Set(parsedIds.map((id) => id.data))];
+  if (uniqueIds.length === 0) return [];
   const result = await pool.query<{
     id: string;
     owner: string;
@@ -813,15 +827,13 @@ export async function listActiveMaintainerRepositories(
        FROM repositories repository
        JOIN installations installation
          ON installation.id = repository.installation_id
-      WHERE repository.status = 'active'
+      WHERE installation.github_installation_id = ANY($1::text[])
+        AND repository.status = 'active'
         AND installation.status = 'active'
       ORDER BY repository.owner, repository.name, repository.id
-      LIMIT $1`,
-    [MAX_ACTIVE_MAINTAINER_REPOSITORIES + 1],
+      LIMIT $2`,
+    [uniqueIds, MAX_ACTIVE_MAINTAINER_REPOSITORIES],
   );
-  if (result.rows.length > MAX_ACTIVE_MAINTAINER_REPOSITORIES) {
-    throw new GithubOAuthWiringError();
-  }
   return result.rows.map(parseActiveMaintainerRepository);
 }
 

@@ -138,11 +138,19 @@ export const GithubInstallationRepositoriesActionSchema = z.enum([
   "removed",
 ]);
 
+const optionalSenderSchema = z
+  .object({
+    id: githubNumericIdSchema,
+  })
+  .passthrough()
+  .optional();
+
 export const GithubInstallationWebhookSchema = z
   .object({
     action: GithubInstallationActionSchema,
     installation: installationSchema,
     repositories: z.array(lifecycleRepositorySchema).max(1_000).optional(),
+    sender: optionalSenderSchema,
   })
   .passthrough()
   .transform((payload) => ({
@@ -151,6 +159,7 @@ export const GithubInstallationWebhookSchema = z
       githubInstallationId: payload.installation.id,
       accountId: payload.installation.account.id,
       accountLogin: payload.installation.account.login,
+      senderId: payload.sender?.id,
     },
     repositorySelection: payload.installation.repository_selection,
     repositories: payload.repositories ?? [],
@@ -166,6 +175,7 @@ export const GithubInstallationRepositoriesWebhookSchema = z
     installation: installationSchema,
     repositories_added: z.array(lifecycleRepositorySchema).max(1_000),
     repositories_removed: z.array(lifecycleRepositorySchema).max(1_000),
+    sender: optionalSenderSchema,
   })
   .passthrough()
   .transform((payload) => ({
@@ -174,6 +184,7 @@ export const GithubInstallationRepositoriesWebhookSchema = z
       githubInstallationId: payload.installation.id,
       accountId: payload.installation.account.id,
       accountLogin: payload.installation.account.login,
+      senderId: payload.sender?.id,
     },
     repositorySelection: payload.installation.repository_selection,
     repositoriesAdded: payload.repositories_added,

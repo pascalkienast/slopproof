@@ -6,10 +6,13 @@ import {
 } from "./octokit-client";
 import { GithubControlError } from "./production-errors";
 import {
+  GithubAccessibleAppInstallationIdSchema,
+  GithubAccessibleAppInstallationsInputSchema,
   GithubAuthenticatedUserInputSchema,
   GithubAuthenticatedUserSchema,
   GithubCollaboratorPermissionInputSchema,
   GithubCollaboratorPermissionSchema,
+  type GithubAccessibleAppInstallationsInput,
   type GithubAuthenticatedUser,
   type GithubAuthenticatedUserInput,
   type GithubCollaboratorPermission,
@@ -37,6 +40,41 @@ const upstreamPermissionSchema = z
       .nullable(),
   })
   .passthrough();
+
+const USER_APP_INSTALLATIONS_PAGE_SIZE = 100;
+const MAX_USER_APP_INSTALLATION_PAGES = 10;
+
+const upstreamInstallationPageSchema = z
+  .object({
+    installations: z.array(
+      z
+        .object({
+          id: z.number().int().positive().safe(),
+        })
+        .passthrough(),
+    ),
+  })
+  .passthrough();
+
+function parseAccessibleAppInstallationPage(data: unknown): {
+  ids: string[];
+  hasMore: boolean;
+} | null {
+  const page = upstreamInstallationPageSchema.safeParse(data);
+  if (!page.success) return null;
+  const ids: string[] = [];
+  for (const installation of page.data.installations) {
+    const parsed = GithubAccessibleAppInstallationIdSchema.safeParse(
+      String(installation.id),
+    );
+    if (parsed.success) ids.push(parsed.data);
+  }
+  return {
+    ids,
+    hasMore:
+      page.data.installations.length >= USER_APP_INSTALLATIONS_PAGE_SIZE,
+  };
+}
 
 export type OctokitUserAuthorizationPortOptions = {
   clientFactory?: GithubRestClientFactory;
@@ -106,6 +144,33 @@ export class OctokitUserAuthorizationPort implements GithubUserAuthorizationPort
     });
     if (!result.success) throw new GithubControlError("INVALID_RESPONSE");
     return result.data;
+  }
+
+  async listAccessibleAppInstallations(
+    rawInput: GithubAccessibleAppInstallationsInput,
+  ): Promise<readonly string[]> {
+    const input = GithubAccessibleAppInstallationsInputSchema.safeParse(rawInput);
+    if (!input.success) throw new GithubControlError("INVALID_INPUT");
+    const client = this.createClient(input.data.userToken);
+    const installationIds: string[] = [];
+    for (let page = 1; page <= MAX_USER_APP_INSTALLATION_PAGES; page += 1) {
+      const response = await executeGithubRequest(
+        (signal) =>
+          client.listInstallationsForAuthenticatedUser(
+            {
+              page,
+              perPage: USER_APP_INSTALLATIONS_PAGE_SIZE,
+            },
+            signal,
+          ),
+        this.requestPolicy,
+      );
+      const parsed = parseAccessibleAppInstallationPage(response.data);
+      if (!parsed) throw new GithubControlError("INVALID_RESPONSE");
+      installationIds.push(...parsed.ids);
+      if (!parsed.hasMore) break;
+    }
+    return Object.freeze(installationIds);
   }
 
   private createClient(userToken: string): GithubRestClient {

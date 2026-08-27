@@ -1,6 +1,10 @@
 import { GithubControlError } from "@slopproof/github";
 import { describe, expect, it, vi } from "vitest";
-import { filterMaintainerDirectory } from "./maintainer-directory";
+import {
+  filterMaintainerDirectory,
+  resolveProductionIdentifyDirectory,
+} from "./maintainer-directory";
+import type { WebRuntime } from "./runtime";
 
 const FIRST = {
   id: "10000000-0000-4000-8000-000000000002",
@@ -24,6 +28,7 @@ function port(
     getCollaboratorPermission: vi.fn(
       async (input: { repositoryName: string }) => lookup(input.repositoryName),
     ),
+    listAccessibleAppInstallations: vi.fn(async () => []),
   };
 }
 
@@ -90,5 +95,44 @@ describe("maintainer directory filter", () => {
     ).rejects.toMatchObject({
       message: "Maintainer directory is unavailable.",
     });
+  });
+
+  it("resolves Identify from the user's App installations instead of every tenant", async () => {
+    const query = vi.fn(async (sql: string, parameters: unknown[] = []) => {
+      expect(sql).toContain(
+        "installation.github_installation_id = ANY($1::text[])",
+      );
+      expect(parameters[0]).toEqual(["17"]);
+      expect(parameters[1]).toBe(32);
+      return { rows: [FIRST], rowCount: 1 };
+    });
+    const listAccessibleAppInstallations = vi.fn(async () => ["17"]);
+    const identified = await resolveProductionIdentifyDirectory(
+      {
+        config: {
+          DEPLOYMENT_PROFILE: "production",
+          GITHUB_ADAPTER: "octokit",
+          DEMO_MODE: false,
+          SESSION_SECRET: "production-session-secret-that-is-at-least-32-bytes",
+        },
+        database: { pool: { query } },
+      } as unknown as WebRuntime,
+      {
+        user: { githubUserId: "12345678", login: "octocat" },
+        accessToken: "request-scoped-user-token",
+        now: new Date("2026-08-27T12:00:00.000Z"),
+      },
+      {
+        authorizationPort: {
+          ...port(async () => ({ permission: "admin", roleName: "admin" })),
+          listAccessibleAppInstallations,
+        },
+      },
+    );
+    expect(identified).not.toBeNull();
+    expect(listAccessibleAppInstallations).toHaveBeenCalledWith({
+      userToken: "request-scoped-user-token",
+    });
+    expect(query).toHaveBeenCalledTimes(1);
   });
 });

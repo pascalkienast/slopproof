@@ -50,9 +50,14 @@ databaseDescribe("signed fake GitHub ingress", () => {
         attempt_transitions, attempts, proof_questions, proof_plans,
         practice_sessions, analysis_snapshots, webhook_deliveries,
         pull_request_revisions, pull_requests, repository_policies,
-        repositories, installations
+        repositories, installations, github_app_account_allowlist
       RESTART IDENTITY CASCADE
     `);
+    await seedAllowlistedInstallation(connection, {
+      githubInstallationId: "17",
+      accountId: "7",
+      accountLogin: "acme",
+    });
   });
 
   it("deduplicates deliveries and invalidates the old SHA on synchronize", async () => {
@@ -415,7 +420,226 @@ databaseDescribe("signed fake GitHub ingress", () => {
       status: "removed",
     });
   });
+
+  it("persists unknown App installs as pending and ignores their pull requests", async () => {
+    const created = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000030",
+      eventName: "installation",
+      body: {
+        action: "created",
+        installation: {
+          id: 999017,
+          account: { id: 999007, login: "stranger" },
+          repository_selection: "all",
+        },
+        sender: { id: 999008, login: "installer" },
+        repositories: [lifecycleRepository(999042)],
+      },
+    });
+    await expect(
+      ingestPullRequestWebhook({
+        pool: connection.pool,
+        queue,
+        secret: webhookSecret,
+        ...created,
+      }),
+    ).resolves.toMatchObject({ ignored: false });
+    expect(
+      await connection.pool.query<{ status: string }>(
+        "SELECT status FROM installations WHERE github_installation_id = '999017'",
+      ),
+    ).toMatchObject({ rows: [{ status: "pending" }] });
+    expect(
+      await scalar(connection, "SELECT count(*)::int FROM repositories"),
+    ).toBe(0);
+
+    const added = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000031",
+      eventName: "installation_repositories",
+      body: {
+        action: "added",
+        installation: {
+          id: 999017,
+          account: { id: 999007, login: "stranger" },
+          repository_selection: "selected",
+        },
+        repositories_added: [lifecycleRepository(999042)],
+        repositories_removed: [],
+      },
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...added,
+    });
+    expect(
+      await scalar(connection, "SELECT count(*)::int FROM repositories"),
+    ).toBe(0);
+
+    const opened = webhook({
+      deliveryId: "30000000-0000-4000-8000-000000000032",
+      action: "opened",
+      headSha: "a".repeat(40),
+    });
+    opened.rawBody = new TextEncoder().encode(
+      JSON.stringify({
+        action: "opened",
+        installation: { id: 999017 },
+        repository: {
+          id: 999042,
+          name: "cachekit",
+          full_name: "stranger/cachekit",
+          default_branch: "main",
+          owner: { id: 999007, login: "stranger" },
+        },
+        pull_request: {
+          id: 9991840,
+          number: 184,
+          state: "open",
+          user: { id: 99, login: "octocat" },
+          head: { sha: "a".repeat(40) },
+          base: { sha: "b".repeat(40) },
+        },
+      }),
+    );
+    opened.headers.signature = `sha256=${createHmac("sha256", webhookSecret)
+      .update(opened.rawBody)
+      .digest("hex")}`;
+    await expect(
+      ingestPullRequestWebhook({
+        pool: connection.pool,
+        queue,
+        secret: webhookSecret,
+        ...opened,
+      }),
+    ).resolves.toMatchObject({ ignored: true, duplicate: false });
+    expect(
+      await scalar(
+        connection,
+        "SELECT count(*)::int FROM webhook_deliveries WHERE processing_status = 'queued'",
+      ),
+    ).toBe(0);
+    expect(
+      await scalar(connection, "SELECT count(*)::int FROM pull_requests"),
+    ).toBe(0);
+  });
+
+  it("activates an org install when the installer sender is allowlisted", async () => {
+    await connection.pool.query(
+      `INSERT INTO github_app_account_allowlist (github_account_id, status)
+       VALUES ('900007', 'active')`,
+    );
+    const created = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000033",
+      eventName: "installation",
+      body: {
+        action: "created",
+        installation: {
+          id: 900017,
+          account: { id: 900001, login: "new-org" },
+          repository_selection: "all",
+        },
+        sender: { id: 900007, login: "pascal" },
+        repositories: [
+          {
+            id: 900042,
+            name: "cachekit",
+            full_name: "new-org/cachekit",
+            default_branch: "main",
+          },
+        ],
+      },
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...created,
+    });
+    expect(
+      await connection.pool.query<{ status: string }>(
+        "SELECT status FROM installations WHERE github_installation_id = '900017'",
+      ),
+    ).toMatchObject({ rows: [{ status: "active" }] });
+    expect(
+      await scalar(
+        connection,
+        "SELECT count(*)::int FROM repositories WHERE status = 'active'",
+      ),
+    ).toBe(1);
+  });
+
+  it("does not demote an already-active installation when the account is not allowlisted", async () => {
+    await connection.pool.query(
+      `INSERT INTO installations
+         (github_installation_id, account_id, account_login, status)
+       VALUES ('800017', '800007', 'legacy', 'active')`,
+    );
+    const created = lifecycleWebhook({
+      deliveryId: "30000000-0000-4000-8000-000000000034",
+      eventName: "installation",
+      body: {
+        action: "created",
+        installation: {
+          id: 800017,
+          account: { id: 800007, login: "legacy" },
+          repository_selection: "all",
+        },
+        repositories: [
+          {
+            id: 800042,
+            name: "cachekit",
+            full_name: "legacy/cachekit",
+            default_branch: "main",
+          },
+        ],
+      },
+    });
+    await ingestPullRequestWebhook({
+      pool: connection.pool,
+      queue,
+      secret: webhookSecret,
+      ...created,
+    });
+    expect(
+      await connection.pool.query<{ status: string }>(
+        "SELECT status FROM installations WHERE github_installation_id = '800017'",
+      ),
+    ).toMatchObject({ rows: [{ status: "active" }] });
+    expect(
+      await scalar(
+        connection,
+        "SELECT count(*)::int FROM repositories WHERE github_repository_id = '800042'",
+      ),
+    ).toBe(1);
+  });
 });
+
+async function seedAllowlistedInstallation(
+  connection: DatabaseConnection,
+  input: {
+    githubInstallationId: string;
+    accountId: string;
+    accountLogin: string;
+  },
+): Promise<void> {
+  await connection.pool.query(
+    `INSERT INTO github_app_account_allowlist (github_account_id, status)
+     VALUES ($1, 'active')
+     ON CONFLICT (github_account_id) DO UPDATE SET
+       status = 'active',
+       updated_at = now()`,
+    [input.accountId],
+  );
+  await connection.pool.query(
+    `INSERT INTO installations
+       (github_installation_id, account_id, account_login, status)
+     VALUES ($1, $2, $3, 'active')
+     ON CONFLICT (github_installation_id) DO NOTHING`,
+    [input.githubInstallationId, input.accountId, input.accountLogin],
+  );
+}
 
 function lifecycleRepository(id: number) {
   return {

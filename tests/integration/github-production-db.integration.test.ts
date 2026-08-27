@@ -94,7 +94,7 @@ databaseDescribe("production GitHub persistence", () => {
         attempt_transitions, attempts, proof_questions, proof_plans,
         practice_sessions, analysis_snapshots, webhook_deliveries,
         pull_request_revisions, pull_requests, repository_policies,
-        repositories, installations
+        repositories, installations, github_app_account_allowlist
       RESTART IDENTITY CASCADE
     `);
     await database.pool.query(
@@ -2069,6 +2069,12 @@ async function ingestRepositoryLifecycle(
     accountLogin: string;
   },
 ): Promise<void> {
+  await database.pool.query(
+    `INSERT INTO github_app_account_allowlist (github_account_id, status)
+     VALUES ($1, 'active')
+     ON CONFLICT (github_account_id) DO NOTHING`,
+    [input.accountId],
+  );
   const repository = {
     id: 8103,
     name: "cachekit",

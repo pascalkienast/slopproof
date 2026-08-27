@@ -40,6 +40,7 @@ export async function ingestGithubWebhook(input: {
       payloadHash: parsed.payloadHash,
     });
 
+    let ignored = parsed.kind === "ignored";
     if (reservation.shouldEnqueue) {
       switch (parsed.kind) {
         case "pull_request": {
@@ -50,6 +51,16 @@ export async function ingestGithubWebhook(input: {
             eventName: "pull_request",
             ...parsed.event,
           });
+          if (
+            !(await hasActiveGithubInstallation(
+              client,
+              payload.installation.githubInstallationId,
+            ))
+          ) {
+            ignored = true;
+            await setDeliveryStatus(client, parsed.deliveryId, "ignored");
+            break;
+          }
           await persistPullRequestDeliveryPayload(
             client,
             parsed.deliveryId,
@@ -79,7 +90,7 @@ export async function ingestGithubWebhook(input: {
     return {
       accepted: true,
       duplicate: reservation.duplicate,
-      ignored: parsed.kind === "ignored",
+      ignored,
       deliveryId: parsed.deliveryId,
     };
   } catch (error) {
@@ -123,7 +134,10 @@ type InstallationBinding = {
   githubInstallationId: string;
   accountId: string;
   accountLogin: string;
+  senderId?: string;
 };
+
+type InstallationTenantStatus = "active" | "pending";
 
 type LifecycleRepository = {
   githubRepositoryId: string;
@@ -156,22 +170,35 @@ async function applyInstallationEvent(
       event.installation.githubInstallationId,
     );
   }
-  const installationId = await upsertInstallation(
-    client,
-    event.installation,
+  const tenantStatus =
+    event.action === "suspend" || event.action === "deleted"
+      ? "pending"
+      : await resolveGithubAppTenantStatus(client, event.installation);
+  const desiredStatus =
     event.action === "suspend"
       ? "suspended"
       : event.action === "deleted"
         ? "removed"
-        : "active",
-    false,
+        : tenantStatus;
+  const upserted = await upsertInstallation(
+    client,
+    event.installation,
+    desiredStatus,
+    {
+      allowReactivation: false,
+      allowPendingPromotion:
+        desiredStatus === "active" && event.action !== "unsuspend",
+    },
   );
   const existingInstallationId =
-    installationId ??
+    upserted?.id ??
     (event.action === "unsuspend" || event.action === "new_permissions_accepted"
       ? await findInstallationId(client, event.installation)
       : null);
   if (!existingInstallationId) return;
+  const installationStatus =
+    upserted?.status ??
+    (await loadInstallationStatus(client, existingInstallationId));
 
   if (event.action === "deleted") {
     await client.query(
@@ -222,7 +249,11 @@ async function applyInstallationEvent(
   // installation payload even when the installation itself is restricted to
   // selected repositories. In that mode only installation_repositories
   // deliveries (and later repository-scoped fresh reads) may activate a row.
-  if (event.repositorySelection === "all") {
+  // Pending installs must not activate repository rows.
+  if (
+    installationStatus === "active" &&
+    event.repositorySelection === "all"
+  ) {
     for (const repository of event.repositories) {
       await upsertRepository(client, existingInstallationId, repository);
     }
@@ -263,30 +294,48 @@ async function applyInstallationRepositoriesEvent(
       ),
     );
   }
-  let installationId =
+  const addedTenantStatus =
+    event.action === "added"
+      ? await resolveGithubAppTenantStatus(client, event.installation)
+      : "pending";
+  const upserted =
     event.action === "removed"
       ? await ensureInstallationForRepositoryRemoval(client, event.installation)
-      : await upsertInstallation(client, event.installation, "active", false);
+      : await upsertInstallation(
+          client,
+          event.installation,
+          addedTenantStatus,
+          {
+            allowReactivation: false,
+            allowPendingPromotion: addedTenantStatus === "active",
+          },
+        );
+  let installationId = upserted?.id ?? null;
   if (!installationId && event.action === "added") {
     installationId = await findInstallationId(client, event.installation);
   }
   if (!installationId) return;
-  for (const repository of event.repositoriesAdded) {
-    await upsertRepository(client, installationId, repository);
-  }
-  if (event.repositoriesAdded.length > 0) {
-    await persistRepositoryRecoveryBindings(
-      client,
-      event.installation,
-      event.repositoriesAdded,
-    );
-    await setRepositoryPullRequestRefresh(
-      client,
-      event.repositoriesAdded.map(
-        (repository) => repository.githubRepositoryId,
-      ),
-      true,
-    );
+  const installationStatus =
+    upserted?.status ??
+    (await loadInstallationStatus(client, installationId));
+  if (installationStatus === "active") {
+    for (const repository of event.repositoriesAdded) {
+      await upsertRepository(client, installationId, repository);
+    }
+    if (event.repositoriesAdded.length > 0) {
+      await persistRepositoryRecoveryBindings(
+        client,
+        event.installation,
+        event.repositoriesAdded,
+      );
+      await setRepositoryPullRequestRefresh(
+        client,
+        event.repositoriesAdded.map(
+          (repository) => repository.githubRepositoryId,
+        ),
+        true,
+      );
+    }
   }
   const removedRepositoryIds: string[] = [];
   for (const repository of event.repositoriesRemoved) {
@@ -346,7 +395,7 @@ async function persistRepositoryRecoveryBindings(
              ON existing_repository.id = pull_request.repository_id
            JOIN installations target_installation
              ON target_installation.github_installation_id = $2
-            AND target_installation.status <> 'removed'
+            AND target_installation.status = 'active'
           WHERE existing_repository.github_repository_id = $1
             AND pull_request.state = 'open'
             AND existing_repository.installation_id <> target_installation.id
@@ -541,24 +590,24 @@ async function setRepositoryPullRequestRefresh(
 async function ensureInstallationForRepositoryRemoval(
   client: PoolClient,
   installation: InstallationBinding,
-): Promise<string | null> {
-  const result = await client.query<{ id: string }>(
+): Promise<{ id: string; status: string } | null> {
+  const result = await client.query<{ id: string; status: string }>(
     `INSERT INTO installations
        (github_installation_id, account_id, account_login, status)
-     VALUES ($1, $2, $3, 'active')
+     VALUES ($1, $2, $3, 'pending')
      ON CONFLICT (github_installation_id) DO UPDATE SET
        account_id = EXCLUDED.account_id,
        account_login = EXCLUDED.account_login,
        updated_at = now()
      WHERE installations.status <> 'removed'
-     RETURNING id`,
+     RETURNING id, status`,
     [
       installation.githubInstallationId,
       installation.accountId,
       installation.accountLogin,
     ],
   );
-  return result.rows[0]?.id ?? null;
+  return result.rows[0] ?? null;
 }
 
 async function findInstallationId(
@@ -573,13 +622,75 @@ async function findInstallationId(
   return result.rows[0]?.id ?? null;
 }
 
+async function hasActiveGithubInstallation(
+  client: PoolClient,
+  githubInstallationId: string,
+): Promise<boolean> {
+  const result = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+         FROM installations
+        WHERE github_installation_id = $1
+          AND status = 'active'
+     ) AS exists`,
+    [githubInstallationId],
+  );
+  return result.rows[0]?.exists === true;
+}
+
+async function isGithubAccountAllowlisted(
+  client: PoolClient,
+  githubAccountId: string,
+): Promise<boolean> {
+  const result = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+         FROM github_app_account_allowlist
+        WHERE github_account_id = $1
+          AND status = 'active'
+     ) AS exists`,
+    [githubAccountId],
+  );
+  return result.rows[0]?.exists === true;
+}
+
+async function resolveGithubAppTenantStatus(
+  client: PoolClient,
+  installation: InstallationBinding,
+): Promise<InstallationTenantStatus> {
+  if (await isGithubAccountAllowlisted(client, installation.accountId)) {
+    return "active";
+  }
+  if (
+    installation.senderId &&
+    (await isGithubAccountAllowlisted(client, installation.senderId))
+  ) {
+    return "active";
+  }
+  return "pending";
+}
+
+async function loadInstallationStatus(
+  client: PoolClient,
+  installationId: string,
+): Promise<string | null> {
+  const result = await client.query<{ status: string }>(
+    `SELECT status FROM installations WHERE id = $1`,
+    [installationId],
+  );
+  return result.rows[0]?.status ?? null;
+}
+
 async function upsertInstallation(
   client: PoolClient,
   installation: InstallationBinding,
-  status: "active" | "suspended" | "removed",
-  allowReactivation: boolean,
-): Promise<string | null> {
-  const result = await client.query<{ id: string }>(
+  status: "active" | "pending" | "suspended" | "removed",
+  options: {
+    allowReactivation: boolean;
+    allowPendingPromotion: boolean;
+  },
+): Promise<{ id: string; status: string } | null> {
+  const result = await client.query<{ id: string; status: string }>(
     `INSERT INTO installations
        (github_installation_id, account_id, account_login, status,
         suspended_at, removed_at)
@@ -589,11 +700,20 @@ async function upsertInstallation(
      ON CONFLICT (github_installation_id) DO UPDATE SET
        account_id = EXCLUDED.account_id,
        account_login = EXCLUDED.account_login,
-       status = EXCLUDED.status,
-       suspended_at = EXCLUDED.suspended_at,
+       status = CASE
+         WHEN EXCLUDED.status = 'pending' THEN installations.status
+         ELSE EXCLUDED.status
+       END,
+       suspended_at = CASE
+         WHEN EXCLUDED.status = 'pending' THEN installations.suspended_at
+         WHEN EXCLUDED.status = 'suspended'
+           THEN COALESCE(installations.suspended_at, EXCLUDED.suspended_at)
+         ELSE NULL
+       END,
        removed_at = CASE
          WHEN EXCLUDED.status = 'removed'
            THEN COALESCE(installations.removed_at, EXCLUDED.removed_at)
+         WHEN EXCLUDED.status = 'pending' THEN installations.removed_at
          ELSE NULL
        END,
        updated_at = now()
@@ -602,17 +722,19 @@ async function upsertInstallation(
          EXCLUDED.status <> 'active'
          OR installations.status = 'active'
          OR $5 = true
+         OR ($6 = true AND installations.status = 'pending')
        )
-     RETURNING id`,
+     RETURNING id, status`,
     [
       installation.githubInstallationId,
       installation.accountId,
       installation.accountLogin,
       status,
-      allowReactivation,
+      options.allowReactivation,
+      options.allowPendingPromotion,
     ],
   );
-  return result.rows[0]?.id ?? null;
+  return result.rows[0] ?? null;
 }
 
 async function upsertRepository(

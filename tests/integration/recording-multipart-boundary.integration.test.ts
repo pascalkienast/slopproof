@@ -41,7 +41,7 @@ databaseDescribe("fixed multipart boundary overlap", () => {
         practice_sessions, generation_contexts, analysis_snapshots,
         github_revision_sources, webhook_deliveries,
         pull_request_revisions, pull_requests, repository_policies,
-        repositories, installations
+        repositories, installations, github_app_account_allowlist
       RESTART IDENTITY CASCADE
     `);
     await seedUpload(connection);

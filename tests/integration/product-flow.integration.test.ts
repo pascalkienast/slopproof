@@ -152,9 +152,10 @@ databaseDescribe("complete current-SHA product flow", () => {
         practice_sessions, generation_contexts, analysis_snapshots,
         github_revision_sources, webhook_deliveries,
         pull_request_revisions, pull_requests, repository_policies,
-        repositories, installations
+        repositories, installations, github_app_account_allowlist
       RESTART IDENTITY CASCADE
     `);
+    await seedAllowlistedInstallation(connection);
   });
 
   it("builds one analysis, frozen plan and attempt, then invalidates it for a new SHA", async () => {
@@ -470,9 +471,10 @@ databaseDescribe("complete current-SHA product flow", () => {
         practice_sessions, generation_contexts, analysis_snapshots,
         github_revision_sources, webhook_deliveries,
         pull_request_revisions, pull_requests, repository_policies,
-        repositories, installations
+        repositories, installations, github_app_account_allowlist
       RESTART IDENTITY CASCADE
     `);
+    await seedAllowlistedInstallation(connection);
     const expiring = await createReadyFlow(
       connection,
       githubQueue,
@@ -610,6 +612,20 @@ databaseDescribe("complete current-SHA product flow", () => {
     ).resolves.toHaveLength(1);
   });
 });
+
+async function seedAllowlistedInstallation(
+  connection: DatabaseConnection,
+): Promise<void> {
+  await connection.pool.query(
+    `INSERT INTO github_app_account_allowlist (github_account_id, status)
+     VALUES ('73', 'active')`,
+  );
+  await connection.pool.query(
+    `INSERT INTO installations
+       (github_installation_id, account_id, account_login, status)
+     VALUES ('71', '73', 'acme', 'active')`,
+  );
+}
 
 function webhook(input: {
   deliveryId: string;
