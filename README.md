@@ -171,7 +171,7 @@ party's retention or training policy.
 
 ## Repository map
 
-- `landing/`: static marketing page at `GET /` (`index.html` plus `landing.js`)
+- `landing/`: static marketing source and published output for `GET /`
 - `apps/web`: contributor, mobile, and maintainer interfaces plus HTTP routes
 - `apps/worker`: queues, private media processing, providers, and retention
 - `apps/github-control`: installation-token and GitHub reconciliation process

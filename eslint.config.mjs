@@ -2,12 +2,7 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: [
-      "**/node_modules/**",
-      "**/.next/**",
-      "**/dist/**",
-      "slopproof-brand-ui-concept-v3.html",
-    ],
+    ignores: ["**/node_modules/**", "**/.next/**", "**/dist/**"],
   },
   ...tseslint.configs.recommended,
   {
