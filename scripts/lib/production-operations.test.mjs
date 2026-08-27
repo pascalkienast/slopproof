@@ -140,6 +140,10 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.match(landing, /choose the exact repositories during installation/iu);
   assert.match(landing, /Request access →/u);
   assert.match(landing, /receive setup instructions by email/iu);
+  assert.match(
+    landing,
+    /class="beta-app-link" href="https:\/\/github\.com\/apps\/slopproof" target="_blank" rel="noreferrer">View the GitHub App on GitHub ↗<\/a>/u,
+  );
   assert.match(landing, /id="closed-beta-form"/u);
   assert.match(landing, /name="email"[^>]*type="email"/u);
   assert.match(landing, /name="githubUsername"/u);

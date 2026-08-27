@@ -306,6 +306,8 @@
     .beta-copy { max-width: 650px; margin: 28px 0 0; font-size: 20px; }
     .beta-terms { margin: 30px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 10px; }
     .beta-terms li { padding: 8px 12px; border: 1px solid var(--ink); border-radius: 999px; background: rgba(255,253,247,.55); font: 600 10px/1 var(--mono); text-transform: uppercase; }
+    .beta-app-link { width: fit-content; margin-top: 24px; display: inline-block; color: var(--ink); font: 700 12px/1.4 var(--mono); text-underline-offset: 5px; }
+    .beta-app-link:hover { color: var(--orange); }
     .beta-form { padding: 30px; border: var(--line); border-radius: 38px 19px 32px 23px; background: var(--sheet); box-shadow: 10px 12px 0 var(--ink); transform: rotate(.6deg); }
     .beta-form-head { margin-bottom: 25px; padding-bottom: 17px; border-bottom: 2px dashed var(--ink); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
     .beta-form-head strong { font: 730 21px/1 var(--display); }
@@ -663,6 +665,7 @@
             <li>Choose your repositories</li>
             <li>Help with first setup</li>
           </ul>
+          <a class="beta-app-link" href="https://github.com/apps/slopproof" target="_blank" rel="noreferrer">View the GitHub App on GitHub ↗</a>
         </div>
 
         <form class="beta-form" id="closed-beta-form">
