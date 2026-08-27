@@ -6,17 +6,20 @@
 
 **Prove you know what you ship.**
 
-SlopProof is a self-hosted GitHub App. Before a pull request merges, the
-author explains the current patch on live video. It does not try to detect
-AI-generated code or guess how the patch was written.
+AI can generate a pull request in minutes. Maintainers still need confidence
+that the contributor understands what will change and where it can fail.
+
+SlopProof turns that understanding into a required GitHub check. The author
+explains the exact patch on live video, giving maintainers patch-bound evidence
+before merge.
 
 [![CI](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml)
 [![Supply chain](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-The hosted app is [slopproof.paskie.me](https://slopproof.paskie.me). `GET /`
-is the static marketing page. `/demo`, `/revisions`, `/m`, and `/review` are
-the product.
+Run the full stack yourself or try
+[slopproof.paskie.me](https://slopproof.paskie.me). Each proof stays bound to
+the current head SHA, so a new push requires a fresh explanation.
 
 <p align="center">
   <img src="docs/assets/product-tour/contributor-proof.webp" width="920" alt="SlopProof contributor page with optional Practice and required Proof choices">

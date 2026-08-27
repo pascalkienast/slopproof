@@ -127,29 +127,31 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.match(behavior, /\[data-open-mode\]/u);
 });
 
-test("public product copy does not call the live product an MVP", () => {
+test("public product copy leads with the product benefit", () => {
+  const readme = read("README.md");
+
   assert.match(read("apps/web/app/page.tsx"), /Open the local demo/u);
   assert.doesNotMatch(read("apps/web/app/page.tsx"), /Open the local MVP/u);
-  assert.doesNotMatch(
-    read("README.md"),
-    /The MVP does not|Open the local MVP/u,
-  );
-  assert.match(read("README.md"), /visibility_lost/u);
-  assert.match(read("README.md"), /help\/no-help guarantee/u);
+  assert.doesNotMatch(readme, /The MVP does not|Open the local MVP/u);
+  assert.match(readme, /visibility_lost/u);
+  assert.match(readme, /help\/no-help guarantee/u);
   assert.match(
-    read("README.md"),
+    readme,
     /You cannot read\s+notes on a second screen while the take runs/u,
   );
-  assert.match(read("README.md"), /## Product tour/u);
   assert.match(
-    read("README.md"),
-    /docs\/assets\/product-tour\/github-comment\.webp/u,
+    readme,
+    /SlopProof turns that understanding into a required GitHub check/u,
   );
-  assert.match(
-    read("README.md"),
-    /docs\/assets\/product-tour\/contributor-proof\.webp/u,
+  assert.match(readme, /patch-bound evidence\s+before merge/u);
+  assert.doesNotMatch(
+    readme,
+    /does not try to detect AI-generated code|`GET \/`\s+is the static marketing page/u,
   );
-  assert.doesNotMatch(read("README.md"), /Screenshot slots, empty/u);
+  assert.match(readme, /## Product tour/u);
+  assert.match(readme, /docs\/assets\/product-tour\/github-comment\.webp/u);
+  assert.match(readme, /docs\/assets\/product-tour\/contributor-proof\.webp/u);
+  assert.doesNotMatch(readme, /Screenshot slots, empty/u);
   assert.match(
     read("docs/operations/self-hosting.md"),
     /aborts as\s+`visibility_lost`/u,
