@@ -13,7 +13,8 @@ Stand: 2026-08-24
 4. Browser media is authenticated ciphertext before persistent storage.
    Plaintext exists only in bounded memory in the device or Worker.
 5. Models are untrusted assistants. They cannot alter SHA, policy, question
-   budget, anchor set or public outcome, and V1 always ends in maintainer review.
+   budget, anchor set or check transitions. Uncertain, inconsistent, missing or
+   failed evaluation stays fail-closed under deterministic policy.
 
 ## Assets and trust boundaries
 
@@ -29,18 +30,18 @@ Stand: 2026-08-24
 
 ## Principal threats and controls
 
-| Threat                           | Primary controls                                                                                                                                                         | Residual risk                                                                         |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| Forged webhook or OAuth callback | Raw-body HMAC, exact event schemas, PKCE/state, one-time DB state, proxy-authenticated client IP                                                                         | GitHub/operator credential compromise                                                 |
-| Stale SHA or lifecycle race      | Current revision locks, PR/repo/install active fences before and after private effects, durable invalidation                                                             | External event delay before next authoritative read                                   |
-| Replay/crash duplicates          | Immutable hashes, exact replay comparison, transactional pg-boss upsert/heal, sweepers                                                                                   | Provider may have accepted a request before a network ambiguity; outcome stays manual |
-| Evidence disclosure from storage | Browser AEAD, worker-only RSA unwrap, strict object keys/AAD/hash, R2 private bucket                                                                                     | Worker host/private key compromise                                                    |
-| Prompt injection/model overreach | Untrusted wrappers, strict IDs/anchors/codes, bounded provider material, no tools, one repair, complete per-question transcript preflight, deterministic/manual fallback | Provider sees the minimal material required for its task                              |
-| Biometric/person/tool inference  | Provider input excludes identity metadata; structured output has no free person-analysis field; forbidden semantics fail closed                                          | Visual frames inherently depict the contributor and surroundings                      |
-| DoS and cost exhaustion          | Body/media/provider byte caps, duration/question caps, durable HMAC quotas, deadlines, retries, CPU/RAM/PID limits                                                       | Distributed traffic and upstream provider outage still require operator response      |
-| Log/metric leakage               | Allowlisted value-free fields, Pino redaction, Caddy query/header/IP filters, no payload metrics                                                                         | Operator debug changes can reintroduce leakage and require review                     |
-| Supply-chain compromise          | Frozen lockfile, boundary/secret audit, SBOM, dependency review, image vulnerability scan, non-root/read-only runtime                                                    | CI/action and base-image trust; actions are commit-pinned                             |
-| Database/backup theft            | Provider/evidence payload encryption, protected DB network and encrypted backup handling                                                                                 | Repository metadata and access patterns remain sensitive                              |
+| Threat                           | Primary controls                                                                                                                                                         | Residual risk                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| Forged webhook or OAuth callback | Raw-body HMAC, exact event schemas, PKCE/state, one-time DB state, proxy-authenticated client IP                                                                         | GitHub/operator credential compromise                                                      |
+| Stale SHA or lifecycle race      | Current revision locks, PR/repo/install active fences before and after private effects, durable invalidation                                                             | External event delay before next authoritative read                                        |
+| Replay/crash duplicates          | Immutable hashes, exact replay comparison, transactional pg-boss upsert/heal, sweepers                                                                                   | Provider may have accepted a request before a network ambiguity; outcome stays fail-closed |
+| Evidence disclosure from storage | Browser AEAD, worker-only RSA unwrap, strict object keys/AAD/hash, R2 private bucket                                                                                     | Worker host/private key compromise                                                         |
+| Prompt injection/model overreach | Untrusted wrappers, strict IDs/anchors/codes, bounded provider material, no tools, one repair, complete per-question transcript preflight, deterministic/manual fallback | Provider sees the minimal material required for its task                                   |
+| Biometric/person/tool inference  | Provider input excludes identity metadata; structured output has no free person-analysis field; forbidden semantics fail closed                                          | Visual frames inherently depict the contributor and surroundings                           |
+| DoS and cost exhaustion          | Body/media/provider byte caps, duration/question caps, durable HMAC quotas, deadlines, retries, CPU/RAM/PID limits                                                       | Distributed traffic and upstream provider outage still require operator response           |
+| Log/metric leakage               | Allowlisted value-free fields, Pino redaction, Caddy query/header/IP filters, no payload metrics                                                                         | Operator debug changes can reintroduce leakage and require review                          |
+| Supply-chain compromise          | Frozen lockfile, boundary/secret audit, SBOM, dependency review, image vulnerability scan, non-root/read-only runtime                                                    | CI/action and base-image trust; actions are commit-pinned                                  |
+| Database/backup theft            | Provider/evidence payload encryption, protected DB network and encrypted backup handling                                                                                 | Repository metadata and access patterns remain sensitive                                   |
 
 ## Explicit non-goals
 

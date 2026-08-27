@@ -1,3 +1,4 @@
+// Public landing interactions.
 const tabs = [...document.querySelectorAll(".mode-tab")];
 const panels = [...document.querySelectorAll(".mode-panel")];
 

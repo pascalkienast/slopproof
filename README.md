@@ -6,17 +6,20 @@
 
 **Prove you know what you ship.**
 
-SlopProof is a self-hosted GitHub App. Before a pull request merges, the
-author explains the current patch on live video. It does not try to detect
-AI-generated code or guess how the patch was written.
+AI can generate a pull request in minutes. Maintainers still need confidence
+that the contributor understands what will change and where it can fail.
+
+SlopProof turns that understanding into a required GitHub check. The author
+explains the exact patch on live video, giving maintainers patch-bound evidence
+before merge.
 
 [![CI](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml)
 [![Supply chain](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-The hosted app is [slopproof.paskie.me](https://slopproof.paskie.me). `GET /`
-is the static marketing page. `/demo`, `/revisions`, `/m`, and `/review` are
-the product.
+Run the full stack yourself or try
+[slopproof.paskie.me](https://slopproof.paskie.me). Each proof stays bound to
+the current head SHA, so a new push requires a fresh explanation.
 
 <p align="center">
   <img src="docs/assets/product-tour/contributor-proof.webp" width="920" alt="SlopProof contributor page with optional Practice and required Proof choices">
@@ -168,7 +171,7 @@ party's retention or training policy.
 
 ## Repository map
 
-- `landing/`: static marketing page at `GET /` (`index.html` plus `landing.js`)
+- `landing/`: static marketing source and published output for `GET /`
 - `apps/web`: contributor, mobile, and maintainer interfaces plus HTTP routes
 - `apps/worker`: queues, private media processing, providers, and retention
 - `apps/github-control`: installation-token and GitHub reconciliation process
@@ -178,12 +181,11 @@ party's retention or training policy.
   transport
 - `packages/analysis`, `packages/questions`, `packages/providers`: bounded patch
   analysis, planning, and provider adapters
-- `docs`: security, privacy, and operations
+- `docs`: project status, security, privacy, maintainer, and operations guides
 - `scripts`: verification, release, backup, and deployment tooling
 
-[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) records what is
-implemented. Older product and interface notes stay in the numbered design
-documents and `archive/`.
+[Browse the documentation](docs/README.md) or read the current
+[project status](docs/project-status.md).
 
 ## Contributing
 

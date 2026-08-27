@@ -7,8 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const LANDING_SOURCE = {
-  html: "slopproof-brand-ui-concept-v3.html",
-  script: "landing.js",
+  html: "landing/source/index.html",
+  script: "landing/source/landing.js",
   assetsDirectory: "docs/assets/product-tour",
 };
 

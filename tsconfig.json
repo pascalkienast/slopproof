@@ -10,5 +10,5 @@
     "tests/**/*.ts",
     "*.ts"
   ],
-  "exclude": ["node_modules", ".next", "dist", "archive"]
+  "exclude": ["node_modules", ".next", "dist"]
 }
