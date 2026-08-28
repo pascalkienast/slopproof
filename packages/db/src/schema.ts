@@ -104,16 +104,31 @@ export const githubCheckSyncStatusEnum = pgEnum("github_check_sync_status", [
   "permanent_failure",
 ]);
 
-export const installations = pgTable("installations", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  githubInstallationId: text("github_installation_id").notNull().unique(),
-  accountId: text("account_id").notNull(),
-  accountLogin: text("account_login").notNull(),
-  status: githubLifecycleStatusEnum("status").notNull().default("active"),
-  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
-  removedAt: timestamp("removed_at", { withTimezone: true }),
-  ...timestamps,
-});
+export const installations = pgTable(
+  "installations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    githubInstallationId: text("github_installation_id").notNull().unique(),
+    accountId: text("account_id").notNull(),
+    accountLogin: text("account_login").notNull(),
+    installerAccountId: text("installer_account_id"),
+    status: githubLifecycleStatusEnum("status").notNull().default("active"),
+    suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    check(
+      "installations_installer_account_id_format",
+      sql`${table.installerAccountId} IS NULL OR ${table.installerAccountId} ~ '^[1-9][0-9]{0,15}$'`,
+    ),
+    index("installations_pending_installer_account_idx")
+      .on(table.installerAccountId)
+      .where(
+        sql`${table.status} = 'pending' AND ${table.installerAccountId} IS NOT NULL`,
+      ),
+  ],
+);
 
 export const githubAppAccountAllowlist = pgTable(
   "github_app_account_allowlist",

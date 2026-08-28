@@ -10,6 +10,22 @@ EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
 
+ALTER TABLE "installations"
+  ADD COLUMN "installer_account_id" text;
+
+ALTER TABLE "installations"
+  ADD CONSTRAINT "installations_installer_account_id_format" CHECK (
+    "installer_account_id" IS NULL
+    OR "installer_account_id" ~ '^[1-9][0-9]{0,15}$'
+  ) NOT VALID;
+
+ALTER TABLE "installations"
+  VALIDATE CONSTRAINT "installations_installer_account_id_format";
+
+CREATE INDEX "installations_pending_installer_account_idx"
+  ON "installations" ("installer_account_id")
+  WHERE "status" = 'pending' AND "installer_account_id" IS NOT NULL;
+
 CREATE TABLE "closed_beta_signups" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "email" text NOT NULL,

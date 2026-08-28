@@ -19,11 +19,17 @@ databaseDescribe("closed beta signup queue", () => {
   });
 
   beforeEach(async () => {
-    await connection.pool.query("DELETE FROM closed_beta_signups");
+    await connection.pool.query(
+      `TRUNCATE TABLE closed_beta_signups, installations,
+         github_app_account_allowlist CASCADE`,
+    );
   });
 
   afterAll(async () => {
-    await connection.pool.query("DELETE FROM closed_beta_signups");
+    await connection.pool.query(
+      `TRUNCATE TABLE closed_beta_signups, installations,
+         github_app_account_allowlist CASCADE`,
+    );
     await connection.close();
   });
 
@@ -91,5 +97,84 @@ databaseDescribe("closed beta signup queue", () => {
           WHERE github_username = 'pascal-kienast'`,
       ),
     ).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("activates personal and organization installs created by the admitted user", async () => {
+    await persistClosedBetaSignup(connection.pool, {
+      email: "pascal@example.com",
+      githubUsername: "pascal-kienast",
+      contactConsent: true,
+    });
+    await connection.pool.query(
+      `INSERT INTO installations
+         (github_installation_id, account_id, account_login,
+          installer_account_id, status)
+       VALUES
+         ('101', '6682526', 'pascalkienast', '6682526', 'pending'),
+         ('102', '7000001', 'example-org', '6682526', 'pending'),
+         ('103', '7000002', 'other-org', '9000001', 'pending')`,
+    );
+
+    const client = await connection.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const admission = await client.query<{
+        admitted_signup_count: string;
+        activated_installation_count: string;
+      }>(
+        `WITH admitted AS (
+           UPDATE closed_beta_signups
+              SET github_account_id = '6682526', status = 'admitted',
+                  decided_at = now(), updated_at = now()
+            WHERE github_username = 'pascal-kienast'
+              AND status IN ('pending', 'contacted')
+           RETURNING github_account_id
+         ), allowlisted AS (
+           INSERT INTO github_app_account_allowlist
+             (github_account_id, status)
+           SELECT github_account_id, 'active' FROM admitted
+           ON CONFLICT (github_account_id) DO UPDATE SET
+             status = 'active', updated_at = now()
+           RETURNING github_account_id
+         ), activated AS (
+           UPDATE installations
+              SET status = 'active', suspended_at = NULL, removed_at = NULL,
+                  updated_at = now()
+            WHERE status = 'pending'
+              AND EXISTS (
+                SELECT 1 FROM allowlisted
+                 WHERE installations.account_id = allowlisted.github_account_id
+                    OR installations.installer_account_id = allowlisted.github_account_id
+              )
+           RETURNING github_installation_id
+         )
+         SELECT (SELECT count(*) FROM admitted)::text AS admitted_signup_count,
+                (SELECT count(*) FROM activated)::text AS activated_installation_count`,
+      );
+      expect(admission.rows[0]).toEqual({
+        admitted_signup_count: "1",
+        activated_installation_count: "2",
+      });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    await expect(
+      connection.pool.query(
+        `SELECT github_installation_id, status
+           FROM installations
+          ORDER BY github_installation_id`,
+      ),
+    ).resolves.toMatchObject({
+      rows: [
+        { github_installation_id: "101", status: "active" },
+        { github_installation_id: "102", status: "active" },
+        { github_installation_id: "103", status: "pending" },
+      ],
+    });
   });
 });

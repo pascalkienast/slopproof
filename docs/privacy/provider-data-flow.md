@@ -32,6 +32,12 @@ an inference provider, or a newsletter service. Production rate limiting uses
 only an irreversible, action-separated HMAC of the TLS proxy's asserted client
 address; the raw address is not persisted by the application.
 
+When the GitHub App is installed before admission, installation metadata stores
+the target account and the immutable numeric GitHub ID of the original
+installer when GitHub provides it. It does not retain the mutable sender login
+or the raw webhook payload. Operators use that ID only to connect a reviewed
+beta request to pending personal or organization installations.
+
 New, duplicate and honeypot submissions receive the same value-free response,
 so the endpoint cannot be used to enumerate the queue. Only operators should
 read contact rows. Encrypted database backups contain them until backup expiry;

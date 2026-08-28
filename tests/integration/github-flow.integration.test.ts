@@ -445,10 +445,17 @@ databaseDescribe("signed fake GitHub ingress", () => {
       }),
     ).resolves.toMatchObject({ ignored: false });
     expect(
-      await connection.pool.query<{ status: string }>(
-        "SELECT status FROM installations WHERE github_installation_id = '999017'",
+      await connection.pool.query<{
+        status: string;
+        installer_account_id: string;
+      }>(
+        `SELECT status, installer_account_id
+           FROM installations
+          WHERE github_installation_id = '999017'`,
       ),
-    ).toMatchObject({ rows: [{ status: "pending" }] });
+    ).toMatchObject({
+      rows: [{ status: "pending", installer_account_id: "999008" }],
+    });
     expect(
       await scalar(connection, "SELECT count(*)::int FROM repositories"),
     ).toBe(0);
@@ -463,6 +470,7 @@ databaseDescribe("signed fake GitHub ingress", () => {
           account: { id: 999007, login: "stranger" },
           repository_selection: "selected",
         },
+        sender: { id: 999009, login: "later-admin" },
         repositories_added: [lifecycleRepository(999042)],
         repositories_removed: [],
       },
@@ -476,6 +484,13 @@ databaseDescribe("signed fake GitHub ingress", () => {
     expect(
       await scalar(connection, "SELECT count(*)::int FROM repositories"),
     ).toBe(0);
+    expect(
+      await connection.pool.query<{ installer_account_id: string }>(
+        `SELECT installer_account_id
+           FROM installations
+          WHERE github_installation_id = '999017'`,
+      ),
+    ).toMatchObject({ rows: [{ installer_account_id: "999008" }] });
 
     const opened = webhook({
       deliveryId: "30000000-0000-4000-8000-000000000032",
