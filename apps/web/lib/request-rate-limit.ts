@@ -9,6 +9,7 @@ import {
 } from "./oauth-start-protection";
 
 export const WebRequestRateLimitActionSchema = z.enum([
+  "closed_beta_signup",
   "handoff_create",
   "handoff_exchange",
   "upload_start",
@@ -41,6 +42,7 @@ type RateLimitPolicy = Readonly<{
 }>;
 
 export const WEB_REQUEST_RATE_LIMIT_POLICIES = Object.freeze({
+  closed_beta_signup: policy(5, 1_000, 10 * 60),
   handoff_create: policy(6, 1_000, 5 * 60),
   handoff_exchange: policy(20, 2_000, 5 * 60),
   upload_start: policy(8, 1_000, 10 * 60),
@@ -71,6 +73,7 @@ const RATE_LIMIT_LOCK_IDS = Object.freeze({
   evidence_capability: 10,
   review_decision: 11,
   evidence_stream: 12,
+  closed_beta_signup: 13,
 }) satisfies Readonly<Record<WebRequestRateLimitAction, number>>;
 
 export class WebRequestRateLimitExceededError extends Error {

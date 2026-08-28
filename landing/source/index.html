@@ -97,6 +97,9 @@
     .button.green { background: var(--green); }
     .button.optional { background: #e4e2dc; color: #5f5d57; }
     .button.dark { background: var(--ink); color: var(--sheet); box-shadow: 3px 4px 0 var(--orange); }
+    .button.github { padding-inline: 15px 18px; background: var(--ink); color: var(--sheet); box-shadow: 3px 4px 0 var(--orange); }
+    .button.github svg { width: 19px; height: 19px; flex: 0 0 auto; fill: currentColor; }
+    .button:disabled { cursor: wait; opacity: .66; transform: none; box-shadow: 1px 2px 0 var(--ink); }
 
     .hero {
       min-height: 760px;
@@ -296,9 +299,38 @@
     .privacy-limits { margin-top: 30px; padding-top: 24px; border-top: 1px solid #555249; display: flex; gap: 22px 38px; align-items: baseline; flex-wrap: wrap; color: #aaa69c; font: 500 11px/1.6 var(--mono); text-transform: uppercase; letter-spacing: .04em; }
     .privacy-limits strong { color: var(--sheet); }
 
+    .beta { padding: 120px 0; background: var(--yellow); position: relative; overflow: hidden; }
+    .beta::before { content: "BETA"; position: absolute; right: -40px; top: -90px; color: rgba(23,23,17,.06); font: 800 clamp(180px, 28vw, 420px)/1 var(--display); letter-spacing: -.08em; pointer-events: none; }
+    .beta-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(420px, .82fr); gap: 72px; align-items: center; position: relative; }
+    .beta h2 { margin: 0; max-width: 720px; font: 800 clamp(54px, 6.6vw, 94px)/.9 var(--display); letter-spacing: -.05em; }
+    .beta-copy { max-width: 650px; margin: 28px 0 0; font-size: 20px; }
+    .beta-terms { margin: 30px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 10px; }
+    .beta-terms li { padding: 8px 12px; border: 1px solid var(--ink); border-radius: 999px; background: rgba(255,253,247,.55); font: 600 10px/1 var(--mono); text-transform: uppercase; }
+    .beta-app-action { width: fit-content; margin-top: 24px; }
+    .beta-form { padding: 30px; border: var(--line); border-radius: 38px 19px 32px 23px; background: var(--sheet); box-shadow: 10px 12px 0 var(--ink); transform: rotate(.6deg); }
+    .beta-form-head { margin-bottom: 25px; padding-bottom: 17px; border-bottom: 2px dashed var(--ink); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .beta-form-head strong { font: 730 21px/1 var(--display); }
+    .beta-form-head span { color: var(--orange); font: 600 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+    .beta-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .beta-field { display: grid; gap: 8px; }
+    .beta-field label { font: 600 10px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .07em; }
+    .beta-input-wrap { min-width: 0; min-height: 50px; padding: 0 15px; border: var(--line); border-radius: 16px 11px 15px 12px; background: #f7f2e7; display: flex; align-items: center; gap: 4px; }
+    .beta-input-wrap:focus-within { outline: 4px solid var(--blue); outline-offset: 3px; background: var(--sheet); }
+    .beta-input-wrap span { color: var(--orange); font: 700 16px/1 var(--mono); }
+    .beta-input-wrap input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font: 500 16px/1 var(--body); }
+    .beta-input-wrap input::placeholder { color: #969187; }
+    .beta-consent { margin: 20px 0; display: grid; grid-template-columns: 22px 1fr; align-items: start; gap: 11px; color: var(--muted); font-size: 13px; line-height: 1.45; cursor: pointer; }
+    .beta-consent input { width: 20px; height: 20px; margin: 0; accent-color: var(--orange); }
+    .beta-form .button { width: 100%; }
+    .beta-status { min-height: 22px; margin: 14px 2px 0; color: var(--muted); font: 600 11px/1.5 var(--mono); }
+    .beta-status[data-state="success"] { color: #376700; }
+    .beta-status[data-state="error"] { color: var(--red); }
+    .beta-honeypot { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+
     .closing { padding: 140px 0 110px; text-align: center; position: relative; overflow: hidden; }
     .closing h2 { max-width: 920px; margin: 0 auto; font: 800 clamp(58px, 8vw, 112px)/.88 var(--display); letter-spacing: -.055em; }
     .closing p { max-width: 690px; margin: 26px auto 34px; font-size: 20px; }
+    .closing .hero-actions { justify-content: center; }
     .closing-loop { width: 860px; max-width: 100%; margin: -35px auto -20px; display: block; }
     footer { padding: 30px 0; border-top: var(--line); background: var(--sheet); }
     .footer-row { display: flex; justify-content: space-between; gap: 24px; font: 500 11px/1.4 var(--mono); }
@@ -318,6 +350,8 @@
       .pipe-card:last-child { grid-column: 1 / -1; }
       .security-board { grid-template-columns: 1fr 1fr; }
       .security-card:last-child { grid-column: 1 / -1; }
+      .beta-grid { grid-template-columns: 1fr; gap: 50px; }
+      .beta-form { max-width: 720px; }
     }
     @media (max-width: 720px) {
       .shell { width: min(100% - 26px, 1180px); }
@@ -325,7 +359,7 @@
       .nav-links a:not(.button) { display: none; }
       .nav-links .button { min-height: 40px; padding-inline: 13px; font-size: 10px; }
       .hero { min-height: auto; padding: 70px 0 92px; display: flex; flex-direction: column; align-items: stretch; gap: 62px; }
-      .hero h1 { font-size: clamp(55px, 16vw, 78px); }
+      .hero h1 { font-size: clamp(44px, 14vw, 68px); }
       .lede { font-size: 18px; }
       .brand-claim { width: auto; font-size: 19px; text-align: center; }
       .hero-actions { display: grid; }
@@ -335,7 +369,7 @@
       .choice-icon { width: 40px; }
       .choice-arrow { display: none; }
       .loop-hero { left: auto; right: -8px; bottom: -95px; width: 210px; }
-      .manifesto, .section, .product, .privacy { padding: 82px 0; }
+      .manifesto, .section, .product, .privacy, .beta { padding: 82px 0; }
       .manifesto h2, .section h2 { font-size: clamp(43px, 13vw, 62px); }
       .manifesto p { font-size: 18px; }
       .two-moments, .security-board { grid-template-columns: 1fr; }
@@ -365,6 +399,9 @@
       .security-card, .security-card:last-child { min-height: 230px; padding: 26px; grid-column: auto; transform: none; }
       .security-provider { grid-template-columns: 1fr; gap: 8px; }
       .privacy-limits { display: grid; gap: 10px; }
+      .beta-fields { grid-template-columns: 1fr; }
+      .beta-form { padding: 22px; box-shadow: 6px 7px 0 var(--ink); transform: none; }
+      .beta-form-head { align-items: flex-start; flex-direction: column; }
       .closing { padding: 95px 0 75px; }
       .closing h2 { font-size: clamp(58px, 16vw, 78px); }
       .footer-row { flex-direction: column; }
@@ -383,7 +420,10 @@
     <nav class="nav-links" aria-label="Primary navigation">
       <a href="#flow">The flow</a>
       <a href="#privacy">Video security</a>
-      <a class="button" href="#product">See the proof ↘</a>
+      <a class="button github" href="https://github.com/pascalkienast/slopproof" target="_blank" rel="noreferrer" aria-label="Open the SlopProof repository on GitHub">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7A11.5 11.5 0 0 0 8.4 23c.6.1.8-.2.8-.6v-2.2c-3.4.7-4.1-1.4-4.1-1.4-.5-1.4-1.3-1.7-1.3-1.7-1.1-.8.1-.8.1-.8 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.7 0-1.3.4-2.3 1.2-3.1-.1-.3-.5-1.6.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0C16.7 4.7 17.8 5 17.8 5c.6 1.5.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.8 5.4-5.5 5.7.4.4.8 1.1.8 2.2v3.3c0 .4.2.7.8.6A11.5 11.5 0 0 0 12 .7Z"/></svg>
+        GitHub repo ↗
+      </a>
     </nav>
   </header>
 
@@ -395,8 +435,8 @@
         <p class="brand-claim">Prove you know what you ship.</p>
         <p class="lede">Practice if you want. Then answer a short set of patch questions on live video before the pull request can merge.</p>
         <div class="hero-actions">
-          <a class="button green" href="#product" data-open-mode="proof">See the live proof ↘</a>
-          <a class="button optional" href="#product" data-open-mode="practice">Optional: practice the patch</a>
+          <a class="button primary" href="https://github.com/apps/slopproof" target="_blank" rel="noreferrer">Install the GitHub App ↗</a>
+          <a class="button" href="#closed-beta">Join the beta ↘</a>
         </div>
       </div>
 
@@ -615,12 +655,49 @@
       </div>
     </section>
 
+    <section class="beta" id="closed-beta">
+      <div class="shell beta-grid">
+        <div>
+          <p class="eyebrow">Beta</p>
+          <h2>Install the App. Then request access.</h2>
+          <p class="beta-copy">Start on GitHub: install SlopProof for your personal account or for an organization where you have permission to install GitHub Apps, then choose the repositories you want to try. The installation stays inactive until we approve your beta request.</p>
+          <ul class="beta-terms" aria-label="Beta terms">
+            <li>1 · Install the App</li>
+            <li>2 · Choose repositories</li>
+            <li>3 · Request access</li>
+          </ul>
+          <a class="button dark beta-app-action" href="https://github.com/apps/slopproof" target="_blank" rel="noreferrer">Install the GitHub App ↗</a>
+        </div>
+
+        <form class="beta-form" id="closed-beta-form">
+          <div class="beta-form-head"><strong>Request beta access</strong><span>Reviewed by hand</span></div>
+          <div class="beta-fields">
+            <div class="beta-field">
+              <label for="beta-email">Email address</label>
+              <div class="beta-input-wrap"><input id="beta-email" name="email" type="email" inputmode="email" autocomplete="email" maxlength="254" placeholder="you@example.com" required /></div>
+            </div>
+            <div class="beta-field">
+              <label for="beta-github">GitHub username</label>
+              <div class="beta-input-wrap"><span aria-hidden="true">@</span><input id="beta-github" name="githubUsername" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="39" pattern="[A-Za-z0-9](?:[A-Za-z0-9\-]{0,37}[A-Za-z0-9])?" placeholder="octocat" required /></div>
+            </div>
+          </div>
+          <div class="beta-honeypot" aria-hidden="true"><label for="beta-website">Website</label><input id="beta-website" name="website" type="text" tabindex="-1" autocomplete="off" /></div>
+          <label class="beta-consent" for="beta-consent"><input id="beta-consent" name="contactConsent" type="checkbox" required /><span>You may email me about my SlopProof beta request. My email and GitHub username stay in the access queue; they are not used for a newsletter or shared with model providers.</span></label>
+          <button class="button dark" type="submit">Request access →</button>
+          <p class="beta-status" id="closed-beta-status" role="status" aria-live="polite">We review each request. If approved, you’ll receive setup instructions by email.</p>
+        </form>
+      </div>
+    </section>
+
     <section class="closing">
       <div class="shell">
         <h2>Your patch. Your take.</h2>
         <svg class="closing-loop" viewBox="0 0 900 180" aria-hidden="true"><path d="M20 92c84-93 242 62 351-19 97-72-72-117-104-28-39 108 210 119 334 31 84-60 194-57 279 9" fill="none" stroke="var(--orange)" stroke-width="7" stroke-linecap="round" stroke-dasharray="10 14"/><circle cx="267" cy="45" r="9" fill="var(--red)"/><path d="m853 65 28 20-29 17" fill="none" stroke="var(--orange)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="m690 81 21 22 40-49" fill="none" stroke="var(--green)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <p>Practice the patch if you want. Then record one take and ship.</p>
-        <a class="button primary" href="#product">See the flow again ↑</a>
+        <div class="hero-actions">
+          <a class="button primary" href="https://github.com/apps/slopproof" target="_blank" rel="noreferrer">Install the GitHub App ↗</a>
+          <a class="button" href="#closed-beta">Join the beta ↑</a>
+        </div>
       </div>
     </section>
   </main>

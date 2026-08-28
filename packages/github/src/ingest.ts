@@ -188,6 +188,10 @@ async function applyInstallationEvent(
       allowReactivation: false,
       allowPendingPromotion:
         desiredStatus === "active" && event.action !== "unsuspend",
+      installerAccountId:
+        event.action === "created"
+          ? (event.installation.senderId ?? null)
+          : null,
     },
   );
   const existingInstallationId =
@@ -305,6 +309,7 @@ async function applyInstallationRepositoriesEvent(
           {
             allowReactivation: false,
             allowPendingPromotion: addedTenantStatus === "active",
+            installerAccountId: null,
           },
         );
   let installationId = upserted?.id ?? null;
@@ -589,11 +594,16 @@ async function ensureInstallationForRepositoryRemoval(
 ): Promise<{ id: string; status: string } | null> {
   const result = await client.query<{ id: string; status: string }>(
     `INSERT INTO installations
-       (github_installation_id, account_id, account_login, status)
-     VALUES ($1, $2, $3, 'pending')
+       (github_installation_id, account_id, account_login,
+        installer_account_id, status)
+     VALUES ($1, $2, $3, $4, 'pending')
      ON CONFLICT (github_installation_id) DO UPDATE SET
        account_id = EXCLUDED.account_id,
        account_login = EXCLUDED.account_login,
+       installer_account_id = COALESCE(
+         installations.installer_account_id,
+         EXCLUDED.installer_account_id
+       ),
        updated_at = now()
      WHERE installations.status <> 'removed'
      RETURNING id, status`,
@@ -601,6 +611,7 @@ async function ensureInstallationForRepositoryRemoval(
       installation.githubInstallationId,
       installation.accountId,
       installation.accountLogin,
+      null,
     ],
   );
   return result.rows[0] ?? null;
@@ -684,18 +695,24 @@ async function upsertInstallation(
   options: {
     allowReactivation: boolean;
     allowPendingPromotion: boolean;
+    installerAccountId: string | null;
   },
 ): Promise<{ id: string; status: string } | null> {
   const result = await client.query<{ id: string; status: string }>(
     `INSERT INTO installations
-       (github_installation_id, account_id, account_login, status,
+       (github_installation_id, account_id, account_login,
+        installer_account_id, status,
         suspended_at, removed_at)
-     VALUES ($1, $2, $3, $4::github_lifecycle_status,
-             CASE WHEN $4::github_lifecycle_status = 'suspended' THEN now() ELSE NULL END,
-             CASE WHEN $4::github_lifecycle_status = 'removed' THEN now() ELSE NULL END)
+     VALUES ($1, $2, $3, $4, $5::github_lifecycle_status,
+             CASE WHEN $5::github_lifecycle_status = 'suspended' THEN now() ELSE NULL END,
+             CASE WHEN $5::github_lifecycle_status = 'removed' THEN now() ELSE NULL END)
      ON CONFLICT (github_installation_id) DO UPDATE SET
        account_id = EXCLUDED.account_id,
        account_login = EXCLUDED.account_login,
+       installer_account_id = COALESCE(
+         installations.installer_account_id,
+         EXCLUDED.installer_account_id
+       ),
        status = CASE
          WHEN EXCLUDED.status = 'pending' THEN installations.status
          ELSE EXCLUDED.status
@@ -717,14 +734,15 @@ async function upsertInstallation(
        AND (
          EXCLUDED.status <> 'active'
          OR installations.status = 'active'
-         OR $5 = true
-         OR ($6 = true AND installations.status = 'pending')
+         OR $6 = true
+         OR ($7 = true AND installations.status = 'pending')
        )
      RETURNING id, status`,
     [
       installation.githubInstallationId,
       installation.accountId,
       installation.accountLogin,
+      options.installerAccountId,
       status,
       options.allowReactivation,
       options.allowPendingPromotion,

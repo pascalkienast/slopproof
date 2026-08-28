@@ -23,6 +23,27 @@ Requests and responses have absolute deadlines and byte caps; transport retry is
 limited to rate limit, server, network, stream and timeout classes. Raw provider
 bodies and errors are never logged.
 
+## Beta contact data
+
+The public beta form is separate from proof evidence. It stores a normalized
+email address, GitHub login, consent version, consent timestamp and admission
+status in PostgreSQL. It sends none of those values to GitHub, object storage,
+an inference provider, or a newsletter service. Production rate limiting uses
+only an irreversible, action-separated HMAC of the TLS proxy's asserted client
+address; the raw address is not persisted by the application.
+
+When the GitHub App is installed before admission, installation metadata stores
+the target account and the immutable numeric GitHub ID of the original
+installer when GitHub provides it. It does not retain the mutable sender login
+or the raw webhook payload. Operators use that ID only to connect a reviewed
+beta request to pending personal or organization installations.
+
+New, duplicate and honeypot submissions receive the same value-free response,
+so the endpoint cannot be used to enumerate the queue. Only operators should
+read contact rows. Encrypted database backups contain them until backup expiry;
+operators must define a contact-data retention period and delete rows after
+admission, rejection or withdrawal when they are no longer required.
+
 ## Retention and access
 
 - Repository policy selects 1–24 hours; the default is 24 hours and successful
