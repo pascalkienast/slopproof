@@ -15,6 +15,9 @@ code quality.
   imports, build filters, Next.js transpilation list, and lockfile links.
 - The exported database type is `UnderstandProofDatabase`.
 - The repository mark is `understandproof-mark.svg`; its artwork is unchanged.
+- Hosted origin: `https://understandproof.paskie.me`; the legacy origin remains
+  available during the coordinated DNS/TLS, OAuth/webhook, runtime-origin, and
+  storage-CORS transition.
 
 Existing clones should update their remote:
 
@@ -33,10 +36,9 @@ any are introduced or discovered. See [GitHub's rename documentation](https://do
 Do not globally replace every occurrence of `slopproof`. These are live
 compatibility contracts rather than the public brand:
 
-- **Hosted origin and App:** `https://slopproof.paskie.me` and
-  `https://github.com/apps/slopproof` remain the working service and install
-  URLs. This release does not rename the registered GitHub App, change its
-  numeric identity, create a replacement App, or alter OAuth/webhook settings.
+- **GitHub App:** `https://github.com/apps/slopproof` remains the installation
+  URL. The origin transition updates the existing App’s callback/webhook URLs,
+  not its registered slug, numeric identity, or installations.
 - **Merge gate:** `SlopProof / understanding required` remains the exact check
   name emitted by the application, stored in check rows, and required by
   existing repository rulesets. The display name is deliberately not changed
@@ -84,8 +86,9 @@ does not deploy the renamed interface or static landing page.
    installations must retain their behavior.
 4. If the registered App is later renamed, preserve its identity/installations,
    verify the new installation URL, and update links only after it works.
-5. Treat a future origin or required-check rename as a coordinated migration.
+5. Treat the origin transition and any future required-check rename as coordinated migrations.
    An origin move needs DNS/TLS, OAuth/webhook URLs, storage CORS, browser-origin
    checks, and old-link handling verified together. A check rename needs the
    emitter and consuming rulesets transitioned without a missing or fail-open
-   required gate. Neither migration is performed by this PR.
+   required gate. The hosted-origin transition is coordinated with deployment; the required-check
+   name remains unchanged.

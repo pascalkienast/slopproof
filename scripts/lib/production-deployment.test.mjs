@@ -611,7 +611,7 @@ test("systemd units never ingest raw secret environments and prohibit implicit i
 test("production smoke covers exact app boundaries and every existing cohost", () => {
   const smoke = read("scripts/production-deploy/smoke-production.sh");
   for (const value of [
-    "https://slopproof.paskie.me",
+    "https://understandproof.paskie.me",
     "https://paskie.me",
     "https://wunderbluete.club",
     "https://replikator.paskie.me/api/health",

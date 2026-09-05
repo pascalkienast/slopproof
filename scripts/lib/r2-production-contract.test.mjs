@@ -15,7 +15,7 @@ test("production browser CORS is exact and ciphertext-upload only", () => {
       {
         id: "slopproof-browser-ciphertext-put-v1",
         allowed: {
-          origins: ["https://slopproof.paskie.me"],
+          origins: ["https://understandproof.paskie.me", "https://slopproof.paskie.me"],
           methods: ["PUT"],
           headers: ["content-type"],
         },

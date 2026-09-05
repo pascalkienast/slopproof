@@ -24,7 +24,7 @@ replace them.
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Run the full stack yourself or try
-[slopproof.paskie.me](https://slopproof.paskie.me). Each proof stays bound to
+[understandproof.paskie.me](https://understandproof.paskie.me). Each proof stays bound to
 the current head SHA, so a new push requires a fresh explanation.
 
 <p align="center">
@@ -114,7 +114,7 @@ The result returns to the same head SHA on GitHub.
 
 ## See it
 
-- Live landing: [slopproof.paskie.me](https://slopproof.paskie.me)
+- Live landing: [understandproof.paskie.me](https://understandproof.paskie.me)
 - Local demo: <http://localhost:3000/demo> after `docker compose up --build`
 - Curated production screenshots: [docs/assets/](docs/assets/README.md)
 
