@@ -492,8 +492,8 @@ test("managed upgrades are reversible only across an unchanged schema and Caddy 
     rollback,
     /assert_release_container_images "\$previous_release_id"/u,
   );
-  assert.match(rollback, /candidate's release-verified smoke contract/u);
-  assert.match(rollback, /run_application_smoke "\$release_id" final/u);
+  assert.match(rollback, /restored release with its own origin and interface contract/u);
+  assert.match(rollback, /run_application_smoke "\$previous_release_id" final/u);
   assert.doesNotMatch(rollback, /smoke-production\.sh" rollback-managed/u);
   for (const cleanup of [
     "restore_failed_cutover",
