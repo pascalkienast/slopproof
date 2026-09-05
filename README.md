@@ -64,14 +64,14 @@ scoring.
 
 ## Product tour
 
-These production captures show the earlier SlopProof name. UnderstandProof is the
-same project; the captures have not been altered.
+The GitHub App comment shows the current interface. Some other production
+captures still show earlier branding; those historical captures remain unaltered.
 
 The flow starts where contributors already work. The GitHub App posts a
 revision-bound link directly on the pull request.
 
 <p align="center">
-  <img src="docs/assets/product-tour/github-comment.webp" width="920" alt="Automatic UnderstandProof GitHub App comment linking to the contributor flow">
+  <img src="docs/assets/product-tour/github-comment.webp?v=0964f60e8b5e" width="920" alt="Automatic UnderstandProof GitHub App comment linking to the contributor flow">
 </p>
 
 The contributor checks the camera and privacy terms, then answers the
