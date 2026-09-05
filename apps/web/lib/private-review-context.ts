@@ -1,8 +1,8 @@
-import type { AuthenticatedSession } from "@slopproof/auth";
+import type { AuthenticatedSession } from "@understandproof/auth";
 import {
   PrivateReviewContextSchema,
   type PrivateReviewContext,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import { issueEvidenceCapability } from "./evidence-capability";
 import { WORKER_REVIEW_CONTEXT_PATH } from "./evidence-worker-contract";
 import type { MaintainerAuthorizationDependencies } from "./maintainer-authorization";

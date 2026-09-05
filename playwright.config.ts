@@ -5,13 +5,13 @@ const webServers = [
   ...(process.env.PLAYWRIGHT_WORKER_SMOKE === "true"
     ? [
         {
-          command: "pnpm --filter @slopproof/worker start",
+          command: "pnpm --filter @understandproof/worker start",
           url: "http://127.0.0.1:4001/healthz",
           reuseExistingServer: true,
           timeout: 120_000,
         },
         {
-          command: "pnpm --filter @slopproof/github-control start",
+          command: "pnpm --filter @understandproof/github-control start",
           url: "http://127.0.0.1:4002/healthz",
           reuseExistingServer: true,
           timeout: 120_000,
@@ -20,7 +20,7 @@ const webServers = [
     : []),
   {
     command:
-      "env -u KEY_WRAPPING_PRIVATE_KEY_PATH -u PROVIDER_PAYLOAD_KEY_BASE64 pnpm --filter @slopproof/web start",
+      "env -u KEY_WRAPPING_PRIVATE_KEY_PATH -u PROVIDER_PAYLOAD_KEY_BASE64 pnpm --filter @understandproof/web start",
     url: `${baseURL}/demo`,
     reuseExistingServer: true,
     timeout: 120_000,

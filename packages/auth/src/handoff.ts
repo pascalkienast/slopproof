@@ -1,5 +1,5 @@
-import type { Clock, IdGenerator } from "@slopproof/domain";
-import { CryptoUuidGenerator, SystemClock } from "@slopproof/domain";
+import type { Clock, IdGenerator } from "@understandproof/domain";
+import { CryptoUuidGenerator, SystemClock } from "@understandproof/domain";
 import type { Pool } from "pg";
 import { z } from "zod";
 import type { AuthenticatedSession, IssuedSession } from "./session";

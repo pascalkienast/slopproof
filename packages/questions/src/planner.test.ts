@@ -1,8 +1,8 @@
 import {
   analyzePullRequestPatch,
   type PullRequestPatch,
-} from "@slopproof/analysis";
-import { DEFAULT_REPOSITORY_POLICY_V1 } from "@slopproof/policy";
+} from "@understandproof/analysis";
+import { DEFAULT_REPOSITORY_POLICY_V1 } from "@understandproof/policy";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {

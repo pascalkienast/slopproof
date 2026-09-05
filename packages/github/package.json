@@ -1,13 +1,13 @@
 {
-  "name": "@slopproof/github",
+  "name": "@understandproof/github",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
     "@octokit/rest": "22.0.1",
-    "@slopproof/db": "workspace:*",
-    "@slopproof/domain": "workspace:*",
+    "@understandproof/db": "workspace:*",
+    "@understandproof/domain": "workspace:*",
     "pg": "8.23.0",
     "pg-boss": "12.27.0",
     "zod": "4.4.3"

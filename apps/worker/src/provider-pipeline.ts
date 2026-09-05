@@ -6,8 +6,8 @@ import {
   expediteJob,
   parseJobPayload,
   registerJobWorker,
-} from "@slopproof/db";
-import { applyRepositoryPolicyV1 } from "@slopproof/policy";
+} from "@understandproof/db";
+import { applyRepositoryPolicyV1 } from "@understandproof/policy";
 import {
   FrameSelectionMetadataV1Schema,
   type InlineMultimodalJudgeProvider,
@@ -27,7 +27,7 @@ import {
   type TranscriptV1,
   type TranscriptionProvider,
   type JudgeHopUsed,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import type { PgBoss } from "pg-boss";
 import { z } from "zod";
 import {

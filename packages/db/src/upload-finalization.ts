@@ -1,6 +1,6 @@
 import type { PgBoss } from "pg-boss";
 import { and, eq, sql } from "drizzle-orm";
-import type { SlopProofDatabase } from "./client";
+import type { UnderstandProofDatabase } from "./client";
 import { expediteJobInTransaction } from "./jobs";
 import {
   attemptTransitions,
@@ -17,7 +17,7 @@ export class UploadFinalizationConflictError extends Error {
 }
 
 export async function persistPendingUploadFinalization(
-  database: SlopProofDatabase,
+  database: UnderstandProofDatabase,
   queue: PgBoss,
   input: {
     uploadSessionId: string;

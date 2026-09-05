@@ -1,20 +1,26 @@
 <p align="center">
-  <img src="slopproof-mark.svg" width="112" alt="SlopProof mark">
+  <img src="understandproof-mark.svg" width="112" alt="UnderstandProof mark">
 </p>
 
-# SlopProof
+# UnderstandProof
 
-**Prove you know what you ship.**
+**Proof of Understanding.**
 
-AI can generate a pull request in minutes. Maintainers still need confidence
-that the contributor understands what will change and where it can fail.
+Creating an output and understanding it are different things. UnderstandProof
+makes room for the person who needs to explain what they take responsibility
+for, whether or not they created it themselves.
 
-SlopProof turns that understanding into a required GitHub check. The author
+The first application is code: AI can write the pull request; the person
+proposing it should be able to explain what it does, why it belongs, and where
+it can fail.
+
+UnderstandProof turns that understanding into a required GitHub check. The author
 explains the exact patch on live video, giving maintainers patch-bound evidence
-before merge.
+before merge. Understanding complements code review and tests; it does not
+replace them.
 
-[![CI](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/ci.yml)
-[![Supply chain](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml/badge.svg)](https://github.com/pascalkienast/slopproof/actions/workflows/supply-chain.yml)
+[![CI](https://github.com/pascalkienast/understandproof/actions/workflows/ci.yml/badge.svg)](https://github.com/pascalkienast/understandproof/actions/workflows/ci.yml)
+[![Supply chain](https://github.com/pascalkienast/understandproof/actions/workflows/supply-chain.yml/badge.svg)](https://github.com/pascalkienast/understandproof/actions/workflows/supply-chain.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Run the full stack yourself or try
@@ -25,6 +31,12 @@ the current head SHA, so a new push requires a fresh explanation.
   <img src="docs/assets/product-tour/contributor-proof.webp" width="920" alt="SlopProof contributor page with optional Practice and required Proof choices">
 </p>
 <p align="center"><sub>The contributor view for a pull request: Practice is optional. Proof is required.</sub></p>
+
+## Beyond code
+
+The long-term vision is **Proof of Understanding** for texts and other media,
+not only code. Those are future applications, not supported input types today.
+The current product is a GitHub pull-request understanding gate.
 
 ## How it works
 
@@ -46,11 +58,14 @@ the current head SHA, so a new push requires a fresh explanation.
 7. A new push invalidates the attempt. Evidence lasts at most 24 hours, and
    may be deleted as soon as a maintainer accepts it.
 
-SlopProof does not run pull-request code. It does not do face recognition,
+UnderstandProof does not run pull-request code. It does not do face recognition,
 gaze tracking, room scanning, identity verification, or persistent contributor
 scoring.
 
 ## Product tour
+
+These production captures show the earlier SlopProof name. UnderstandProof is the
+same project; the captures have not been altered.
 
 The flow starts where contributors already work. The GitHub App posts a
 revision-bound link directly on the pull request.
@@ -148,14 +163,14 @@ endpoints, placeholder secrets, and incomplete provider configuration. The
 checked-in automation under `scripts/production-*` is the maintainer's current
 hardened profile. There is no one-command installer.
 
-SlopProof is pre-1.0. The hosted flow has run against a real pull request:
+UnderstandProof is pre-1.0. The hosted flow has run against a real pull request:
 Practice, encrypted phone recording, provider processing, maintainer review,
 check completion, retention, backup, and restart. Config and migrations can
 still change before a stable release.
 
 ## Security and privacy
 
-SlopProof handles video evidence and repository content. Read these before you
+UnderstandProof handles video evidence and repository content. Read these before you
 run it for other people:
 
 - [Threat model](docs/security/threat-model.md)
@@ -187,6 +202,10 @@ party's retention or training policy.
 [Browse the documentation](docs/README.md) or read the current
 [project status](docs/project-status.md).
 
+Previously named SlopProof. See the [rename compatibility notes](docs/operations/understandproof-rename.md)
+for the existing App link, check name, and deployment settings retained during
+the transition.
+
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Security
@@ -197,5 +216,5 @@ The project is maintained by [Pascal Kienast](https://github.com/pascalkienast).
 
 ## License
 
-Copyright © 2026 Pascal Kienast and contributors. SlopProof is licensed under
+Copyright © 2026 Pascal Kienast and contributors. UnderstandProof is licensed under
 the [Apache License, Version 2.0](LICENSE).

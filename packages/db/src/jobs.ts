@@ -2,7 +2,7 @@ import {
   GitShaSchema,
   IdempotencyKeySchema,
   UuidSchema,
-} from "@slopproof/domain";
+} from "@understandproof/domain";
 import { sql } from "drizzle-orm";
 import type { PoolClient } from "pg";
 import {
@@ -283,7 +283,7 @@ export function parseJobPayload<Name extends JobName>(
 /**
  * Serializes jobs that can mutate the same business aggregate. The key is not
  * the idempotency key: repeated deliveries remain visible and handlers still
- * have to enforce idempotency against the SlopProof tables.
+ * have to enforce idempotency against the UnderstandProof tables.
  */
 export function getJobSingletonKey<Name extends JobName>(
   name: Name,

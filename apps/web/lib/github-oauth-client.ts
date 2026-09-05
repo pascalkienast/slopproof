@@ -3,7 +3,7 @@ import {
   type GithubOAuthAccessGrant,
   type GithubOAuthClient,
   type GithubOAuthUser,
-} from "@slopproof/auth";
+} from "@understandproof/auth";
 import { z } from "zod";
 
 const TOKEN_URL = "https://github.com/login/oauth/access_token";

@@ -7,7 +7,7 @@ import {
   type MultimodalJudgeCandidateV1,
   type MultimodalJudgeProviderInputV1,
   type ProviderContextV1,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import { describe, expect, it, vi } from "vitest";
 import {
   projectMultimodalJudgeProviderInputV1,

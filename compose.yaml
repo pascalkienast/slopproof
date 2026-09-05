@@ -116,7 +116,7 @@ services:
       - corepack
       - pnpm
       - --filter
-      - "@slopproof/web"
+      - "@understandproof/web"
       - exec
       - next
       - start

@@ -1,4 +1,4 @@
-import type { JobPayload } from "@slopproof/db";
+import type { JobPayload } from "@understandproof/db";
 import {
   createSemanticGenerationService,
   type GenerateLearningBundleRequestV1,

@@ -6,7 +6,7 @@ import {
   type GithubCheckOutbox,
   type GithubRevisionSource,
   type JobPayload,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import {
   PublicCheckInputSchema,
   PullRequestJobPayloadSchema,

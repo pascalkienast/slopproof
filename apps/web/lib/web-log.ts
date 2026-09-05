@@ -1,4 +1,4 @@
-import { createLogger, type Logger } from "@slopproof/observability";
+import { createLogger, type Logger } from "@understandproof/observability";
 
 let logger: Logger | undefined;
 

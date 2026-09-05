@@ -24,7 +24,7 @@ import {
   type DatabaseConnection,
   type GithubCheckIntent,
   type GithubCheckOutbox,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import {
   GithubControlError,
   PostgresGithubCheckIntentWriter,
@@ -34,7 +34,7 @@ import {
   type GithubPullRequestHeadPort,
   type GithubPullRequestPort,
   type PullRequestJobPublisher,
-} from "@slopproof/github";
+} from "@understandproof/github";
 import {
   handleGithubRefreshPullRequestJob,
   sweepDueGithubPullRequestDeliveries,

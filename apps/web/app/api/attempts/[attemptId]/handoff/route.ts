@@ -1,4 +1,4 @@
-import { createHandoff, HandoffRejectedError } from "@slopproof/auth";
+import { createHandoff, HandoffRejectedError } from "@understandproof/auth";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {

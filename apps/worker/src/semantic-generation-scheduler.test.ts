@@ -1,4 +1,4 @@
-import type { JobPayload } from "@slopproof/db";
+import type { JobPayload } from "@understandproof/db";
 import type { PgBoss } from "pg-boss";
 import type { PoolClient } from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";

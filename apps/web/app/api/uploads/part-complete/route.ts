@@ -3,11 +3,11 @@ import {
   MAX_RECORDING_DURATION_MS,
   MAX_RECORDING_OBJECT_BYTES,
   ManifestPartSchema,
-} from "@slopproof/media";
+} from "@understandproof/media";
 import {
   RepositoryPolicyV1Schema,
   resolveEffectiveRecordingLimits,
-} from "@slopproof/policy";
+} from "@understandproof/policy";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {

@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Practice if you want, then prove the current patch on one live video." />
-  <title>SlopProof. Prove you know what you ship.</title>
+  <meta name="description" content="AI can write the code. Show that you understand the change before it merges. Practice privately, then explain your patch on live video." />
+  <title>UnderstandProof. Proof of Understanding.</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='29' fill='%23ff4f22' stroke='%23171711' stroke-width='4'/%3E%3Cpath d='m19 33 8 8 18-20' fill='none' stroke='%23171711' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
   <style>
     :root {
@@ -69,7 +69,8 @@
       border-bottom: 1px solid rgba(23,23,17,.3);
     }
     .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 800 21px/1 var(--display); }
-    .brand-mark { width: 35px; aspect-ratio: 1; border: var(--line); border-radius: 50% 42% 48% 38%; display: grid; place-items: center; background: var(--orange); transform: rotate(-6deg); }
+    .brand-wordmark { white-space: nowrap; }
+    .brand-mark { flex-shrink: 0; width: 35px; aspect-ratio: 1; border: var(--line); border-radius: 50% 42% 48% 38%; display: grid; place-items: center; background: var(--orange); transform: rotate(-6deg); }
     .brand-mark svg { width: 22px; }
     .brand i { font-style: normal; color: var(--orange); }
     .nav-links { display: flex; align-items: center; gap: 24px; font: 600 12px/1 var(--mono); }
@@ -406,6 +407,11 @@
       .closing h2 { font-size: clamp(58px, 16vw, 78px); }
       .footer-row { flex-direction: column; }
     }
+    @media (max-width: 540px) {
+      .nav { flex-wrap: wrap; padding-block: 14px; gap: 14px; }
+      .brand { font-size: clamp(16px, 4.5vw, 21px); }
+      .nav-links { margin-left: auto; }
+    }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
     }
@@ -413,14 +419,14 @@
 </head>
 <body>
   <header class="shell nav">
-    <a class="brand" href="#top" aria-label="SlopProof home">
+    <a class="brand" href="#top" aria-label="UnderstandProof home">
       <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5 9.4 17 19 6.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-      SLOP<i>/</i>PROOF
+      <span class="brand-wordmark">UNDERSTAND<i>/</i>PROOF</span>
     </a>
     <nav class="nav-links" aria-label="Primary navigation">
       <a href="#flow">The flow</a>
       <a href="#privacy">Video security</a>
-      <a class="button github" href="https://github.com/pascalkienast/slopproof" target="_blank" rel="noreferrer" aria-label="Open the SlopProof repository on GitHub">
+      <a class="button github" href="https://github.com/pascalkienast/understandproof" target="_blank" rel="noreferrer" aria-label="Open the UnderstandProof repository on GitHub">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7A11.5 11.5 0 0 0 8.4 23c.6.1.8-.2.8-.6v-2.2c-3.4.7-4.1-1.4-4.1-1.4-.5-1.4-1.3-1.7-1.3-1.7-1.1-.8.1-.8.1-.8 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.7 0-1.3.4-2.3 1.2-3.1-.1-.3-.5-1.6.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0C16.7 4.7 17.8 5 17.8 5c.6 1.5.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.8 5.4-5.5 5.7.4.4.8 1.1.8 2.2v3.3c0 .4.2.7.8.6A11.5 11.5 0 0 0 12 .7Z"/></svg>
         GitHub repo ↗
       </a>
@@ -430,10 +436,10 @@
   <main id="top">
     <section class="shell hero">
       <div>
-        <p class="eyebrow">A check on the current patch</p>
+        <p class="eyebrow">Proof of Understanding · starting with code</p>
         <h1><span class="hero-line">Understand it.</span><br/>Say it <span class="live">live.</span><br/>Ship it.</h1>
-        <p class="brand-claim">Prove you know what you ship.</p>
-        <p class="lede">Practice if you want. Then answer a short set of patch questions on live video before the pull request can merge.</p>
+        <p class="brand-claim">Understand what you ship.</p>
+        <p class="lede">AI can write the code. You still need to understand the change. Practice privately, then explain your patch on live video before it merges.</p>
         <div class="hero-actions">
           <a class="button primary" href="https://github.com/apps/slopproof" target="_blank" rel="noreferrer">Install the GitHub App ↗</a>
           <a class="button" href="#closed-beta">Join the beta ↘</a>
@@ -459,14 +465,14 @@
       </div>
     </section>
 
-    <div class="marquee" aria-hidden="true"><div class="marquee-track"><span>Prove you know what you ship.</span><span>Practice your understanding. Prove your understanding.</span><span>Fast code still deserves a slow thought.</span><span>Focused questions. One take. Your patch.</span><span>Prove you know what you ship.</span><span>Practice your understanding. Prove your understanding.</span><span>Fast code still deserves a slow thought.</span><span>Focused questions. One take. Your patch.</span></div></div>
+    <div class="marquee" aria-hidden="true"><div class="marquee-track"><span>Understand what you ship.</span><span>Practice your understanding. Prove your understanding.</span><span>Fast code still deserves a slow thought.</span><span>Focused questions. One take. Your patch.</span><span>Understand what you ship.</span><span>Practice your understanding. Prove your understanding.</span><span>Fast code still deserves a slow thought.</span><span>Focused questions. One take. Your patch.</span></div></div>
 
     <section class="manifesto">
       <div class="shell">
         <p class="eyebrow">Before merge</p>
         <div>
           <h2>Fast code still deserves a slow thought.</h2>
-          <p>Code can arrive fast. Someone still has to know what it does. SlopProof is that pause before merge.</p>
+          <p>Code can arrive fast. Someone still has to know what it does. UnderstandProof is that pause before merge.</p>
         </div>
       </div>
       <svg class="manifesto-loop" viewBox="0 0 500 390" aria-hidden="true"><path d="M40 258c15-172 360-237 399-89 36 138-252 191-317 66-46-88 87-144 188-76 76 51 44 166-18 196" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-dasharray="10 14"/></svg>
@@ -492,10 +498,10 @@
         </article>
       </div>
 
-      <div class="journey-carousel" role="region" aria-roledescription="carousel" aria-label="SlopProof product journey" tabindex="0">
+      <div class="journey-carousel" role="region" aria-roledescription="carousel" aria-label="UnderstandProof product journey" tabindex="0">
         <div class="journey-head">
           <p class="eyebrow">The real product · 9 steps</p>
-          <p class="journey-note">One contributor path, from the pull request to the required check.</p>
+          <p class="journey-note">One contributor path, from the pull request to the required check. Captured under our earlier name, SlopProof.</p>
         </div>
         <div class="journey-viewport" aria-live="polite">
           <figure class="journey-slide" id="journey-slide-1" aria-label="Step 1 of 9">
@@ -563,7 +569,7 @@
         <div class="product-frame">
           <div class="window-bar">
             <span class="window-name">cachekit / pull / 184 · 9f31c2e</span>
-            <div class="mode-tabs" role="tablist" aria-label="SlopProof modes">
+            <div class="mode-tabs" role="tablist" aria-label="UnderstandProof modes">
               <button class="mode-tab" id="practice-tab" role="tab" aria-selected="false" aria-controls="practice-panel" tabindex="-1">Practice · optional</button>
               <button class="mode-tab" id="proof-tab" role="tab" aria-selected="true" aria-controls="proof-panel">Prove · required</button>
             </div>
@@ -612,7 +618,7 @@
               <svg class="phone-loop" viewBox="0 0 220 280" aria-hidden="true"><path d="M19 203c59 34 182-17 165-93-16-68-134-78-155-7-20 68 77 104 131 68 39-25 42-78 21-113" fill="none" stroke="var(--sheet)" stroke-width="6" stroke-linecap="round" stroke-dasharray="9 12"/></svg>
               <div class="phone" aria-label="Live proof mobile preview">
                 <div class="phone-screen">
-                  <div class="phone-top"><span>SLOP/PROOF</span><span class="rec"><i></i> LIVE</span></div>
+                  <div class="phone-top"><span>UNDERSTAND/PROOF</span><span class="rec"><i></i> LIVE</span></div>
                   <div class="camera"></div>
                   <div class="timer"><span class="mono">QUESTION 2/3</span><strong>01:17</strong></div>
                   <p class="phone-question">Why can another reader still observe candidate state before rollback?</p>
@@ -650,7 +656,7 @@
           <article class="security-card"><span class="security-no">02 · IN REVIEW</span><h3>Need-to-see access</h3><p>Only authorized maintainers can open evidence when review is required. Every access is short-lived and auditable.</p></article>
           <article class="security-card"><span class="security-no">03 · END OF LIFE</span><h3>Deleted on a short clock</h3><p>Recordings disappear after 24 hours by default, and sooner after a clear pass. Storage lifecycle rules are a second deletion backstop.</p></article>
         </div>
-        <div class="security-provider"><strong>Bounded model access</strong><span>SlopProof exposes only a temporary, job-scoped media reference. Deployment operators choose the model endpoint and are responsible for its processing and retention terms.</span></div>
+        <div class="security-provider"><strong>Bounded model access</strong><span>UnderstandProof exposes only a temporary, job-scoped media reference. Deployment operators choose the model endpoint and are responsible for its processing and retention terms.</span></div>
         <div class="privacy-limits"><strong>Hard limits</strong><span>No face recognition</span><span>No gaze tracking or room scan</span><span>No public video or transcript</span><span>No permanent evidence archive</span></div>
       </div>
     </section>
@@ -660,7 +666,7 @@
         <div>
           <p class="eyebrow">Beta</p>
           <h2>Install the App. Then request access.</h2>
-          <p class="beta-copy">Start on GitHub: install SlopProof for your personal account or for an organization where you have permission to install GitHub Apps, then choose the repositories you want to try. The installation stays inactive until we approve your beta request.</p>
+          <p class="beta-copy">Start on GitHub: install UnderstandProof (currently listed as SlopProof on GitHub) for your personal account or for an organization where you have permission to install GitHub Apps, then choose the repositories you want to try. The installation stays inactive until we approve your beta request.</p>
           <ul class="beta-terms" aria-label="Beta terms">
             <li>1 · Install the App</li>
             <li>2 · Choose repositories</li>
@@ -682,7 +688,7 @@
             </div>
           </div>
           <div class="beta-honeypot" aria-hidden="true"><label for="beta-website">Website</label><input id="beta-website" name="website" type="text" tabindex="-1" autocomplete="off" /></div>
-          <label class="beta-consent" for="beta-consent"><input id="beta-consent" name="contactConsent" type="checkbox" required /><span>You may email me about my SlopProof beta request. My email and GitHub username stay in the access queue; they are not used for a newsletter or shared with model providers.</span></label>
+          <label class="beta-consent" for="beta-consent"><input id="beta-consent" name="contactConsent" type="checkbox" required /><span>You may email me about my UnderstandProof beta request. My email and GitHub username stay in the access queue; they are not used for a newsletter or shared with model providers.</span></label>
           <button class="button dark" type="submit">Request access →</button>
           <p class="beta-status" id="closed-beta-status" role="status" aria-live="polite">We review each request. If approved, you’ll receive setup instructions by email.</p>
         </form>
@@ -702,7 +708,7 @@
     </section>
   </main>
 
-  <footer><div class="shell footer-row"><span>SLOP/PROOF · PROVE YOU KNOW WHAT YOU SHIP.</span><a href="https://github.com/pascalkienast/slopproof" rel="noreferrer">Open source · Live on GitHub · 2026</a></div></footer>
+  <footer><div class="shell footer-row"><span>UNDERSTAND/PROOF · PROOF OF UNDERSTANDING.</span><a href="https://github.com/pascalkienast/understandproof" rel="noreferrer">Open source · Live on GitHub · 2026</a></div></footer>
 
   <script src="/landing.js" defer></script>
 </body>

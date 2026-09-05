@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { WebConfig } from "@slopproof/config";
+import type { WebConfig } from "@understandproof/config";
 import type { PoolClient } from "pg";
 
 export const HEALTH_RESPONSE_HEADERS = {

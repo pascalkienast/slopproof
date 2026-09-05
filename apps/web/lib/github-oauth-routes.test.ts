@@ -2,7 +2,7 @@ import type {
   GithubOAuthCallback,
   GithubOAuthStart,
   IssuedSession,
-} from "@slopproof/auth";
+} from "@understandproof/auth";
 import { describe, expect, it, vi } from "vitest";
 import {
   GITHUB_OAUTH_FLOW_COOKIE,
@@ -298,7 +298,7 @@ describe("GitHub OAuth route handlers", () => {
       "default-src 'none'",
     );
     expect(deniedBody).toContain("GitHub authorization did not finish");
-    expect(deniedBody).toContain("Return to SlopProof");
+    expect(deniedBody).toContain("Return to UnderstandProof");
     expect(deniedBody).not.toContain("provider-private-marker");
     expect(test.oauth.callback).not.toHaveBeenCalled();
     expect(setCookies(denied).join("\n")).toContain(

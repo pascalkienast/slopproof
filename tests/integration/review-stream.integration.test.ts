@@ -3,7 +3,7 @@ import {
   connectDatabase,
   migrateDatabase,
   type DatabaseConnection,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import { writeEvidenceStreamAudit } from "../../apps/worker/src/review-stream";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 

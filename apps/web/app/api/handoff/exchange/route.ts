@@ -1,8 +1,8 @@
-import { exchangeHandoff, HandoffRejectedError } from "@slopproof/auth";
+import { exchangeHandoff, HandoffRejectedError } from "@understandproof/auth";
 import {
   RECORDING_PROTOCOL_VERSION,
   RECORDING_SUITE_ID,
-} from "@slopproof/media";
+} from "@understandproof/media";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {

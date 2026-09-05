@@ -1,4 +1,7 @@
-import { hashOpaqueCredential, type OAuthStateHash } from "@slopproof/auth";
+import {
+  hashOpaqueCredential,
+  type OAuthStateHash,
+} from "@understandproof/auth";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import { describe, expect, it, vi } from "vitest";
 import {

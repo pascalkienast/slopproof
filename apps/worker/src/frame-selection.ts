@@ -1,15 +1,15 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import type { Writable } from "node:stream";
-import type { DatabaseConnection } from "@slopproof/db";
-import { FinalizeRecordingSchema } from "@slopproof/media";
+import type { DatabaseConnection } from "@understandproof/db";
+import { FinalizeRecordingSchema } from "@understandproof/media";
 import {
   FrameSelectionMetadataV1Schema,
   type FrameSelectionMetadataV1,
   type PayloadCipher,
   type TranscriptV1,
-} from "@slopproof/providers";
-import type { S3EvidenceStore } from "@slopproof/storage";
+} from "@understandproof/providers";
+import type { S3EvidenceStore } from "@understandproof/storage";
 import { PrivateProviderStageUnavailableError } from "./provider-pipeline-contracts";
 import type { ProviderFrameSelectionAdapter } from "./provider-pipeline";
 import {

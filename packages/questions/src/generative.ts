@@ -1,7 +1,7 @@
 import {
   GenerationContextV1Schema,
   type GenerationContextV1,
-} from "@slopproof/analysis";
+} from "@understandproof/analysis";
 import { z } from "zod";
 
 const UuidSchema = z.string().uuid();

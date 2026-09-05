@@ -1,10 +1,10 @@
-import type { WorkerConfig } from "@slopproof/config";
+import type { WorkerConfig } from "@understandproof/config";
 import {
   LocalFakeTranscriptionProvider,
   OpenRouterTranscriptionProvider,
   type ProviderClock,
-} from "@slopproof/providers";
-import type { S3EvidenceStore } from "@slopproof/storage";
+} from "@understandproof/providers";
+import type { S3EvidenceStore } from "@understandproof/storage";
 import { EncryptedRecordingAudioTranscriptionAdapter } from "./audio-transcription";
 import type { ProviderPipelineDependencies } from "./provider-pipeline";
 

@@ -1,6 +1,6 @@
-# Contributing to SlopProof
+# Contributing to UnderstandProof
 
-SlopProof accepts bug fixes, tests, documentation and focused feature work.
+UnderstandProof accepts bug fixes, tests, documentation and focused feature work.
 Open an issue before starting a change that alters the recording protocol,
 retention, provider data flow, GitHub permissions, repository policy or public
 API.

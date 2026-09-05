@@ -1,11 +1,11 @@
 {
-  "name": "@slopproof/auth",
+  "name": "@understandproof/auth",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@slopproof/domain": "workspace:*",
+    "@understandproof/domain": "workspace:*",
     "pg": "8.23.0",
     "zod": "4.4.3"
   }

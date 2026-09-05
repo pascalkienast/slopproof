@@ -3,18 +3,18 @@ import {
   type DatabaseConnection,
   type JobPayload,
   reserveSemanticPracticeRateLimit,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import {
   GenerationContextV1Schema,
   type GenerationContextV1,
-} from "@slopproof/analysis";
+} from "@understandproof/analysis";
 import {
   ContributorPracticeAnswerV1Schema,
   SemanticProviderFailureV1Schema,
   SemanticProviderInvocationMetadataV1Schema,
   type SemanticProviderFailureV1,
   type SemanticProviderInvocationMetadataV1,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import {
   ForbiddenProofContentV1Schema,
   LearningBundleV1Schema,
@@ -25,7 +25,7 @@ import {
   type LearningBundleV1,
   type PracticeFeedbackV1,
   type ProofQuestionPlanV2,
-} from "@slopproof/questions";
+} from "@understandproof/questions";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import type { SemanticGenerationResultV1 } from "./semantic-generation";

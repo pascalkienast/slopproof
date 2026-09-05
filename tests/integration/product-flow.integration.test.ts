@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
-import type { AuthenticatedSession } from "@slopproof/auth";
+import type { AuthenticatedSession } from "@understandproof/auth";
 import {
   connectDatabase,
   enqueueJobInPgTransaction,
@@ -9,13 +9,13 @@ import {
   registerJobWorker,
   startJobQueue,
   type DatabaseConnection,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import {
   FakeGithubCheckAdapter,
   PgBossPullRequestQueue,
   ingestPullRequestWebhook,
   processPullRequestJob,
-} from "@slopproof/github";
+} from "@understandproof/github";
 import {
   abortAttemptForTechnicalRetry,
   createReplacementAttempt,

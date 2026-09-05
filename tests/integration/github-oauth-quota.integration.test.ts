@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import type { OAuthStateHash } from "@slopproof/auth";
+import type { OAuthStateHash } from "@understandproof/auth";
 import {
   connectDatabase,
   migrateDatabase,
   type DatabaseConnection,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PgGithubOAuthStateRepository } from "../../apps/web/lib/github-oauth-production";
 

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AnalysisSnapshot, DiffAnchor } from "@slopproof/analysis";
+import type { AnalysisSnapshot, DiffAnchor } from "@understandproof/analysis";
 import {
   PlanProofInputSchema,
   PlanProofBudgetInputSchema,

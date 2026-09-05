@@ -6,13 +6,13 @@ import {
   buildGenerationContextV1,
   type GithubRevisionSourceV1,
   type PullRequestPatch,
-} from "@slopproof/analysis";
+} from "@understandproof/analysis";
 import {
   connectDatabase,
   persistGithubRevisionSourceInTransaction,
-} from "@slopproof/db";
-import { DEFAULT_REPOSITORY_POLICY_V1 } from "@slopproof/policy";
-import { planProof } from "@slopproof/questions";
+} from "@understandproof/db";
+import { DEFAULT_REPOSITORY_POLICY_V1 } from "@understandproof/policy";
+import { planProof } from "@understandproof/questions";
 import { persistGenerationContextV1InTransaction } from "../apps/worker/src/generation-context-repository";
 
 const databaseUrl = process.env.DATABASE_URL;

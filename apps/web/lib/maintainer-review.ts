@@ -1,9 +1,9 @@
-import type { AuthenticatedSession } from "@slopproof/auth";
-import { enqueueJobInPgTransaction } from "@slopproof/db";
+import type { AuthenticatedSession } from "@understandproof/auth";
+import { enqueueJobInPgTransaction } from "@understandproof/db";
 import {
   RepositoryPolicyV1Schema,
   type RepositoryPolicyV1,
-} from "@slopproof/policy";
+} from "@understandproof/policy";
 import { z } from "zod";
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";

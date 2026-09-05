@@ -1,4 +1,4 @@
-import { GithubControlError } from "@slopproof/github";
+import { GithubControlError } from "@understandproof/github";
 import { describe, expect, it, vi } from "vitest";
 import {
   filterMaintainerDirectory,

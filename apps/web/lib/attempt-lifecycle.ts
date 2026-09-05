@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
-import type { AuthenticatedSession } from "@slopproof/auth";
-import { scheduleJobInPgTransaction } from "@slopproof/db";
+import type { AuthenticatedSession } from "@understandproof/auth";
+import { scheduleJobInPgTransaction } from "@understandproof/db";
 import {
   GitShaSchema,
   IdempotencyKeySchema,
   UuidSchema,
-} from "@slopproof/domain";
-import { TECHNICAL_RETRY_GITHUB_CHECK } from "@slopproof/github";
+} from "@understandproof/domain";
+import { TECHNICAL_RETRY_GITHUB_CHECK } from "@understandproof/github";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { z } from "zod";

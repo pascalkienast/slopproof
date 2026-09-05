@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
-import { analyzePullRequestPatch } from "@slopproof/analysis";
+import { analyzePullRequestPatch } from "@understandproof/analysis";
 import {
   connectDatabase,
   EvaluationApplyPolicyJobSchema,
   migrateDatabase,
   type DatabaseConnection,
-} from "@slopproof/db";
-import { DEFAULT_REPOSITORY_POLICY_V1 } from "@slopproof/policy";
+} from "@understandproof/db";
+import { DEFAULT_REPOSITORY_POLICY_V1 } from "@understandproof/policy";
 import {
   RECORDING_CODEC,
   buildChunkNonce,
@@ -20,7 +20,7 @@ import {
   ProofEvaluationV1Schema,
   TranscriptV1Schema,
 } from "../../packages/providers/src/index";
-import { planProof, type ProofPlan } from "@slopproof/questions";
+import { planProof, type ProofPlan } from "@understandproof/questions";
 import type {
   ProviderPipelineDispatcher,
   ProviderPipelineJobName,

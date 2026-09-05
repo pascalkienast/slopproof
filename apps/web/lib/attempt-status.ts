@@ -1,4 +1,7 @@
-import { AttemptStatusSchema, type AttemptStatus } from "@slopproof/domain";
+import {
+  AttemptStatusSchema,
+  type AttemptStatus,
+} from "@understandproof/domain";
 
 type FetchPort = (input: string, init?: RequestInit) => Promise<Response>;
 type DelayPort = (milliseconds: number) => Promise<void>;

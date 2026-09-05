@@ -1,4 +1,4 @@
-import { connectDatabase } from "@slopproof/db";
+import { connectDatabase } from "@understandproof/db";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");

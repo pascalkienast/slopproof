@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { FinalizeRecordingSchema } from "@slopproof/media";
-import type { DatabaseConnection } from "@slopproof/db";
-import type { S3EvidenceStore } from "@slopproof/storage";
+import { FinalizeRecordingSchema } from "@understandproof/media";
+import type { DatabaseConnection } from "@understandproof/db";
+import type { S3EvidenceStore } from "@understandproof/storage";
 import {
   WorkerEvidenceCapabilityError,
   verifyWorkerEvidenceCapability,

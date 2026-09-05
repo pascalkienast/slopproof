@@ -127,7 +127,7 @@ main() {
   grep -Fq '<h1>GitHub authorization did not finish</h1>' \
     "$smoke_scratch/oauth-callback" ||
     die "OAuth callback recovery page lost its fixed failure title"
-  grep -Fq '<a href="/">Return to SlopProof</a>' \
+  grep -Fq '<a href="/">Return to UnderstandProof</a>' \
     "$smoke_scratch/oauth-callback" ||
     die "OAuth callback recovery page lost its safe return path"
 

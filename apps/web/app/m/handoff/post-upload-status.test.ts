@@ -9,7 +9,7 @@ describe("mobile proof post-upload status", () => {
       createElement(PostUploadStatusCard, {
         status: "processing",
         detail:
-          "Your recording was uploaded successfully. SlopProof is checking your explanation now.",
+          "Your recording was uploaded successfully. UnderstandProof is checking your explanation now.",
       }),
     );
 

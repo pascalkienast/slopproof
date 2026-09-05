@@ -47,7 +47,7 @@ for (const rule of rules) {
 
 for (const file of await walk(join(root, "apps"))) {
   const source = await readFile(file, "utf8");
-  if (/from ["']@slopproof\/(?:web|worker)/.test(source)) {
+  if (/from ["']@understandproof\/(?:web|worker)/.test(source)) {
     violations.push(
       `${relative(root, file)} imports directly from another app`,
     );

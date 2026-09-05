@@ -1,8 +1,8 @@
 import {
   sealGithubUserAccessToken,
   type AuthenticatedSession,
-} from "@slopproof/auth";
-import type { GithubUserAuthorizationPort } from "@slopproof/github";
+} from "@understandproof/auth";
+import type { GithubUserAuthorizationPort } from "@understandproof/github";
 import { describe, expect, it, vi } from "vitest";
 import type { CheckIntentWriter } from "./attempt-lifecycle";
 import { GITHUB_USER_TOKEN_COOKIE } from "./github-oauth-token";

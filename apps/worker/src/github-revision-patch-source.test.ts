@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { githubRevisionSourceHash } from "@slopproof/analysis";
+import { githubRevisionSourceHash } from "@understandproof/analysis";
 import {
   GithubRevisionPatchSourceError,
   PostgresGithubRevisionPatchSource,

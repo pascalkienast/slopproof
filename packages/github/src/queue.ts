@@ -3,7 +3,7 @@ import {
   expediteJobInPgTransaction,
   registerJobWorker,
   startJobQueue,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import {

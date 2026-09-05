@@ -1,10 +1,10 @@
 # Support
 
-SlopProof is maintained as a pre-1.0 open-source project.
+UnderstandProof is maintained as a pre-1.0 open-source project.
 
 - Use a GitHub issue for reproducible bugs and documentation defects.
 - Use a feature request for a bounded product proposal.
-- Include SlopProof commit, deployment profile, Node version and the smallest
+- Include UnderstandProof commit, deployment profile, Node version and the smallest
   value-free error class that reproduces the problem.
 - Remove secrets, repository content, evidence, transcripts, frames, provider
   payloads and signed URLs before posting.

@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { GitShaSchema, Sha256Schema, UuidSchema } from "@slopproof/domain";
+import {
+  GitShaSchema,
+  Sha256Schema,
+  UuidSchema,
+} from "@understandproof/domain";
 import { z } from "zod";
 import {
   ProviderError,

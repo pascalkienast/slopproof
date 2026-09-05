@@ -13,7 +13,7 @@ import {
   verifyAuthenticatedManifest,
   type FinalizeRecording,
   type RecordingManifest,
-} from "@slopproof/media";
+} from "@understandproof/media";
 
 export type RecordingKeyBinding = {
   materialId: string;

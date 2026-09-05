@@ -4,7 +4,7 @@ import {
   JOB_NAMES,
   JobNameSchema,
   type DatabaseConnection,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 

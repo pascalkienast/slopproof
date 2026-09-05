@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { PrivateReviewContext } from "@slopproof/providers";
+import type { PrivateReviewContext } from "@understandproof/providers";
 import { describe, expect, it } from "vitest";
 import {
   AUTOMATED_JUDGMENT_UNAVAILABLE,

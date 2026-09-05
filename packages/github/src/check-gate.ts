@@ -3,7 +3,7 @@
  * (merge blocked) and treat `completed` + `neutral` as successful (merge
  * allowed). Waiting for a maintainer must therefore stay pending, while any
  * terminal state that still needs contributor action must be
- * `action_required`. SlopProof must never emit `neutral` for its required
+ * `action_required`. UnderstandProof must never emit `neutral` for its required
  * understanding check.
  */
 export const REVIEW_REQUIRED_GITHUB_CHECK = {

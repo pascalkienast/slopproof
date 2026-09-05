@@ -1,4 +1,4 @@
-import { issueSession } from "@slopproof/auth";
+import { issueSession } from "@understandproof/auth";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { attachSessionCookies } from "../../../../lib/http-auth";

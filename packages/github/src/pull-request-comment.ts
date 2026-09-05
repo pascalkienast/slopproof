@@ -229,13 +229,13 @@ export function buildPullRequestCommentBody(
   input: PullRequestCommentInput,
 ): string {
   return `${COMMENT_MARKER}
-## SlopProof understanding check
+## UnderstandProof understanding check
 
 This pull request requires proof of understanding for its current revision.
 
 [Open the contributor flow](${input.detailsUrl})
 
-After GitHub authorization, the contributor can choose optional practice or start the required live proof. Maintainers can open the protected review from the same SlopProof page.
+After GitHub authorization, the contributor can choose optional practice or start the required live proof. Maintainers can open the protected review from the same UnderstandProof page.
 
 Bound head: \`${input.headSha}\``;
 }

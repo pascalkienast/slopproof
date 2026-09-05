@@ -1,6 +1,10 @@
-# Self-hosting SlopProof
+# Self-hosting UnderstandProof
 
-SlopProof is pre-1.0. Production operation requires a GitHub App, PostgreSQL,
+UnderstandProof was previously named SlopProof. The existing GitHub App and required
+check keep their legacy identifiers during this transition; see the
+[rename compatibility notes](understandproof-rename.md).
+
+UnderstandProof is pre-1.0. Production operation requires a GitHub App, PostgreSQL,
 private S3-compatible storage, model providers, HTTPS and a retention process.
 The repository does not provide an unattended installer.
 
@@ -20,11 +24,11 @@ Grant these repository permissions:
 - Pull requests: read and write
 
 Subscribe to `pull_request`, `installation` and `installation_repositories`.
-Install the App only on selected repositories during initial testing. SlopProof
+Install the App only on selected repositories during initial testing. UnderstandProof
 mints repository-scoped installation tokens with the same reduced permission
 set and never stores those tokens. Pull-request write access is used only to
 create or update one App-owned timeline comment containing the current public
-SlopProof link. Existing installations must approve this permission increase
+UnderstandProof link. Existing installations must approve this permission increase
 before comment synchronization can succeed.
 
 The webhook secret, OAuth client secret and App private key belong in the
@@ -46,7 +50,7 @@ the S3 provider signs browser uploads through a separate origin.
 Allow browser `PUT` only from `APP_BASE_URL`, allow `content-type`, expose
 `ETag`, and keep the presign maximum at five minutes. Configure a lifecycle
 backstop that removes evidence and provider-frame prefixes after the operator's
-maximum retention and aborts stale multipart uploads. SlopProof's database
+maximum retention and aborts stale multipart uploads. UnderstandProof's database
 deadline and deletion jobs remain authoritative.
 
 The Cloudflare-specific reference is in
@@ -140,6 +144,6 @@ read notes on a second screen while the take runs.
 6. Run retention and verify object deletion, key shredding and multipart abort.
 7. Rehearse an encrypted database backup and restore into a separate database.
 
-Do not make the SlopProof check required until this flow succeeds. The
+Do not make the UnderstandProof check required until this flow succeeds. The
 [dogfooding runbook](../maintainers/dogfooding.md) describes the required-check
 and break-glass sequence.

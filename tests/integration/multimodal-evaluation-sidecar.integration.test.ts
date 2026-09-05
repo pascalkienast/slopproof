@@ -2,13 +2,13 @@ import {
   connectDatabase,
   migrateDatabase,
   type DatabaseConnection,
-} from "@slopproof/db";
-import { DEFAULT_REPOSITORY_POLICY_V1 } from "@slopproof/policy";
+} from "@understandproof/db";
+import { DEFAULT_REPOSITORY_POLICY_V1 } from "@understandproof/policy";
 import {
   PayloadCipher,
   multimodalJudgeCandidateHashV1,
   type ProofEvaluationV1,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import {
   PostgresMultimodalEvaluationRepository,
   type PersistMultimodalEvaluationPairInput,

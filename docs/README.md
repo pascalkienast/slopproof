@@ -1,11 +1,12 @@
-# SlopProof documentation
+# UnderstandProof documentation
 
 The root README explains the product and local demo. The documents here cover
-the public contracts needed to evaluate, operate, or contribute to SlopProof.
+the public contracts needed to evaluate, operate, or contribute to UnderstandProof.
 
 ## Product status
 
 - [Project status](project-status.md)
+- [UnderstandProof rename and compatibility](operations/understandproof-rename.md)
 - [Self-hosting](operations/self-hosting.md)
 - [Dogfooding the required check](maintainers/dogfooding.md)
 

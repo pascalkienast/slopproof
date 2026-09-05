@@ -14,7 +14,7 @@ import {
   type GenerationContextV1,
   type GithubRevisionSourceV1,
   type PullRequestPatch,
-} from "@slopproof/analysis";
+} from "@understandproof/analysis";
 import {
   PgBossGithubCheckOutbox,
   parseJobPayload,
@@ -22,17 +22,17 @@ import {
   persistGithubCheckIntentInTransaction,
   scheduleJobInPgTransaction,
   type JobPayload,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import {
   DEFAULT_REPOSITORY_POLICY_V1,
   RepositoryPolicyV1Schema,
   type RepositoryPolicyV1,
-} from "@slopproof/policy";
+} from "@understandproof/policy";
 import {
   planProof,
   planProofBudget,
   type ProofQuestion,
-} from "@slopproof/questions";
+} from "@understandproof/questions";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 
@@ -681,7 +681,7 @@ async function persistPreparationFailure(
       headSha: payload.expectedHeadSha,
       status: "completed",
       conclusion: "action_required",
-      summary: `SlopProof could not prepare patch-bound questions for head ${payload.expectedHeadSha}. Maintainer action is required.`,
+      summary: `UnderstandProof could not prepare patch-bound questions for head ${payload.expectedHeadSha}. Maintainer action is required.`,
       reason: "preparation_failed",
       idempotencyKey: `analysis-preparation-failed:${payload.revisionId}`,
     });

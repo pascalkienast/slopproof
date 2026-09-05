@@ -78,7 +78,7 @@ credential or configuration rotation is reviewed.
    audited bootstrap Caddy/unit identities (or a subsequently managed Caddy
    boundary), x86-64, the pinned host `nodejs`/`jq` packages, effective
    Docker/containerd/SSH hard and soft `LimitCORE=0`, Docker/Caddy health,
-   disk/RAM, active services and that no SlopProof port is publicly bound.
+   disk/RAM, active services and that no UnderstandProof port is publicly bound.
    Every deploy phase also lowers its own hard and soft core limit to zero. Do
    not alter Replikator.
 2. From a clean local commit, create a release bundle outside the repository
@@ -129,7 +129,7 @@ SHA-256. Run `deploy.sh initial-caddy-cutover <release-id>`; the phase itself
 extracts those audited byte ranges into its protected backup and proves their
 reconstruction before mutation, so no ad-hoc operator file is a trust input.
 The renderer proves the prefix plus old
-block reconstruct the live file, preserves every non-SlopProof byte, installs
+block reconstruct the live file, preserves every non-UnderstandProof byte, installs
 exactly one Unix admin socket and `persist_config off`, and renders only public
 site/root variables. The proxy authenticator remains the literal runtime
 `{file./run/credentials/caddy.service/oauth-proxy-authenticator}` placeholder.
@@ -222,7 +222,7 @@ device/inode/owner/mode remain unchanged. It then restores the exact
 Caddy/drop-in/secret/current/release-unit boundary, validates and restarts
 Caddy, and never downgrades the database or deletes R2. This first Gate-9
 deployment may point back only to the exact audited
-`bootstrap-YYYYMMDD-HHMM`; in that case it keeps the SlopProof unit disabled
+`bootstrap-YYYYMMDD-HHMM`; in that case it keeps the UnderstandProof unit disabled
 and externally re-smokes the landing and every cohost. A later managed release
 is automatically reversible only when `managed-prepare` proves the complete
 migration set unchanged. Otherwise it is never started against a

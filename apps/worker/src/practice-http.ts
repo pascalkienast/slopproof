@@ -1,12 +1,12 @@
 import { createHmac } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { DatabaseConnection } from "@slopproof/db";
-import { ContributorPracticeAnswerV1Schema } from "@slopproof/providers";
+import type { DatabaseConnection } from "@understandproof/db";
+import { ContributorPracticeAnswerV1Schema } from "@understandproof/providers";
 import {
   LearningBundleV1Schema,
   PracticeFeedbackV1Schema,
   PracticeQuestionV2Schema,
-} from "@slopproof/questions";
+} from "@understandproof/questions";
 import { z } from "zod";
 import {
   WorkerPracticeCapabilityError,

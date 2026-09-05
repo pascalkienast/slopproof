@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { JOB_NAMES, type DatabaseConnection } from "@slopproof/db";
+import { JOB_NAMES, type DatabaseConnection } from "@understandproof/db";
 import { describe, expect, it, vi } from "vitest";
 import {
   collectOperationalMetricsSnapshot,

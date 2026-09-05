@@ -18,28 +18,28 @@ importers:
       "@playwright/test":
         specifier: 1.62.1
         version: 1.62.1
-      "@slopproof/analysis":
+      "@understandproof/analysis":
         specifier: workspace:*
         version: link:packages/analysis
-      "@slopproof/auth":
+      "@understandproof/auth":
         specifier: workspace:*
         version: link:packages/auth
-      "@slopproof/config":
+      "@understandproof/config":
         specifier: workspace:*
         version: link:packages/config
-      "@slopproof/db":
+      "@understandproof/db":
         specifier: workspace:*
         version: link:packages/db
-      "@slopproof/github":
+      "@understandproof/github":
         specifier: workspace:*
         version: link:packages/github
-      "@slopproof/policy":
+      "@understandproof/policy":
         specifier: workspace:*
         version: link:packages/policy
-      "@slopproof/providers":
+      "@understandproof/providers":
         specifier: workspace:*
         version: link:packages/providers
-      "@slopproof/questions":
+      "@understandproof/questions":
         specifier: workspace:*
         version: link:packages/questions
       "@testcontainers/postgresql":
@@ -90,16 +90,16 @@ importers:
 
   apps/github-control:
     dependencies:
-      "@slopproof/config":
+      "@understandproof/config":
         specifier: workspace:*
         version: link:../../packages/config
-      "@slopproof/db":
+      "@understandproof/db":
         specifier: workspace:*
         version: link:../../packages/db
-      "@slopproof/github":
+      "@understandproof/github":
         specifier: workspace:*
         version: link:../../packages/github
-      "@slopproof/observability":
+      "@understandproof/observability":
         specifier: workspace:*
         version: link:../../packages/observability
       pg:
@@ -114,40 +114,40 @@ importers:
 
   apps/web:
     dependencies:
-      "@slopproof/analysis":
+      "@understandproof/analysis":
         specifier: workspace:*
         version: link:../../packages/analysis
-      "@slopproof/auth":
+      "@understandproof/auth":
         specifier: workspace:*
         version: link:../../packages/auth
-      "@slopproof/config":
+      "@understandproof/config":
         specifier: workspace:*
         version: link:../../packages/config
-      "@slopproof/db":
+      "@understandproof/db":
         specifier: workspace:*
         version: link:../../packages/db
-      "@slopproof/domain":
+      "@understandproof/domain":
         specifier: workspace:*
         version: link:../../packages/domain
-      "@slopproof/github":
+      "@understandproof/github":
         specifier: workspace:*
         version: link:../../packages/github
-      "@slopproof/media":
+      "@understandproof/media":
         specifier: workspace:*
         version: link:../../packages/media
-      "@slopproof/observability":
+      "@understandproof/observability":
         specifier: workspace:*
         version: link:../../packages/observability
-      "@slopproof/policy":
+      "@understandproof/policy":
         specifier: workspace:*
         version: link:../../packages/policy
-      "@slopproof/providers":
+      "@understandproof/providers":
         specifier: workspace:*
         version: link:../../packages/providers
-      "@slopproof/questions":
+      "@understandproof/questions":
         specifier: workspace:*
         version: link:../../packages/questions
-      "@slopproof/storage":
+      "@understandproof/storage":
         specifier: workspace:*
         version: link:../../packages/storage
       next:
@@ -171,37 +171,37 @@ importers:
 
   apps/worker:
     dependencies:
-      "@slopproof/analysis":
+      "@understandproof/analysis":
         specifier: workspace:*
         version: link:../../packages/analysis
-      "@slopproof/config":
+      "@understandproof/config":
         specifier: workspace:*
         version: link:../../packages/config
-      "@slopproof/db":
+      "@understandproof/db":
         specifier: workspace:*
         version: link:../../packages/db
-      "@slopproof/domain":
+      "@understandproof/domain":
         specifier: workspace:*
         version: link:../../packages/domain
-      "@slopproof/github":
+      "@understandproof/github":
         specifier: workspace:*
         version: link:../../packages/github
-      "@slopproof/media":
+      "@understandproof/media":
         specifier: workspace:*
         version: link:../../packages/media
-      "@slopproof/observability":
+      "@understandproof/observability":
         specifier: workspace:*
         version: link:../../packages/observability
-      "@slopproof/policy":
+      "@understandproof/policy":
         specifier: workspace:*
         version: link:../../packages/policy
-      "@slopproof/providers":
+      "@understandproof/providers":
         specifier: workspace:*
         version: link:../../packages/providers
-      "@slopproof/questions":
+      "@understandproof/questions":
         specifier: workspace:*
         version: link:../../packages/questions
-      "@slopproof/storage":
+      "@understandproof/storage":
         specifier: workspace:*
         version: link:../../packages/storage
       pg-boss:
@@ -219,7 +219,7 @@ importers:
 
   packages/auth:
     dependencies:
-      "@slopproof/domain":
+      "@understandproof/domain":
         specifier: workspace:*
         version: link:../domain
       pg:
@@ -237,7 +237,7 @@ importers:
 
   packages/db:
     dependencies:
-      "@slopproof/domain":
+      "@understandproof/domain":
         specifier: workspace:*
         version: link:../domain
       drizzle-orm:
@@ -264,10 +264,10 @@ importers:
       "@octokit/rest":
         specifier: 22.0.1
         version: 22.0.1
-      "@slopproof/db":
+      "@understandproof/db":
         specifier: workspace:*
         version: link:../db
-      "@slopproof/domain":
+      "@understandproof/domain":
         specifier: workspace:*
         version: link:../domain
       pg:
@@ -288,7 +288,7 @@ importers:
       "@aws-sdk/s3-request-presigner":
         specifier: 3.1108.0
         version: 3.1108.0
-      "@slopproof/domain":
+      "@understandproof/domain":
         specifier: workspace:*
         version: link:../domain
       zod:
@@ -303,7 +303,7 @@ importers:
 
   packages/policy:
     dependencies:
-      "@slopproof/domain":
+      "@understandproof/domain":
         specifier: workspace:*
         version: link:../domain
       zod:
@@ -312,13 +312,13 @@ importers:
 
   packages/providers:
     dependencies:
-      "@slopproof/analysis":
+      "@understandproof/analysis":
         specifier: workspace:*
         version: link:../analysis
-      "@slopproof/domain":
+      "@understandproof/domain":
         specifier: workspace:*
         version: link:../domain
-      "@slopproof/questions":
+      "@understandproof/questions":
         specifier: workspace:*
         version: link:../questions
       zod:
@@ -327,10 +327,10 @@ importers:
 
   packages/questions:
     dependencies:
-      "@slopproof/analysis":
+      "@understandproof/analysis":
         specifier: workspace:*
         version: link:../analysis
-      "@slopproof/policy":
+      "@understandproof/policy":
         specifier: workspace:*
         version: link:../policy
       zod:
@@ -351,7 +351,7 @@ importers:
 
   packages/testkit:
     dependencies:
-      "@slopproof/domain":
+      "@understandproof/domain":
         specifier: workspace:*
         version: link:../domain
       zod:

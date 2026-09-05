@@ -3,8 +3,8 @@ import {
   boundedRevisionSourcePatch,
   buildBoundedRevisionSourceV1,
   buildGenerationContextV1,
-} from "@slopproof/analysis";
-import { deterministicLearningFallbackV1 } from "@slopproof/questions";
+} from "@understandproof/analysis";
+import { deterministicLearningFallbackV1 } from "@understandproof/questions";
 import { describe, expect, it } from "vitest";
 import {
   PracticeAnswerTextSchema,

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import {
   FrameSelectionMetadataV1Schema,
   PayloadCipher,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import { describe, expect, it, vi } from "vitest";
 import { framePayloadAad } from "./frame-selection";
 import {

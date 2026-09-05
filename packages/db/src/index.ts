@@ -6,4 +6,4 @@ export * from "./schema";
 export * from "./semantic-practice";
 export * from "./upload-finalization";
 
-export const dbPackage = "@slopproof/db" as const;
+export const dbPackage = "@understandproof/db" as const;

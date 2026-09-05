@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { DatabaseConnection } from "@slopproof/db";
+import type { DatabaseConnection } from "@understandproof/db";
 import {
   AuthoritativeMultimodalEvaluationV1Schema,
   PrivateReviewContextV2Schema,
@@ -8,8 +8,8 @@ import {
   TranscriptV1Schema,
   multimodalJudgeCandidateHashV1,
   type PayloadCipher,
-} from "@slopproof/providers";
-import type { S3EvidenceStore } from "@slopproof/storage";
+} from "@understandproof/providers";
+import type { S3EvidenceStore } from "@understandproof/storage";
 import type { PoolClient } from "pg";
 import type { ZodType } from "zod";
 import {

@@ -4,12 +4,12 @@ import {
   encodeBase64Url,
   RECORD_HEADER_BYTES,
   type FinalizeRecording,
-} from "@slopproof/media";
+} from "@understandproof/media";
 import {
   ProviderError,
   type OpenRouterQuestionTranscriptionResultV1,
   type QuestionAudioTranscriptionRequestV1,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import { describe, expect, it, vi } from "vitest";
 import {
   EncryptedRecordingAudioTranscriptionAdapter,

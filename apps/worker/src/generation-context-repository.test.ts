@@ -3,7 +3,7 @@ import {
   analyzePullRequestPatch,
   canonicalGenerationContextMaterialV1,
   canonicalGenerationProviderMaterialV1,
-} from "@slopproof/analysis";
+} from "@understandproof/analysis";
 import {
   boundedRevisionSourcePatch,
   buildBoundedRevisionSourceV1,

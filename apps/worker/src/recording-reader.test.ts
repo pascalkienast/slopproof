@@ -8,7 +8,7 @@ import {
   packChunkRecords,
   sha256Hex,
   type RecordingManifest,
-} from "@slopproof/media";
+} from "@understandproof/media";
 import { describe, expect, it } from "vitest";
 import { streamDecryptedRecording } from "./recording-reader";
 

@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible SlopProof defect without private evidence.
+description: Report a reproducible UnderstandProof defect without private evidence.
 title: "bug: "
 labels: [bug]
 body:
@@ -24,7 +24,7 @@ body:
         - Local Compose demo
         - Local development
         - Self-hosted production
-        - Hosted SlopProof instance
+        - Hosted UnderstandProof instance
     validations:
       required: true
   - type: textarea

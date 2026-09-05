@@ -1,4 +1,4 @@
-import { GitShaSchema, UuidSchema } from "@slopproof/domain";
+import { GitShaSchema, UuidSchema } from "@understandproof/domain";
 import { z } from "zod";
 
 export const RepositoryPolicyV1Schema = z
@@ -199,4 +199,4 @@ export function applyRepositoryPolicyV1(
   });
 }
 
-export const policyPackage = "@slopproof/policy" as const;
+export const policyPackage = "@understandproof/policy" as const;

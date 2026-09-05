@@ -1,5 +1,5 @@
-import { loadMigrationConfig } from "@slopproof/config";
-import { connectDatabase, migrateDatabase } from "@slopproof/db";
+import { loadMigrationConfig } from "@understandproof/config";
+import { connectDatabase, migrateDatabase } from "@understandproof/db";
 
 const config = loadMigrationConfig();
 

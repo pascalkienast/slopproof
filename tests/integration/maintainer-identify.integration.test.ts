@@ -2,7 +2,7 @@ import {
   connectDatabase,
   migrateDatabase,
   type DatabaseConnection,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import {
   afterAll,
   beforeAll,

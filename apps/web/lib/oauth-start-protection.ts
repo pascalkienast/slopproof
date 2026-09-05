@@ -53,7 +53,7 @@ export class OAuthStartRateLimitExceededError extends Error {
 
 /**
  * Production trusts a client address only when the TLS proxy overwrote both
- * SlopProof headers and proves that boundary with the compiler-derived static
+ * `X-SlopProof-*` headers and proves that boundary with the compiler-derived static
  * authenticator. Forwarded and X-Forwarded-For are intentionally ignored.
  */
 export async function enforceProductionOAuthStartProtection(

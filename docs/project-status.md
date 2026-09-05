@@ -1,9 +1,16 @@
 # Project status
 
-SlopProof is a working pre-1.0 GitHub App. The hosted service has completed the
+UnderstandProof is a working pre-1.0 GitHub App. The hosted service has completed the
 full flow against real pull requests, from the GitHub check and optional
 Practice through encrypted phone recording, evaluation, review, retention,
 backup, and restart.
+
+## Direction
+
+The brand stands for **Proof of Understanding**, independent of who created
+an output. The longer-term vision includes texts and other media. The current
+implementation supports GitHub pull requests only; this rename does not add
+new media inputs or change the evaluation policy.
 
 ## Available now
 
@@ -41,5 +48,5 @@ retention process, legal basis, and incident procedures.
 
 Read the [self-hosting guide](operations/self-hosting.md),
 [threat model](security/threat-model.md), and
-[provider data flow](privacy/provider-data-flow.md) before operating SlopProof
+[provider data flow](privacy/provider-data-flow.md) before operating UnderstandProof
 for other people.

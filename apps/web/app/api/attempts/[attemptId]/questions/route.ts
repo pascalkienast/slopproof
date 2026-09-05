@@ -2,11 +2,11 @@ import {
   MAX_RECORDING_DURATION_MS,
   MAX_RECORDING_OBJECT_BYTES,
   MAX_PROOF_QUESTION_ANSWER_MS,
-} from "@slopproof/media";
+} from "@understandproof/media";
 import {
   RepositoryPolicyV1Schema,
   resolveEffectiveRecordingLimits,
-} from "@slopproof/policy";
+} from "@understandproof/policy";
 import { NextResponse } from "next/server";
 import {
   authErrorResponse,

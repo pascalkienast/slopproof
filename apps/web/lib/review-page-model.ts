@@ -3,7 +3,7 @@ import type {
   PrivateReviewContext,
   ProofEvaluationV1,
   TranscriptV1,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 
 export const AUTOMATED_JUDGMENT_UNAVAILABLE =
   "Automated judgment was unavailable. Review the spoken answer and recording directly.";

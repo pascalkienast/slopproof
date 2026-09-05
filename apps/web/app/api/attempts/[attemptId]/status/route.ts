@@ -1,4 +1,4 @@
-import { AttemptStatusSchema, UuidSchema } from "@slopproof/domain";
+import { AttemptStatusSchema, UuidSchema } from "@understandproof/domain";
 import { NextResponse } from "next/server";
 import {
   authErrorResponse,

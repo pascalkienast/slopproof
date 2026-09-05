@@ -1,6 +1,6 @@
 import { createHash, createHmac } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { DatabaseConnection } from "@slopproof/db";
+import type { DatabaseConnection } from "@understandproof/db";
 import {
   AuthoritativeMultimodalEvaluationV1Schema,
   PayloadCipher,
@@ -8,7 +8,7 @@ import {
   ProofEvaluationV1Schema,
   TranscriptV1Schema,
   multimodalJudgeCandidateHashV1,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import { describe, expect, it, vi } from "vitest";
 import { framePayloadAad } from "./frame-selection";
 import { handleReviewContextRequest } from "./review-context";

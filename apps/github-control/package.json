@@ -1,5 +1,5 @@
 {
-  "name": "@slopproof/github-control",
+  "name": "@understandproof/github-control",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,10 +10,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@slopproof/config": "workspace:*",
-    "@slopproof/db": "workspace:*",
-    "@slopproof/github": "workspace:*",
-    "@slopproof/observability": "workspace:*",
+    "@understandproof/config": "workspace:*",
+    "@understandproof/db": "workspace:*",
+    "@understandproof/github": "workspace:*",
+    "@understandproof/observability": "workspace:*",
     "pg": "8.23.0",
     "pg-boss": "12.27.0",
     "zod": "4.3.6"

@@ -456,7 +456,11 @@ describe("process-scoped configuration", () => {
       "S3_CONTROL_ENDPOINT",
     ],
     ["malformed region", { S3_REGION: "eu central 1" }, "S3_REGION"],
-    ["malformed bucket", { S3_BUCKET: "SlopProof_Evidence" }, "S3_BUCKET"],
+    [
+      "malformed bucket",
+      { S3_BUCKET: "UnderstandProof_Evidence" },
+      "S3_BUCKET",
+    ],
   ])(
     "rejects %s in the production worker storage identity",
     (_name, override, field) => {

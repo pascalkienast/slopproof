@@ -56,7 +56,7 @@ test("tracked release enumeration is recursive and archives only its filtered al
   assert.match(release, /postgresPlatform: "linux\/amd64"/u);
 });
 
-test("Caddy renderer preserves exact non-SlopProof bytes and leaves only a runtime credential", () => {
+test("Caddy renderer preserves exact non-UnderstandProof bytes and leaves only a runtime credential", () => {
   const prefix = "# cohost-a\ncohost.example { respond ok }\n";
   const oldBlock = "# old slopproof\nslopproof.paskie.me { respond old }\n";
   const live = `${prefix}${oldBlock}`;
@@ -204,7 +204,7 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
   );
   assert.match(
     smoke,
-    /GitHub authorization did not finish[\s\S]*Return to SlopProof/u,
+    /GitHub authorization did not finish[\s\S]*Return to UnderstandProof/u,
   );
   assert.match(smoke, /oauth-callback\.headers[\s\S]*frame-ancestors 'none'/u);
   assert.doesNotMatch(
@@ -305,7 +305,7 @@ test("deployment phases are bounded, non-destructive and enforce ACL and backup 
     /compose_enable_link='\/etc\/systemd\/system\/multi-user\.target\.wants\/slopproof-compose\.service'/u,
   );
   assert.match(rollback, /rm -f -- "\$compose_enable_link"/u);
-  assert.match(rollback, /SlopProof Compose enable boundary is unsafe/u);
+  assert.match(rollback, /UnderstandProof Compose enable boundary is unsafe/u);
   assert.ok(caddyIndex < caddySyncIndex && caddySyncIndex < dropinIndex);
   assert.ok(dropinIndex < dropinSyncIndex && dropinSyncIndex < secretIndex);
   assert.ok(secretIndex < secretSyncIndex);

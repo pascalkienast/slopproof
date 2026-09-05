@@ -1,7 +1,7 @@
 import {
   GithubOAuthRejectedError,
   type GithubOAuthCallback,
-} from "@slopproof/auth";
+} from "@understandproof/auth";
 import { NextResponse } from "next/server";
 import {
   CSRF_COOKIE,
@@ -165,14 +165,14 @@ function oauthCallbackFailure(status: 400 | 503): NextResponse {
     ? "GitHub is temporarily unavailable"
     : "GitHub authorization did not finish";
   const detail = unavailable
-    ? "SlopProof could not complete the secure GitHub exchange. Nothing was submitted. Please try again from the current GitHub Check in a moment."
+    ? "UnderstandProof could not complete the secure GitHub exchange. Nothing was submitted. Please try again from the current GitHub Check in a moment."
     : "Nothing was submitted. Return to the current GitHub Check and start authorization again when you are ready.";
   const body = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>${title} · SlopProof</title>
+    <title>${title} · UnderstandProof</title>
     <style>
       :root { color-scheme: light; font-family: ui-sans-serif, system-ui, sans-serif; background: #f5f2ea; color: #171717; }
       * { box-sizing: border-box; }
@@ -187,10 +187,10 @@ function oauthCallbackFailure(status: 400 | 503): NextResponse {
   </head>
   <body>
     <main>
-      <p>SlopProof · GitHub authorization</p>
+      <p>UnderstandProof · GitHub authorization</p>
       <h1>${title}</h1>
       <p>${detail}</p>
-      <a href="/">Return to SlopProof</a>
+      <a href="/">Return to UnderstandProof</a>
     </main>
   </body>
 </html>`;

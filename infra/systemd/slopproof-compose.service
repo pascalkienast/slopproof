@@ -1,5 +1,5 @@
 [Unit]
-Description=SlopProof production Compose application
+Description=UnderstandProof production Compose application
 Documentation=file:/opt/slopproof/current/docs/operations/production-deployment.md
 Requires=docker.service
 After=docker.service network-online.target

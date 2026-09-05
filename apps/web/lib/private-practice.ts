@@ -1,4 +1,4 @@
-import type { AuthenticatedSession } from "@slopproof/auth";
+import type { AuthenticatedSession } from "@understandproof/auth";
 import { z } from "zod";
 import {
   WORKER_PRACTICE_MAX_RESPONSE_BYTES,

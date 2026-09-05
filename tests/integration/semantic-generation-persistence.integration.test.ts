@@ -5,23 +5,23 @@ import {
   persistGithubRevisionSourceInTransaction,
   startJobQueue,
   type DatabaseConnection,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import {
   analyzePullRequestPatch,
   boundedRevisionSourcePatch,
   buildBoundedRevisionSourceV1,
   buildGenerationContextV1,
   type GenerationContextV1,
-} from "@slopproof/analysis";
+} from "@understandproof/analysis";
 import {
   PayloadCipher,
   ProviderError,
   type LearningMaterialProvider,
   type PracticeCoachProvider,
   type ProofQuestionProvider,
-} from "@slopproof/providers";
-import { DEFAULT_REPOSITORY_POLICY_V1 } from "@slopproof/policy";
-import { deterministicLearningFallbackV1 } from "@slopproof/questions";
+} from "@understandproof/providers";
+import { DEFAULT_REPOSITORY_POLICY_V1 } from "@understandproof/policy";
+import { deterministicLearningFallbackV1 } from "@understandproof/questions";
 import {
   afterAll,
   beforeAll,

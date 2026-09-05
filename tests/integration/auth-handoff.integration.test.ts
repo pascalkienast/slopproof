@@ -4,12 +4,12 @@ import {
   exchangeHandoff,
   issueSession,
   verifyCsrf,
-} from "@slopproof/auth";
+} from "@understandproof/auth";
 import {
   connectDatabase,
   migrateDatabase,
   type DatabaseConnection,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;

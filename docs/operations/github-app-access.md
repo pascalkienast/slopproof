@@ -1,9 +1,9 @@
 # GitHub App access gate
 
-SlopProof can make its GitHub App publicly installable without admitting every
+UnderstandProof can make its GitHub App publicly installable without admitting every
 installation as a tenant. The current pre-1.0 gate is deliberately manual: a
 user may install the App before or after requesting beta access, but an operator
-must admit their immutable numeric GitHub account ID before SlopProof activates
+must admit their immutable numeric GitHub account ID before UnderstandProof activates
 the installation. Unknown installations remain `pending` and cannot activate
 repositories, enqueue pull-request work, or mint installation tokens.
 
@@ -172,7 +172,7 @@ activation so GitHub emits a fresh event.
 
 Setting an allowlist row to `inactive` blocks future admission but deliberately
 does not demote an already-active installation. For immediate access removal,
-suspend or uninstall the GitHub App installation and verify that SlopProof
+suspend or uninstall the GitHub App installation and verify that UnderstandProof
 invalidates its private flows.
 
 A later account product may add billing, seats, repository settings, judge

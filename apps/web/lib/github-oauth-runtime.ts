@@ -1,4 +1,7 @@
-import type { GithubOAuthBinding, GithubOAuthService } from "@slopproof/auth";
+import type {
+  GithubOAuthBinding,
+  GithubOAuthService,
+} from "@understandproof/auth";
 
 export type GithubOAuthServiceContract = Pick<
   GithubOAuthService,
