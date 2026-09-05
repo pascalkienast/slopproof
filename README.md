@@ -71,7 +71,7 @@ The flow starts where contributors already work. The GitHub App posts a
 revision-bound link directly on the pull request.
 
 <p align="center">
-  <img src="docs/assets/product-tour/github-comment.webp" width="920" alt="Automatic SlopProof GitHub App comment linking to the contributor flow">
+  <img src="docs/assets/product-tour/github-comment.webp" width="920" alt="Automatic UnderstandProof GitHub App comment linking to the contributor flow">
 </p>
 
 The contributor checks the camera and privacy terms, then answers the
