@@ -127,7 +127,7 @@ test("landing interactions obey the strict script policy and default to Proof", 
   );
   assert.match(
     landing,
-    /class="button primary" href="https:\/\/github\.com\/apps\/slopproof" target="_blank" rel="noreferrer">Install the GitHub App/u,
+    /class="button primary" href="https:\/\/github\.com\/apps\/understandproof" target="_blank" rel="noreferrer">Install the GitHub App/u,
   );
   assert.match(landing, /class="button" href="#closed-beta">Join the beta/u);
   assert.doesNotMatch(landing, /closed beta/iu);
@@ -147,7 +147,7 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.match(landing, /receive setup instructions by email/iu);
   assert.match(
     landing,
-    /class="button dark beta-app-action" href="https:\/\/github\.com\/apps\/slopproof" target="_blank" rel="noreferrer">Install the GitHub App ↗<\/a>/u,
+    /class="button dark beta-app-action" href="https:\/\/github\.com\/apps\/understandproof" target="_blank" rel="noreferrer">Install the GitHub App ↗<\/a>/u,
   );
   assert.match(landing, /id="closed-beta-form"/u);
   assert.match(landing, /name="email"[^>]*type="email"/u);

@@ -36,9 +36,9 @@ any are introduced or discovered. See [GitHub's rename documentation](https://do
 Do not globally replace every occurrence of `slopproof`. These are live
 compatibility contracts rather than the public brand:
 
-- **GitHub App:** `https://github.com/apps/slopproof` remains the installation
-  URL. The origin transition updates the existing App’s callback/webhook URLs,
-  not its registered slug, numeric identity, or installations.
+- **GitHub App identity:** The existing App now uses the installation URL
+  `https://github.com/apps/understandproof`. Its numeric identity and existing
+  installations remain unchanged; this is not a replacement App.
 - **Merge gate:** `SlopProof / understanding required` remains the exact check
   name emitted by the application, stored in check rows, and required by
   existing repository rulesets. The display name is deliberately not changed
