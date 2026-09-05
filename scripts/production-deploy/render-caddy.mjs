@@ -18,7 +18,7 @@ import { pathToFileURL } from "node:url";
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const SITE_TOKEN = "{$SLOPPROOF_SITE}";
 const LANDING_TOKEN = "{$LANDING_ROOT}";
-const SITE = "slopproof.paskie.me";
+const SITE = "understandproof.paskie.me";
 const LANDING_ROOT = "/var/www/slopproof/landing";
 const RUNTIME_CREDENTIAL =
   "{file./run/credentials/caddy.service/oauth-proxy-authenticator}";

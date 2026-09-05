@@ -10,7 +10,8 @@ must never be used to extend an application deadline.
 ## Committed policy
 
 - [r2-cors.production.json](../../infra/cloudflare/r2-cors.production.json)
-  allows only browser `PUT` from exactly `https://slopproof.paskie.me`, accepts
+  allows only browser `PUT` from `https://understandproof.paskie.me` and the
+  legacy `https://slopproof.paskie.me` during the origin transition, accepts
   only `content-type`, exposes only `ETag`, and caches preflight for five
   minutes.
 - [r2-lifecycle.production.json](../../infra/cloudflare/r2-lifecycle.production.json)
@@ -128,7 +129,7 @@ Do not move `pnpm smoke:r2-browser` into the compiler subshell. No secret or
 signed material is present in the smoke command line. The smoke uses the
 bucket-scoped server runtime credential for multipart create/complete,
 authenticated HEAD/GET verification, and cleanup. A real headless Chromium
-page first navigates to exactly `https://slopproof.paskie.me`, then uploads an
+page first navigates to exactly `https://understandproof.paskie.me`, then uploads an
 AES-GCM ciphertext fixture as one non-final target part of exactly 8 MiB
 (strictly greater than S3's 5 MiB minimum) and one final part through presigned
 `PUT` URLs. ETags remain in memory. The server-side read

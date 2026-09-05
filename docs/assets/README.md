@@ -1,7 +1,13 @@
 # Product screenshots
 
-These captures predate the UnderstandProof rename and show SlopProof. They remain
-unaltered historical product captures, not renders of the renamed interface.
+The GitHub App comment was recaptured on 2026-09-05 from the live
+[PR #48 comment](https://github.com/pascalkienast/understandproof/pull/48#issuecomment-5553201318),
+bound to head `6d73d343b24b99be9b260beacab527fc53f79135`. It shows
+`understandproof` and “Proof of Understanding”; only the comment and its avatar
+are included. This is an actual browser capture, not a generated mockup.
+
+The other eight captures predate the UnderstandProof rename and show SlopProof.
+They remain unaltered historical product captures.
 
 `product-tour/` contains nine manually curated production captures for the
 landing-page carousel. They tell one contributor journey: the automatic GitHub

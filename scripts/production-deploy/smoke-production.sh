@@ -10,7 +10,7 @@ ulimit -H -c 0
   exit 1
 }
 
-readonly BASE_URL='https://slopproof.paskie.me'
+readonly BASE_URL='https://understandproof.paskie.me'
 readonly PASKIE_URL='https://paskie.me'
 readonly WUNDERBLUETE_URL='https://wunderbluete.club'
 readonly REPLIKATOR_URL='https://replikator.paskie.me/api/health'
@@ -89,7 +89,7 @@ main() {
       --header 'sec-fetch-site: same-origin' \
       --header 'sec-fetch-mode: navigate' \
       --header 'sec-fetch-dest: document' \
-      --header 'referer: https://slopproof.paskie.me/review' \
+      --header 'referer: https://understandproof.paskie.me/review' \
       --write-out '%{http_code}' "$oauth_start_url" 2>/dev/null || true
   )
   if [[ "$status" =~ ^30[2378]$ ]]; then

@@ -30,7 +30,7 @@ artifact is reachable from a Git ref.
 Suggested metadata:
 
 - Description: `Patch-bound live proof for pull requests: contributors explain the change, maintainers merge with evidence.`
-- Homepage: `https://slopproof.paskie.me`
+- Homepage: `https://understandproof.paskie.me`
 - Topics: `github-app`, `pull-requests`, `code-review`, `self-hosted`,
   `accountability`, `typescript`, `privacy`
 

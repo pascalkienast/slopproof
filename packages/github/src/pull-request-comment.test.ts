@@ -60,6 +60,10 @@ describe("OctokitPullRequestCommentAdapter", () => {
     );
     expect(body).toContain(input.detailsUrl);
     expect(body).toContain(headSha);
+    expect(body).toContain("## Proof of Understanding");
+    expect(body).toContain("same UnderstandProof page");
+    expect(body).not.toContain("SlopProof understanding check");
+    expect(body).not.toContain("same SlopProof page");
   });
 
   it("updates the existing App comment when a new revision becomes current", async () => {

@@ -24,7 +24,7 @@ replace them.
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Run the full stack yourself or try
-[slopproof.paskie.me](https://slopproof.paskie.me). Each proof stays bound to
+[understandproof.paskie.me](https://understandproof.paskie.me). Each proof stays bound to
 the current head SHA, so a new push requires a fresh explanation.
 
 <p align="center">
@@ -71,7 +71,7 @@ The flow starts where contributors already work. The GitHub App posts a
 revision-bound link directly on the pull request.
 
 <p align="center">
-  <img src="docs/assets/product-tour/github-comment.webp" width="920" alt="Automatic SlopProof GitHub App comment linking to the contributor flow">
+  <img src="docs/assets/product-tour/github-comment.webp" width="920" alt="Automatic UnderstandProof GitHub App comment linking to the contributor flow">
 </p>
 
 The contributor checks the camera and privacy terms, then answers the
@@ -114,7 +114,7 @@ The result returns to the same head SHA on GitHub.
 
 ## See it
 
-- Live landing: [slopproof.paskie.me](https://slopproof.paskie.me)
+- Live landing: [understandproof.paskie.me](https://understandproof.paskie.me)
 - Local demo: <http://localhost:3000/demo> after `docker compose up --build`
 - Curated production screenshots: [docs/assets/](docs/assets/README.md)
 

@@ -1254,10 +1254,10 @@ phase_managed_rollback() {
   systemctl restart slopproof-compose.service
   timeout --signal=TERM --kill-after=5s 300 systemctl is-active --quiet slopproof-compose.service
   assert_release_container_images "$previous_release_id" postgres migrate worker github-control web
-  # Use the candidate's release-verified smoke contract so a rollback remains
-  # testable after production grows from one active repository to many. The
-  # target application is still the restored immutable previous release.
-  run_application_smoke "$release_id" final
+  # Smoke the restored release with its own origin and interface contract.
+  # Candidate expectations may have changed during an origin or brand move;
+  # repository selection still uses the current helper against the restored DB.
+  run_application_smoke "$previous_release_id" final
   printf '%s\n' "Restored managed release $previous_release_id without changing Caddy or PostgreSQL schema."
 }
 

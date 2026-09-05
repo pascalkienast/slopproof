@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { isAbsolute } from "node:path";
 
-export const R2_BROWSER_SMOKE_ORIGIN = "https://slopproof.paskie.me";
+export const R2_BROWSER_SMOKE_ORIGIN = "https://understandproof.paskie.me";
 export const R2_BROWSER_SMOKE_OPT_IN = "R2_BROWSER_SMOKE";
 export const R2_BROWSER_SMOKE_EXACT_OPT_IN = "production-slopproof-eu";
 export const R2_BROWSER_SMOKE_ENDPOINT =

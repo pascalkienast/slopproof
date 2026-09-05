@@ -229,7 +229,7 @@ export function buildPullRequestCommentBody(
   input: PullRequestCommentInput,
 ): string {
   return `${COMMENT_MARKER}
-## UnderstandProof understanding check
+## Proof of Understanding
 
 This pull request requires proof of understanding for its current revision.
 
