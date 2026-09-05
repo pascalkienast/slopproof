@@ -4,7 +4,7 @@ import {
   IdempotencyKeySchema,
   Sha256Schema,
   UuidSchema,
-} from "@slopproof/domain";
+} from "@understandproof/domain";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { z } from "zod";

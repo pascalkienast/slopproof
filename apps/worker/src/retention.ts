@@ -3,7 +3,7 @@ import {
   EvidenceDeleteJobSchema,
   type DatabaseConnection,
   type JobPayload,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import { type Db as PgBossDatabase, type PgBoss } from "pg-boss";
 
 const DEFAULT_SWEEP_LIMIT = 100;

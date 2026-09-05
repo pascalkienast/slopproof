@@ -1,1 +1,1 @@
-export const testkitPackage = "@slopproof/testkit" as const;
+export const testkitPackage = "@understandproof/testkit" as const;

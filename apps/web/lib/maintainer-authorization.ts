@@ -1,8 +1,8 @@
-import type { AuthenticatedSession } from "@slopproof/auth";
+import type { AuthenticatedSession } from "@understandproof/auth";
 import {
   OctokitUserAuthorizationPort,
   type GithubUserAuthorizationPort,
-} from "@slopproof/github";
+} from "@understandproof/github";
 import { z } from "zod";
 import { requireFreshGithubUserToken } from "./github-oauth-token";
 import type { WebRuntime } from "./runtime";

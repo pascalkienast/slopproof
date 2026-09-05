@@ -1,5 +1,8 @@
 # Product screenshots
 
+These captures predate the UnderstandProof rename and show SlopProof. They remain
+unaltered historical product captures, not renders of the renamed interface.
+
 `product-tour/` contains nine manually curated production captures for the
 landing-page carousel. They tell one contributor journey: the automatic GitHub
 App comment with its contributor link, the linked understanding check,

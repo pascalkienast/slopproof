@@ -1,17 +1,17 @@
-import type { JobName, JobPayload } from "@slopproof/db";
-import type { GenerationContextV1 } from "@slopproof/analysis";
+import type { JobName, JobPayload } from "@understandproof/db";
+import type { GenerationContextV1 } from "@understandproof/analysis";
 import type {
   ContributorPracticeAnswerV1Schema,
   PayloadCipher,
   SemanticProviderInvocationMetadataV1,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import type {
   ForbiddenProofContentV1,
   LearningBundleV1,
   PracticeFeedbackV1,
   PracticeQuestionV2,
   ProofQuestionPlanV2,
-} from "@slopproof/questions";
+} from "@understandproof/questions";
 import type { PoolClient } from "pg";
 import type { z } from "zod";
 import type {

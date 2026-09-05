@@ -1,15 +1,19 @@
 import {
   GenerationProviderMaterialV1Schema,
   type GenerationProviderMaterialV1,
-} from "@slopproof/analysis";
-import { GitShaSchema, Sha256Schema, UuidSchema } from "@slopproof/domain";
+} from "@understandproof/analysis";
+import {
+  GitShaSchema,
+  Sha256Schema,
+  UuidSchema,
+} from "@understandproof/domain";
 import {
   PracticeQuestionCandidateV2Schema,
   ProofQuestionIntentV2Schema,
   type PracticeFeedbackCandidateV1,
   type ProofQuestionCandidateV2,
   type LearningBundleCandidateV1,
-} from "@slopproof/questions";
+} from "@understandproof/questions";
 import { z } from "zod";
 import {
   PROVIDER_ERROR_CODES,

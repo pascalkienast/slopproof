@@ -3,17 +3,17 @@ import {
   expediteJobInPgTransaction,
   type DatabaseConnection,
   type JobPayload,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import {
   REVIEW_REQUIRED_GITHUB_CHECK,
   TECHNICAL_RETRY_GITHUB_CHECK,
-} from "@slopproof/github";
-import { FinalizeRecordingSchema } from "@slopproof/media";
-import type { RepositoryPolicyV1 } from "@slopproof/policy";
+} from "@understandproof/github";
+import { FinalizeRecordingSchema } from "@understandproof/media";
+import type { RepositoryPolicyV1 } from "@understandproof/policy";
 import type {
   ProviderErrorCode,
   ProviderFailureTelemetry,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import {
   EncryptedEvaluationBundleV1Schema,
   EncryptedTranscriptBundleV1Schema,

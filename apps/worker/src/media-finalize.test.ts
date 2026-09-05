@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_REPOSITORY_POLICY_V1 } from "@slopproof/policy";
+import { DEFAULT_REPOSITORY_POLICY_V1 } from "@understandproof/policy";
 import {
   buildFfprobeArguments,
   assertFrozenMediaLimits,

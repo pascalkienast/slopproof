@@ -1,12 +1,12 @@
-import { loadWebConfig } from "@slopproof/config";
+import { loadWebConfig } from "@understandproof/config";
 import {
   connectDatabase,
   startJobQueue,
   type DatabaseConnection,
-} from "@slopproof/db";
-import { createLogger } from "@slopproof/observability";
-import { PgBossPullRequestPublisher } from "@slopproof/github";
-import { S3EvidenceStore } from "@slopproof/storage";
+} from "@understandproof/db";
+import { createLogger } from "@understandproof/observability";
+import { PgBossPullRequestPublisher } from "@understandproof/github";
+import { S3EvidenceStore } from "@understandproof/storage";
 import type { PgBoss } from "pg-boss";
 
 export type WebRuntime = {

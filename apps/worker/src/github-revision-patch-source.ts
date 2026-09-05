@@ -9,7 +9,7 @@ import {
   type BoundedRevisionSourceV1,
   type GenerationContextLimitsV1,
   type PullRequestPatch,
-} from "@slopproof/analysis";
+} from "@understandproof/analysis";
 
 export type DatabaseRevisionPatchRequest = {
   revisionId: string;

@@ -36,10 +36,10 @@ Suggested metadata:
 
 ## Publication and dogfood
 
-- [x] Create `pascalkienast/slopproof` without auto-generated files.
+- [x] Create `pascalkienast/understandproof` without auto-generated files.
 - [x] Push the reviewed release branch and confirm every workflow passes.
 - [x] Install the GitHub App on this repository only.
-- [ ] Complete the bootstrap SlopProof pull request.
+- [ ] Complete the bootstrap UnderstandProof pull request.
 - [ ] Activate the main-branch ruleset with the App-bound check and PR-only
       break-glass actor.
 - [ ] Complete a second pull request under the active ruleset.

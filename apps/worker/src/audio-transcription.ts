@@ -12,7 +12,7 @@ import {
   type FinalizeRecording,
   type ProofQuestionIntervalV1,
   type RecordingManifest,
-} from "@slopproof/media";
+} from "@understandproof/media";
 import {
   OpenRouterQuestionTranscriptionResultV1Schema,
   ProviderContextV1Schema,
@@ -24,7 +24,7 @@ import {
   type QuestionAudioTranscriptionRequestV1,
   type TranscriptV1,
   type TranscriptionLanguagePolicyV1,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import { z } from "zod";
 import {
   authenticateRecordingFinalization,

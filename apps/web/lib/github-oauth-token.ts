@@ -4,7 +4,7 @@ import {
   type AuthenticatedSession,
   type GithubOAuthPurpose,
   type UnsealedGithubUserAccessToken,
-} from "@slopproof/auth";
+} from "@understandproof/auth";
 import { requestCookieValue } from "./http-auth";
 
 export const GITHUB_USER_TOKEN_COOKIE = "__Host-slopproof_github_user";

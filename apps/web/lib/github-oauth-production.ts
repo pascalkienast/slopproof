@@ -14,7 +14,7 @@ import {
   type GithubOAuthStateRecord,
   type GithubOAuthStateRepository,
   type OAuthStateHash,
-} from "@slopproof/auth";
+} from "@understandproof/auth";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import { requestCookieValue, SESSION_COOKIE } from "./http-auth";

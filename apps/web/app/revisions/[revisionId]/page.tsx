@@ -65,7 +65,7 @@ export default async function PublicRevisionPage({
   return (
     <main className="shell flow-shell public-check-shell">
       <a className="back-link" href="/">
-        ← SlopProof
+        ← UnderstandProof
       </a>
       <p className="eyebrow">
         {revision.owner}/{revision.name} · PR #{revision.pull_request_number}

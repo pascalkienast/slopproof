@@ -2,7 +2,7 @@ import {
   loadGithubControlConfig,
   loadWebConfig,
   loadWorkerConfig,
-} from "@slopproof/config";
+} from "@understandproof/config";
 import {
   assertSafeProductionOutputDirectory,
   compileProductionEnvironment,

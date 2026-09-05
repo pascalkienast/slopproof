@@ -1,18 +1,18 @@
-import { loadGithubControlConfig } from "@slopproof/config";
+import { loadGithubControlConfig } from "@understandproof/config";
 import {
   connectDatabase,
   PgBossGithubCheckOutbox,
   registerJobWorker,
   replayDueGithubCheckSyncs,
   startJobQueue,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import {
   OctokitCheckRunAdapter,
   OctokitPullRequestCommentAdapter,
   OctokitPullRequestPort,
   RepositoryInstallationTokenCache,
-} from "@slopproof/github";
-import { createLogger } from "@slopproof/observability";
+} from "@understandproof/github";
+import { createLogger } from "@understandproof/observability";
 import type { PgBoss } from "pg-boss";
 import {
   handleGithubCheckReconcileJob,

@@ -1,4 +1,4 @@
-import { connectDatabase } from "@slopproof/db";
+import { connectDatabase } from "@understandproof/db";
 
 export async function teardown(): Promise<void> {
   const databaseUrl = process.env.TEST_DATABASE_URL;

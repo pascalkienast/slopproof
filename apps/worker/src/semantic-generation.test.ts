@@ -4,7 +4,7 @@ import {
   buildBoundedRevisionSourceV1,
   buildGenerationContextV1,
   type GenerationContextV1,
-} from "@slopproof/analysis";
+} from "@understandproof/analysis";
 import type {
   HetznerSemanticProviderDependencies,
   LearningMaterialProvider,
@@ -14,16 +14,16 @@ import type {
   SemanticProviderInputV1,
   SemanticProviderRawResponseV1,
   SemanticProviderRepairInstructionV1,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import {
   HetznerProofQuestionProvider,
   ProviderError,
   TransportFallbackSemanticProvider,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import {
   deterministicLearningFallbackV1,
   deterministicProofFallbackV2,
-} from "@slopproof/questions";
+} from "@understandproof/questions";
 import { describe, expect, it, vi } from "vitest";
 import {
   GenerateProofQuestionPlanRequestV1Schema,

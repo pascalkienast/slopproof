@@ -1,5 +1,5 @@
-import type { AttemptStatus } from "@slopproof/domain";
-import { DEFAULT_REPOSITORY_POLICY_V1 } from "@slopproof/policy";
+import type { AttemptStatus } from "@understandproof/domain";
+import { DEFAULT_REPOSITORY_POLICY_V1 } from "@understandproof/policy";
 import {
   LocalFakeMultimodalJudgeProvider,
   LocalFakeTranscriptionProvider,
@@ -20,7 +20,7 @@ import {
   type ProofEvaluationV1,
   type TranscriptV1,
   type TranscriptionProvider,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import { describe, expect, it, vi } from "vitest";
 import {
   type EncryptedEvaluationBundleV1,

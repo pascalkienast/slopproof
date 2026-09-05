@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
-import { loadWorkerConfig } from "@slopproof/config";
+import { loadWorkerConfig } from "@understandproof/config";
 import {
   connectDatabase,
   enqueueJob,
   registerJobWorker,
   startJobQueue,
-} from "@slopproof/db";
-import { createLogger } from "@slopproof/observability";
-import { PayloadCipher } from "@slopproof/providers";
-import { S3EvidenceStore } from "@slopproof/storage";
+} from "@understandproof/db";
+import { createLogger } from "@understandproof/observability";
+import { PayloadCipher } from "@understandproof/providers";
+import { S3EvidenceStore } from "@understandproof/storage";
 import type { PgBoss } from "pg-boss";
 import {
   expireAttempt,

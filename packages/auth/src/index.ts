@@ -4,4 +4,4 @@ export * from "./github-user-token";
 export * from "./session";
 export * from "./token";
 
-export const authPackage = "@slopproof/auth" as const;
+export const authPackage = "@understandproof/auth" as const;

@@ -28,7 +28,7 @@ import {
   loadMigrationConfig,
   loadWebConfig,
   loadWorkerConfig,
-} from "@slopproof/config";
+} from "@understandproof/config";
 type Environment = Readonly<Record<string, string | undefined>>;
 
 export class ProductionEnvironmentError extends Error {

@@ -5,7 +5,7 @@ import {
   migrateDatabase,
   persistPendingUploadFinalization,
   type DatabaseConnection,
-} from "@slopproof/db";
+} from "@understandproof/db";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const databaseDescribe = databaseUrl ? describe : describe.skip;

@@ -224,7 +224,11 @@ describe("production environment compiler", () => {
       "S3_PUBLIC_ENDPOINT",
     ],
     ["malformed region", { S3_REGION: "eu central 1" }, "S3_REGION"],
-    ["malformed bucket", { S3_BUCKET: "SlopProof_Evidence" }, "S3_BUCKET"],
+    [
+      "malformed bucket",
+      { S3_BUCKET: "UnderstandProof_Evidence" },
+      "S3_BUCKET",
+    ],
   ])("rejects a malformed %s", (_name, override, field) => {
     const rejectedValue = Object.values(override)[0];
     try {

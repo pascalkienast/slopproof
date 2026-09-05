@@ -1,6 +1,6 @@
-import type { JobPayload } from "@slopproof/db";
+import type { JobPayload } from "@understandproof/db";
 import { describe, expect, it, vi } from "vitest";
-import type { GenerationContextV1 } from "@slopproof/analysis";
+import type { GenerationContextV1 } from "@understandproof/analysis";
 import { createSemanticGenerationJobHandlers } from "./semantic-generation-jobs";
 import type {
   SemanticGenerationRepository,

@@ -4,7 +4,7 @@ import {
   buildBoundedRevisionSourceV1,
   buildGenerationContextV1,
   type GenerationContextV1,
-} from "@slopproof/analysis";
+} from "@understandproof/analysis";
 import { describe, expect, it } from "vitest";
 import {
   LearningBundleCandidateV1Schema,

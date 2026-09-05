@@ -1,7 +1,7 @@
 import {
   validateProofQuestionIntervalsV1,
   type ProofQuestionIntervalV1,
-} from "@slopproof/media";
+} from "@understandproof/media";
 
 export type ProofQuestionIntervalDraft = Omit<
   ProofQuestionIntervalV1,

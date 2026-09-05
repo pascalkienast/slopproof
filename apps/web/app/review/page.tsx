@@ -202,8 +202,8 @@ export function ReviewAuthWall({
         </p>
       ) : identified && identifiedRepositories.length === 0 ? (
         <p>
-          This GitHub account is not a live maintainer on an active SlopProof
-          installation.
+          This GitHub account is not a live maintainer on an active
+          UnderstandProof installation.
         </p>
       ) : identified ? (
         <p>

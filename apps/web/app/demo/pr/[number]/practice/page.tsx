@@ -1,5 +1,5 @@
-import type { AnalysisSnapshot } from "@slopproof/analysis";
-import { createPracticeSet } from "@slopproof/questions";
+import type { AnalysisSnapshot } from "@understandproof/analysis";
+import { createPracticeSet } from "@understandproof/questions";
 import { notFound } from "next/navigation";
 import { getWebRuntime } from "../../../../../lib/runtime";
 

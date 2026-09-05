@@ -5,7 +5,7 @@ import {
   type FrameSelectionMetadataV1,
   type NormalizedInlineJudgeFrameV1,
   type PayloadCipher,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import { z } from "zod";
 import { framePayloadAad } from "./frame-selection";
 

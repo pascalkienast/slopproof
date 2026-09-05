@@ -10,4 +10,4 @@ export * from "./payload-cipher";
 export * from "./semantic-fakes";
 export * from "./transport-fallback";
 
-export const providersPackage = "@slopproof/providers" as const;
+export const providersPackage = "@understandproof/providers" as const;

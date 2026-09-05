@@ -1,6 +1,6 @@
 # Third-party notices
 
-SlopProof depends on third-party packages and system components. Their licenses
+UnderstandProof depends on third-party packages and system components. Their licenses
 remain with their respective copyright holders.
 
 Generate the exact production JavaScript inventory for the current lockfile:

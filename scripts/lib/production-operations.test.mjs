@@ -34,7 +34,7 @@ test("the repository root exposes only public project markdown", () => {
     "SUPPORT.md",
     "THIRD_PARTY_NOTICES.md",
   ]);
-  assert.match(read("docs/README.md"), /# SlopProof documentation/u);
+  assert.match(read("docs/README.md"), /# UnderstandProof documentation/u);
   assert.match(read("docs/project-status.md"), /# Project status/u);
 });
 
@@ -123,7 +123,7 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.doesNotMatch(landing, /Optional: practice the patch/u);
   assert.match(
     landing,
-    /class="button github" href="https:\/\/github\.com\/pascalkienast\/slopproof"/u,
+    /class="button github" href="https:\/\/github\.com\/pascalkienast\/understandproof"/u,
   );
   assert.match(
     landing,
@@ -160,7 +160,7 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.doesNotMatch(landing, /forms\.google|typeform/iu);
   assert.match(
     landing,
-    /href="https:\/\/github\.com\/pascalkienast\/slopproof"[^>]*>Open source · Live on GitHub · 2026<\/a>/u,
+    /href="https:\/\/github\.com\/pascalkienast\/understandproof"[^>]*>Open source · Live on GitHub · 2026<\/a>/u,
   );
   assert.match(landing, /One continuous take\. The tab stays in front\./u);
   assert.match(
@@ -200,7 +200,7 @@ test("public product copy leads with the product benefit", () => {
   );
   assert.match(
     readme,
-    /SlopProof turns that understanding into a required GitHub check/u,
+    /UnderstandProof turns that understanding into a required GitHub check/u,
   );
   assert.match(readme, /patch-bound evidence\s+before merge/u);
   assert.doesNotMatch(

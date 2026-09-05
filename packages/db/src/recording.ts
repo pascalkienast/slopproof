@@ -1,11 +1,11 @@
 import { eq, sql } from "drizzle-orm";
 import type { PgBoss } from "pg-boss";
-import type { SlopProofDatabase } from "./client";
+import type { UnderstandProofDatabase } from "./client";
 import { expediteJobInTransaction } from "./jobs";
 import { auditEvents, recordingObjects, uploadSessions } from "./schema";
 
 export async function persistValidatedRecording(
-  database: SlopProofDatabase,
+  database: UnderstandProofDatabase,
   queue: PgBoss,
   input: {
     recordingObjectId: string;

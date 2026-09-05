@@ -3,8 +3,9 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SlopProof — Prove you know what you ship",
-  description: "A self-hostable pull request understanding gate.",
+  title: "UnderstandProof — Proof of Understanding",
+  description:
+    "Show that you understand the change before it merges. A self-hostable GitHub understanding check.",
 };
 
 export default function RootLayout({

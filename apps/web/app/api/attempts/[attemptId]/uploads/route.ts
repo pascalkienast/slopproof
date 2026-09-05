@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { RECORDING_CODEC } from "@slopproof/media";
-import { createOpaqueEvidenceObjectKey } from "@slopproof/storage";
+import { RECORDING_CODEC } from "@understandproof/media";
+import { createOpaqueEvidenceObjectKey } from "@understandproof/storage";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {

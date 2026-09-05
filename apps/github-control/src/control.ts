@@ -11,7 +11,7 @@ import {
   failGithubCheckSync,
   type DatabaseConnection,
   type JobPayload,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import {
   GithubControlError,
   OctokitCheckRunAdapter,
@@ -30,7 +30,7 @@ import {
   InactiveGithubInstallationError,
   processPullRequestJob,
   processVerifiedPullRequestSnapshot,
-} from "@slopproof/github";
+} from "@understandproof/github";
 import type { PgBoss } from "pg-boss";
 import type { PoolClient } from "pg";
 

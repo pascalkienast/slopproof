@@ -30,7 +30,7 @@ export default async function DemoPage() {
   return (
     <main className="shell flow-shell">
       <a className="back-link" href="/">
-        ← SlopProof
+        ← UnderstandProof
       </a>
       <p className="eyebrow">Offline golden path · acme/cachekit</p>
       <h1 className="flow-title">Three patches. Three proof budgets.</h1>

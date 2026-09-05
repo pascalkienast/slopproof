@@ -3,7 +3,7 @@ import {
   connectDatabase,
   migrateDatabase,
   type DatabaseConnection,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { consumeOAuthStartRateLimit } from "../../apps/web/lib/oauth-start-protection";
 

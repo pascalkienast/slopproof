@@ -3,7 +3,7 @@ import {
   InvalidWebhookSignatureError,
   WebhookDeliveryConflictError,
   ingestGithubWebhook,
-} from "@slopproof/github";
+} from "@understandproof/github";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import {

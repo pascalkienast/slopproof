@@ -2,8 +2,8 @@ import {
   getJobSingletonKey,
   parseJobPayload,
   type JobPayload,
-} from "@slopproof/db";
-import { ATTEMPT_EXPIRED_GITHUB_CHECK } from "@slopproof/github";
+} from "@understandproof/db";
+import { ATTEMPT_EXPIRED_GITHUB_CHECK } from "@understandproof/github";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { CheckIntentWriter } from "./revision-preparation";

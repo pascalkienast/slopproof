@@ -3,7 +3,7 @@ import {
   verifyCsrf,
   type AuthenticatedSession,
   type IssuedSession,
-} from "@slopproof/auth";
+} from "@understandproof/auth";
 import type { WebRuntime } from "./runtime";
 import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";

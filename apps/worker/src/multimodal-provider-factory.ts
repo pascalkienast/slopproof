@@ -1,11 +1,11 @@
-import type { WorkerConfig } from "@slopproof/config";
+import type { WorkerConfig } from "@understandproof/config";
 import {
   HetznerMultimodalJudgeProvider,
   LocalFakeInlineMultimodalJudgeProvider,
   TransportFallbackMultimodalJudgeProvider,
   type HetznerMultimodalJudgeDependencies,
   type InlineMultimodalJudgeProvider,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 
 export type MultimodalProviderFactoryDependencies = {
   hetzner?: HetznerMultimodalJudgeDependencies;

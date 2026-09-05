@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Sha256Schema, UuidSchema } from "@slopproof/domain";
+import { Sha256Schema, UuidSchema } from "@understandproof/domain";
 import { z } from "zod";
 import {
   ProviderContextV1Schema,

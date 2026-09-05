@@ -1,6 +1,6 @@
 # Governance
 
-SlopProof currently uses a maintainer-led model.
+UnderstandProof currently uses a maintainer-led model.
 
 [Pascal Kienast](https://github.com/pascalkienast) is the founding maintainer and
 has final responsibility for releases, security decisions, repository policy

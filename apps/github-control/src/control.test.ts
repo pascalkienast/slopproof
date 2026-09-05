@@ -1,5 +1,5 @@
-import type { DatabaseConnection } from "@slopproof/db";
-import type * as DbModule from "@slopproof/db";
+import type { DatabaseConnection } from "@understandproof/db";
+import type * as DbModule from "@understandproof/db";
 import {
   GithubControlError,
   type GithubCheckRunPort,
@@ -7,8 +7,8 @@ import {
   type GithubPullRequestHeadPort,
   type GithubPullRequestPort,
   type PullRequestJobPayload,
-} from "@slopproof/github";
-import type * as GithubModule from "@slopproof/github";
+} from "@understandproof/github";
+import type * as GithubModule from "@understandproof/github";
 import type { Pool, QueryResult } from "pg";
 import type { PgBoss } from "pg-boss";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,12 +24,12 @@ const githubMocks = vi.hoisted(() => ({
   processVerifiedPullRequestSnapshot: vi.fn(),
 }));
 
-vi.mock("@slopproof/db", async () => ({
-  ...(await vi.importActual<typeof DbModule>("@slopproof/db")),
+vi.mock("@understandproof/db", async () => ({
+  ...(await vi.importActual<typeof DbModule>("@understandproof/db")),
   ...dbMocks,
 }));
-vi.mock("@slopproof/github", async () => ({
-  ...(await vi.importActual<typeof GithubModule>("@slopproof/github")),
+vi.mock("@understandproof/github", async () => ({
+  ...(await vi.importActual<typeof GithubModule>("@understandproof/github")),
   ...githubMocks,
 }));
 

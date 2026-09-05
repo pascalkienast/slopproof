@@ -126,7 +126,7 @@ export function parseSignedGithubWebhook(
   }
 }
 
-/** Parses only the three event families SlopProof deliberately consumes. */
+/** Parses only the three event families UnderstandProof deliberately consumes. */
 export function parseSupportedGithubWebhook(
   rawBody: Uint8Array,
   rawHeaders: unknown,

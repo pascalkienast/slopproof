@@ -1,4 +1,4 @@
-import type { WorkerConfig } from "@slopproof/config";
+import type { WorkerConfig } from "@understandproof/config";
 import {
   HetznerLearningMaterialProvider,
   HetznerPracticeCoachProvider,
@@ -11,7 +11,7 @@ import {
   type LearningMaterialProvider,
   type PracticeCoachProvider,
   type ProofQuestionProvider,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 
 export type SemanticProviderSet = {
   learningMaterialProvider: LearningMaterialProvider;

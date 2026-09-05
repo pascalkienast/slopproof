@@ -1,6 +1,6 @@
 import { Writable } from "node:stream";
-import type { DatabaseConnection } from "@slopproof/db";
-import { PayloadCipher, TranscriptV1Schema } from "@slopproof/providers";
+import type { DatabaseConnection } from "@understandproof/db";
+import { PayloadCipher, TranscriptV1Schema } from "@understandproof/providers";
 import { describe, expect, it, vi } from "vitest";
 import {
   EncryptedFfmpegFrameSelectionAdapter,

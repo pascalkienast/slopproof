@@ -4,8 +4,8 @@ import {
   GitShaSchema,
   RiskLevelSchema,
   RiskVectorSchema,
-} from "@slopproof/analysis";
-import { RepositoryPolicyV1Schema } from "@slopproof/policy";
+} from "@understandproof/analysis";
+import { RepositoryPolicyV1Schema } from "@understandproof/policy";
 import { z } from "zod";
 
 const UuidSchema = z.string().uuid();

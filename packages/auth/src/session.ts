@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
-import type { Clock, IdGenerator } from "@slopproof/domain";
-import { CryptoUuidGenerator, SystemClock } from "@slopproof/domain";
+import type { Clock, IdGenerator } from "@understandproof/domain";
+import { CryptoUuidGenerator, SystemClock } from "@understandproof/domain";
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 import { createOpaqueCredential, hashOpaqueCredential } from "./token";

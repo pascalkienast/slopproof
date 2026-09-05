@@ -8,13 +8,13 @@ import {
   buildBoundedRevisionSourceV1,
   buildGenerationContextV1,
   type GenerationContextV1,
-} from "@slopproof/analysis";
+} from "@understandproof/analysis";
 import {
   HetznerLearningMaterialProvider,
   HetznerPracticeCoachProvider,
   HetznerProofQuestionProvider,
   type SemanticProviderInvocationMetadataV1,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import { createSemanticGenerationService } from "../apps/worker/src/semantic-generation";
 import {
   LiveSmokeError,

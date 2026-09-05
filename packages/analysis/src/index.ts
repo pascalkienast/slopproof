@@ -2,4 +2,4 @@ export * from "./analyze";
 export * from "./generation-context";
 export * from "./schema";
 
-export const analysisPackage = "@slopproof/analysis" as const;
+export const analysisPackage = "@understandproof/analysis" as const;

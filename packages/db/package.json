@@ -1,11 +1,11 @@
 {
-  "name": "@slopproof/db",
+  "name": "@understandproof/db",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@slopproof/domain": "workspace:*",
+    "@understandproof/domain": "workspace:*",
     "drizzle-orm": "0.45.2",
     "pg": "8.23.0",
     "pg-boss": "12.27.0",

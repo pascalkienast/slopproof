@@ -1,4 +1,4 @@
-import { GithubWebhookIngestPrJobSchema } from "@slopproof/db";
+import { GithubWebhookIngestPrJobSchema } from "@understandproof/db";
 import { z } from "zod";
 
 export const PullRequestActionSchema = z.enum([

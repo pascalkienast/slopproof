@@ -3,12 +3,12 @@ import {
   sealGithubMaintainerDirectory,
   unsealGithubMaintainerDirectory,
   type GithubOAuthUser,
-} from "@slopproof/auth";
+} from "@understandproof/auth";
 import {
   GithubControlError,
   OctokitUserAuthorizationPort,
   type GithubUserAuthorizationPort,
-} from "@slopproof/github";
+} from "@understandproof/github";
 import {
   listActiveMaintainerInstallationIds,
   listActiveMaintainerRepositories,

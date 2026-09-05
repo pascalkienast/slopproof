@@ -15,4 +15,4 @@ export * from "./service";
 export * from "./user-authorization";
 export * from "./webhook";
 
-export const githubPackage = "@slopproof/github" as const;
+export const githubPackage = "@understandproof/github" as const;

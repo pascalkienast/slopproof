@@ -4,7 +4,7 @@ import {
   planReviewDecision,
   shouldAccelerateEvidenceDeletion,
 } from "./maintainer-review";
-import { DEFAULT_REPOSITORY_POLICY_V1 } from "@slopproof/policy";
+import { DEFAULT_REPOSITORY_POLICY_V1 } from "@understandproof/policy";
 
 const headSha = "a".repeat(40);
 

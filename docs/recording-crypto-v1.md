@@ -1,4 +1,4 @@
-# SlopProof Recording Crypto v1
+# UnderstandProof Recording Crypto v1
 
 Status: verbindliche Protokollspezifikation  
 Suite-ID: `SP-RC1`

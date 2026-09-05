@@ -3,8 +3,8 @@ import {
   boundedRevisionSourcePatch,
   buildBoundedRevisionSourceV1,
   buildGenerationContextV1,
-} from "@slopproof/analysis";
-import type { DatabaseConnection, JobPayload } from "@slopproof/db";
+} from "@understandproof/analysis";
+import type { DatabaseConnection, JobPayload } from "@understandproof/db";
 import { describe, expect, it, vi } from "vitest";
 import type { PoolClient } from "pg";
 import { PostgresSemanticGenerationRepository } from "./semantic-generation-repository";

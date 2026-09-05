@@ -19,7 +19,7 @@ import {
   type MultimodalJudgeProviderInputV1,
   type ProofEvaluationInputV1,
   type ProviderContextV1,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 
 export const MultimodalProofEvaluationV1Schema =
   AuthoritativeMultimodalEvaluationV1Schema;

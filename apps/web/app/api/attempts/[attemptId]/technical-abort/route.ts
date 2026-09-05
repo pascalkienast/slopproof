@@ -1,4 +1,4 @@
-import { IdempotencyKeySchema, UuidSchema } from "@slopproof/domain";
+import { IdempotencyKeySchema, UuidSchema } from "@understandproof/domain";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {

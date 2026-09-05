@@ -4,16 +4,16 @@ import {
   MediaExtractTranscriptJobSchema,
   MediaSelectFramesJobSchema,
   type JobPayload,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import {
   AttemptStatusSchema,
   GitShaSchema,
   UuidSchema,
-} from "@slopproof/domain";
+} from "@understandproof/domain";
 import {
   ProviderRecommendationSchema,
   RepositoryPolicyV1Schema,
-} from "@slopproof/policy";
+} from "@understandproof/policy";
 import {
   FrameSelectionMetadataV1Schema,
   JudgeHopUsedSchema,
@@ -21,7 +21,7 @@ import {
   PROVIDER_FAILURE_KINDS,
   type ProviderErrorCode,
   type ProviderFailureTelemetry,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import { z } from "zod";
 import { RecordingAudioTranscriptionSourceV1Schema } from "./audio-transcription";
 

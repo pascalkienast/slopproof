@@ -2,8 +2,8 @@ import {
   PayloadCipher,
   multimodalJudgeCandidateHashV1,
   type ProofEvaluationV1,
-} from "@slopproof/providers";
-import type { DatabaseConnection } from "@slopproof/db";
+} from "@understandproof/providers";
+import type { DatabaseConnection } from "@understandproof/db";
 import { describe, expect, it, vi } from "vitest";
 import type { MultimodalProofEvaluationV1 } from "./multimodal-judge-service";
 import {

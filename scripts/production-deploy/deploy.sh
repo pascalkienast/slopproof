@@ -410,11 +410,11 @@ phase_preflight() {
     compose_unit_hash=$(sha256sum "$COMPOSE_UNIT" | awk '{print $1}')
     expected_managed_unit=$(sha256sum "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)/infra/systemd/slopproof-compose.service" | awk '{print $1}')
     [[ "$compose_unit_hash" == "$EXPECTED_SLOPPROOF_UNIT_SHA256" || "$compose_unit_hash" == "$expected_managed_unit" ]] ||
-      die "Existing SlopProof unit changed since the read-only preflight"
+      die "Existing UnderstandProof unit changed since the read-only preflight"
   fi
   ! docker ps --filter name=slopproof --format '{{.Ports}}' |
     grep -Eq '(^|, )(0\.0\.0\.0|\[::\]|::):[0-9]+->' ||
-    die "A SlopProof container publishes a non-loopback host port"
+    die "A UnderstandProof container publishes a non-loopback host port"
   df -Pk "$APP_ROOT" /var/lib
   free -m
   systemctl --no-pager --plain --type=service --state=running
@@ -1356,7 +1356,7 @@ phase_rollback() {
     timeout --signal=TERM --kill-after=10s 120 systemctl stop slopproof-compose.service
   fi
   ! systemctl is-active --quiet slopproof-compose.service ||
-    die "SlopProof service did not stop"
+    die "UnderstandProof service did not stop"
   timeout --signal=TERM --kill-after=10s 120 env \
     SLOPPROOF_SECRET_DIR="$SECRET_ROOT/$release_id" \
     SLOPPROOF_DATA_DIR="$DATA_ROOT" \
@@ -1380,9 +1380,9 @@ phase_rollback() {
     timeout --signal=TERM --kill-after=5s 30 systemctl disable slopproof-compose.service
   else
     [[ ! -e "$COMPOSE_UNIT" && ! -L "$COMPOSE_UNIT" ]] ||
-      die "SlopProof Compose unit boundary is unsafe"
+      die "UnderstandProof Compose unit boundary is unsafe"
     [[ ! -e "$compose_enable_link" || -L "$compose_enable_link" ]] ||
-      die "SlopProof Compose enable boundary is unsafe"
+      die "UnderstandProof Compose enable boundary is unsafe"
     rm -f -- "$compose_enable_link"
   fi
   sync -f /etc/systemd/system

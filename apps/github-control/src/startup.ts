@@ -1,5 +1,5 @@
-import type { GithubControlConfig } from "@slopproof/config";
-import { createGithubAppJwt } from "@slopproof/github";
+import type { GithubControlConfig } from "@understandproof/config";
+import { createGithubAppJwt } from "@understandproof/github";
 
 export type GithubControlAppMaterial = {
   appId: string;

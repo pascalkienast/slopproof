@@ -3,7 +3,7 @@ import {
   PracticeFeedbackCandidateV1Schema,
   ProofQuestionCandidateV2Schema,
   type SemanticPatchReferenceV1,
-} from "@slopproof/questions";
+} from "@understandproof/questions";
 import { ProviderError } from "./errors";
 import {
   LearningMaterialProviderInputV1Schema,

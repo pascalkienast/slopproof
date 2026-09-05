@@ -5,16 +5,16 @@ import {
   MAX_RECORDING_OBJECT_BYTES,
   validateProofQuestionIntervalsV1,
   verifyProviderPartList,
-} from "@slopproof/media";
+} from "@understandproof/media";
 import {
   RepositoryPolicyV1Schema,
   calculateEvidenceDeleteAfter,
   resolveEffectiveRecordingLimits,
-} from "@slopproof/policy";
+} from "@understandproof/policy";
 import {
   persistPendingUploadFinalization,
   UploadFinalizationConflictError,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {

@@ -25,7 +25,7 @@ export function createSemanticProofReadyWriter(
         headSha: input.headSha,
         status: "completed",
         conclusion: "action_required",
-        summary: `SlopProof could not prepare patch-bound questions for head ${input.headSha}. Maintainer action is required.`,
+        summary: `UnderstandProof could not prepare patch-bound questions for head ${input.headSha}. Maintainer action is required.`,
         reason: "preparation_failed",
         idempotencyKey: input.idempotencyKey,
       });

@@ -3,7 +3,7 @@ import {
   canonicalGenerationProviderMaterialV1,
   GenerationContextV1Schema,
   type GenerationContextV1,
-} from "@slopproof/analysis";
+} from "@understandproof/analysis";
 
 type GenerationContextRow = {
   id: string;

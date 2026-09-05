@@ -279,8 +279,8 @@ export function PracticeClient({
           <p className="eyebrow">Practice generator unavailable</p>
           <h2>Fallback material has been withheld.</h2>
           <p>
-            SlopProof will not present template questions as if they were a real
-            reading of this patch.
+            UnderstandProof will not present template questions as if they were
+            a real reading of this patch.
           </p>
         </div>
       </section>

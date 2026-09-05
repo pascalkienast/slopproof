@@ -3,7 +3,7 @@ import {
   GenerationContextV1Schema,
   projectGenerationProviderMaterialV1,
   type GenerationContextV1,
-} from "@slopproof/analysis";
+} from "@understandproof/analysis";
 import {
   ContributorPracticeAnswerV1Schema,
   LearningMaterialProviderInputV1Schema,
@@ -28,7 +28,7 @@ import {
   type SemanticProviderPurposeV1,
   type SemanticProviderRawResponseV1,
   type SemanticTokenUsageV1,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import {
   ForbiddenProofContentV1Schema,
   LearningBundleV1Schema,
@@ -51,7 +51,7 @@ import {
   type ProofQuestionCandidateV2,
   type ProofQuestionPlanV2,
   type SemanticContentValidationCode,
-} from "@slopproof/questions";
+} from "@understandproof/questions";
 import { z } from "zod";
 
 const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/u);

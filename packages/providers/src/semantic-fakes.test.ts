@@ -1,4 +1,4 @@
-import type { GenerationProviderMaterialV1 } from "@slopproof/analysis";
+import type { GenerationProviderMaterialV1 } from "@understandproof/analysis";
 import { describe, expect, it } from "vitest";
 import {
   LocalFakeLearningMaterialProvider,

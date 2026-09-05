@@ -7,19 +7,19 @@ import {
   MAX_RECORDING_OBJECT_BYTES,
   verifyProviderPartList,
   type RecordingManifest,
-} from "@slopproof/media";
+} from "@understandproof/media";
 import {
   RepositoryPolicyV1Schema,
   resolveEffectiveRecordingLimits,
   type EffectiveRecordingLimits,
-} from "@slopproof/policy";
+} from "@understandproof/policy";
 import {
   persistValidatedRecording,
   type DatabaseConnection,
   type JobPayload,
-} from "@slopproof/db";
-import { TECHNICAL_RETRY_GITHUB_CHECK } from "@slopproof/github";
-import type { S3EvidenceStore } from "@slopproof/storage";
+} from "@understandproof/db";
+import { TECHNICAL_RETRY_GITHUB_CHECK } from "@understandproof/github";
+import type { S3EvidenceStore } from "@understandproof/storage";
 import type { PgBoss } from "pg-boss";
 import {
   authenticateRecordingFinalization,

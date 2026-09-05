@@ -4,15 +4,19 @@ import {
   expediteJobInPgTransaction,
   type DatabaseConnection,
   type JobPayload,
-} from "@slopproof/db";
-import { GitShaSchema, Sha256Schema, UuidSchema } from "@slopproof/domain";
+} from "@understandproof/db";
+import {
+  GitShaSchema,
+  Sha256Schema,
+  UuidSchema,
+} from "@understandproof/domain";
 import {
   ProofEvaluationV1Schema,
   multimodalJudgeCandidateHashV1,
   type PayloadCipher,
   type PayloadCipherEnvelopeV1,
   type ProofEvaluationV1,
-} from "@slopproof/providers";
+} from "@understandproof/providers";
 import type { PgBoss } from "pg-boss";
 import type { PoolClient } from "pg";
 import { z } from "zod";

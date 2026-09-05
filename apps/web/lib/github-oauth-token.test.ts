@@ -1,4 +1,4 @@
-import { sealGithubUserAccessToken } from "@slopproof/auth";
+import { sealGithubUserAccessToken } from "@understandproof/auth";
 import { describe, expect, it } from "vitest";
 import {
   GITHUB_USER_TOKEN_COOKIE,

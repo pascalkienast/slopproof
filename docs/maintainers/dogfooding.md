@@ -1,12 +1,16 @@
-# Dogfooding SlopProof on its own repository
+# Dogfooding UnderstandProof on its own repository
 
-SlopProof may become a required check on `pascalkienast/slopproof` only after it
+UnderstandProof was previously named SlopProof. The existing GitHub App and required
+check keep their legacy identifiers during this transition; see the
+[rename compatibility notes](../operations/understandproof-rename.md).
+
+UnderstandProof may become a required check on `pascalkienast/understandproof` only after it
 has produced a successful check on that repository. GitHub only offers an App
 as the expected status-check source after the App has submitted a recent check.
 
 ## Bootstrap sequence
 
-1. Publish the repository without requiring the SlopProof check.
+1. Publish the repository without requiring the UnderstandProof check.
 2. Install the production GitHub App on this repository only.
 3. Open a small bootstrap pull request that changes documentation.
 4. Complete Practice, Live Proof and maintainer review.
@@ -15,7 +19,7 @@ as the expected status-check source after the App has submitted a recent check.
 6. Record the GitHub App integration ID shown as the check source.
 7. Create the `main` ruleset described below.
 8. Open a second pull request and prove that merge remains blocked until CI and
-   SlopProof pass.
+   UnderstandProof pass.
 
 ## Main-branch ruleset
 
@@ -27,34 +31,34 @@ Target `refs/heads/main` and enable:
 - require `ci / verify`;
 - require `supply-chain / dependency-audit`;
 - require `supply-chain / image-sbom-scan`;
-- require `SlopProof / understanding required` from the SlopProof GitHub App;
+- require `SlopProof / understanding required` from the UnderstandProof GitHub App;
 - require the branch to be current with `main`.
 
 The repository currently has one maintainer, so the ruleset must not require an
 approval that the pull-request author cannot supply. Maintainer review inside
-SlopProof remains separate from GitHub code review.
+UnderstandProof remains separate from GitHub code review.
 
 GitHub documents that a required status check can be bound to its expected App
-source. Do not leave the SlopProof check at `any source` after the App has
+source. Do not leave the UnderstandProof check at `any source` after the App has
 submitted its bootstrap check.
 
 ## Break-glass actor
 
 Add the repository owner as a bypass actor with mode **For pull requests only**.
 This preserves a pull request and GitHub audit trail while allowing a repair if
-the SlopProof service cannot complete its own required check. Do not configure
+the UnderstandProof service cannot complete its own required check. Do not configure
 an always-exempt bypass and do not permit direct pushes to `main`.
 
 Use the bypass only when all of these conditions hold:
 
-1. SlopProof is unavailable or the repair changes the component that produces
+1. UnderstandProof is unavailable or the repair changes the component that produces
    the required check.
 2. `ci / verify` and the supply-chain checks pass.
 3. The pull request states the incident or outage reference and why the bypass
    is necessary.
 4. Another human reviews the patch when one is available. If none is available,
    the maintainer records that fact.
-5. The maintainer restores the normal SlopProof path and opens a follow-up
+5. The maintainer restores the normal UnderstandProof path and opens a follow-up
    dogfood pull request before unrelated work merges.
 
 After each bypass, export the ruleset insight or audit evidence available to the

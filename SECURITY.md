@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-SlopProof is pre-1.0. Security fixes target the current `main` branch and the
+UnderstandProof is pre-1.0. Security fixes target the current `main` branch and the
 hosted instance. Older commits and development branches are unsupported.
 
 ## Reporting a vulnerability

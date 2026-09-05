@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { GenerationProviderMaterialV1 } from "@slopproof/analysis";
+import type { GenerationProviderMaterialV1 } from "@understandproof/analysis";
 import {
   HetznerLearningMaterialProvider,
   HetznerPracticeCoachProvider,

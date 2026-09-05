@@ -20,7 +20,7 @@ import {
   type PackedMultipartPart,
   type PublicWrappingMaterial,
   type UploadedPartReceipt,
-} from "@slopproof/media";
+} from "@understandproof/media";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -235,14 +235,14 @@ export function MobileProof() {
       setPostUploadStatus("processing");
       setPhase("processing");
       setProgress(
-        "Your recording was uploaded successfully. SlopProof is checking your explanation now.",
+        "Your recording was uploaded successfully. UnderstandProof is checking your explanation now.",
       );
       let status;
       try {
         status = await waitForPostUploadStatus(context.attemptId);
       } catch {
         setProgress(
-          "Your recording was uploaded successfully. SlopProof could not refresh its status yet, so check the pull request for the result before trying again.",
+          "Your recording was uploaded successfully. UnderstandProof could not refresh its status yet, so check the pull request for the result before trying again.",
         );
         return;
       }
@@ -599,7 +599,7 @@ export function MobileProof() {
 
   return (
     <main className="mobile-shell">
-      <p className="eyebrow">SlopProof · one take</p>
+      <p className="eyebrow">UnderstandProof · one take</p>
       {phase === "opening" ? (
         <section className="recording-card reviewing-card">
           <p className="eyebrow">One-time handoff</p>
@@ -832,7 +832,7 @@ function mediaPreflightError(caught: unknown): string {
   }
   if (caught instanceof Error) {
     if (caught.message === "secure_context_required") {
-      return "A secure HTTPS context is required. Open the original SlopProof link in a current browser.";
+      return "A secure HTTPS context is required. Open the original UnderstandProof link in a current browser.";
     }
     if (caught.message === "recording_unsupported") {
       return "Camera recording is not supported by this browser. Try the current Safari or Chrome release.";

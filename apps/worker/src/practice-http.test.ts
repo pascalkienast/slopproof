@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { DatabaseConnection } from "@slopproof/db";
+import type { DatabaseConnection } from "@understandproof/db";
 import { describe, expect, it, vi } from "vitest";
 import {
   handlePracticeRequest,

@@ -19,7 +19,7 @@ import {
   LearningBundleV1Schema,
   PracticeFeedbackV1Schema,
   PracticeQuestionV2Schema,
-} from "@slopproof/questions";
+} from "@understandproof/questions";
 import { z } from "zod";
 
 export const WORKER_REVIEW_EVIDENCE_PATH = "/internal/review/evidence" as const;

@@ -1,4 +1,4 @@
-import type { AuthenticatedSession } from "@slopproof/auth";
+import type { AuthenticatedSession } from "@understandproof/auth";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import type { WebRuntime } from "./runtime";

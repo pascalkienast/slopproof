@@ -138,17 +138,17 @@ export default async function ContributorPage({
           <h2>Proof preparation failed.</h2>
           <p>{view.public_summary}</p>
           <p>
-            This is a SlopProof system failure, not a contributor result. The
-            required check stays closed until a maintainer retries a repaired
-            pipeline.
+            This is a UnderstandProof system failure, not a contributor result.
+            The required check stays closed until a maintainer retries a
+            repaired pipeline.
           </p>
         </section>
       ) : preparationState === "preparing" ? (
         <section className="notice-card">
           <h2>Preparing patch-bound questions.</h2>
           <p>
-            SlopProof is still analyzing this exact revision. Refresh this page
-            after the GitHub check advances; no proof attempt has started.
+            UnderstandProof is still analyzing this exact revision. Refresh this
+            page after the GitHub check advances; no proof attempt has started.
           </p>
         </section>
       ) : (
@@ -226,7 +226,7 @@ function ContributorLogin({
       <p className="eyebrow">Contributor authorization</p>
       <h1 className="flow-title">Continue with GitHub.</h1>
       <p>
-        SlopProof verifies that your GitHub account is the author of this
+        UnderstandProof verifies that your GitHub account is the author of this
         current pull request before showing private proof material.
       </p>
       <div className="actions compact-actions">

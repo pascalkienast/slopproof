@@ -4,7 +4,7 @@ import {
   migrateDatabase,
   persistGithubRevisionSourceInTransaction,
   type DatabaseConnection,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import { analyzePullRequestPatch } from "../../packages/analysis/src/index";
 import {
   boundedRevisionSourcePatch,

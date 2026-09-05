@@ -5,11 +5,11 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolConfig } from "pg";
 import * as schema from "./schema";
 
-export type SlopProofDatabase = NodePgDatabase<typeof schema>;
+export type UnderstandProofDatabase = NodePgDatabase<typeof schema>;
 
 export type DatabaseConnection = {
   pool: Pool;
-  db: SlopProofDatabase;
+  db: UnderstandProofDatabase;
   close(): Promise<void>;
 };
 

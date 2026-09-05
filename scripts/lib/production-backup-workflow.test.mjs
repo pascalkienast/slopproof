@@ -90,7 +90,7 @@ function createDirectoryFixture() {
       "2",
       "-sha256",
       "-subj",
-      "/CN=SlopProof workflow test",
+      "/CN=UnderstandProof workflow test",
       "-addext",
       "basicConstraints=critical,CA:FALSE",
       "-addext",

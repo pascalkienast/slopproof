@@ -3,7 +3,7 @@ import {
   getJobSingletonKey,
   scheduleJobInPgTransaction,
   type JobPayload,
-} from "@slopproof/db";
+} from "@understandproof/db";
 import type { PgBoss } from "pg-boss";
 import type { Db } from "pg-boss";
 import type { PoolClient } from "pg";

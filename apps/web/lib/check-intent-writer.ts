@@ -1,8 +1,8 @@
 import {
   PgBossGithubCheckOutbox,
   persistGithubCheckIntentInTransaction,
-} from "@slopproof/db";
-import { GITHUB_CHECK_NAME } from "@slopproof/github";
+} from "@understandproof/db";
+import { GITHUB_CHECK_NAME } from "@understandproof/github";
 import type {
   CheckIntentWriter,
   CheckIntentWriterInput,

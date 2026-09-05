@@ -10,4 +10,4 @@ export * from "./question-intervals";
 export * from "./records";
 export * from "./schemas";
 
-export const mediaPackage = "@slopproof/media" as const;
+export const mediaPackage = "@understandproof/media" as const;

@@ -1,13 +1,13 @@
 {
-  "name": "@slopproof/providers",
+  "name": "@understandproof/providers",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@slopproof/analysis": "workspace:*",
-    "@slopproof/domain": "workspace:*",
-    "@slopproof/questions": "workspace:*",
+    "@understandproof/analysis": "workspace:*",
+    "@understandproof/domain": "workspace:*",
+    "@understandproof/questions": "workspace:*",
     "zod": "4.4.3"
   }
 }

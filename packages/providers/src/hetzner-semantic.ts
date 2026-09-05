@@ -32,7 +32,7 @@ import {
   ProofQuestionCandidateV2Schema,
   SemanticAnchorIdV1Schema,
   SemanticPatchReferenceV1Schema,
-} from "@slopproof/questions";
+} from "@understandproof/questions";
 import { z } from "zod";
 
 const MAX_HTTP_ATTEMPTS = 3;

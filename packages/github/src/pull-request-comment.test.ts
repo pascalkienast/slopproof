@@ -191,7 +191,7 @@ function issueComment(id: number, body: string, appId = 123) {
   return {
     id,
     body,
-    performed_via_github_app: { id: appId, name: "SlopProof" },
+    performed_via_github_app: { id: appId, name: "UnderstandProof" },
   };
 }
 
