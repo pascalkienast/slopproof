@@ -56,19 +56,19 @@
     "@understandproof/questions": "workspace:*",
     "@testcontainers/postgresql": "12.1.0",
     "@types/node": "24.13.3",
-    "@types/pg": "8.21.0",
+    "@types/pg": "8.23.1",
     "@types/qrcode": "1.5.6",
     "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.4",
+    "@types/react-dom": "19.2.5",
     "drizzle-kit": "0.31.10",
-    "eslint": "10.8.1",
+    "eslint": "10.9.1",
     "prettier": "3.9.6",
     "testcontainers": "12.1.0",
-    "tsx": "4.23.12",
+    "tsx": "4.23.13",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.67.0",
-    "vitest": "4.1.10"
+    "typescript-eslint": "8.69.0",
+    "vitest": "4.1.11"
   },
   "pnpm": {
     "overrides": {
