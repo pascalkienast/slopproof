@@ -199,17 +199,11 @@ test("public product copy leads with the product benefit", () => {
   assert.match(read("apps/web/app/page.tsx"), /Open the local demo/u);
   assert.doesNotMatch(read("apps/web/app/page.tsx"), /Open the local MVP/u);
   assert.doesNotMatch(readme, /The MVP does not|Open the local MVP/u);
-  assert.match(readme, /visibility_lost/u);
-  assert.match(readme, /help\/no-help guarantee/u);
+  assert.match(readme, /switching away aborts the take/u);
   assert.match(
     readme,
-    /You cannot read\s+notes on a second screen while the take runs/u,
+    /GitHub check that maintainers can require before merging/u,
   );
-  assert.match(
-    readme,
-    /UnderstandProof turns that understanding into a required GitHub check/u,
-  );
-  assert.match(readme, /patch-bound evidence\s+before merge/u);
   assert.doesNotMatch(
     readme,
     /does not try to detect AI-generated code|`GET \/`\s+is the static marketing page/u,

@@ -5,13 +5,6 @@ full flow against real pull requests, from the GitHub check and optional
 Practice through encrypted phone recording, evaluation, review, retention,
 backup, and restart.
 
-## Direction
-
-The brand stands for **Proof of Understanding**, independent of who created
-an output. The longer-term vision includes texts and other media. The current
-implementation supports GitHub pull requests only; this rename does not add
-new media inputs or change the evaluation policy.
-
 ## Available now
 
 - Every attempt binds to one repository, pull request, author, and exact head
@@ -21,8 +14,8 @@ new media inputs or change the evaluation policy.
 - The browser encrypts recording chunks before persistent upload. Private
   evidence never appears in the public GitHub check.
 - The worker builds a bounded transcript and frame set for multimodal review.
-  A schema-valid result may pass; uncertain or inconsistent evidence routes to
-  maintainer review. Retry, expiry, and provider failure stay fail-closed.
+  Every proof requires a maintainer decision, including those the model
+  recommends passing. Retry, expiry, and provider failure stay fail-closed.
 - Repository policy limits evidence retention to 24 hours and may delete it
   sooner after completion.
 

@@ -1,220 +1,171 @@
 <p align="center">
-  <img src="understandproof-mark.svg" width="112" alt="UnderstandProof mark">
+  <img src="understandproof-mark.svg" width="96" alt="UnderstandProof mark">
 </p>
 
 # UnderstandProof
 
-**Proof of Understanding.**
+**Proof of Understanding for pull requests.**
 
-Creating an output and understanding it are different things. UnderstandProof
-makes room for the person who needs to explain what they take responsibility
-for, whether or not they created it themselves.
+Ask contributors to explain their changes before you merge. UnderstandProof adds
+a GitHub check that maintainers can require before merging: the PR author answers
+questions about the patch in a short video recorded on their phone.
 
-The first application is code: AI can write the pull request; the person
-proposing it should be able to explain what it does, why it belongs, and where
-it can fail.
-
-UnderstandProof turns that understanding into a required GitHub check. The author
-explains the exact patch on live video, giving maintainers patch-bound evidence
-before merge. Understanding complements code review and tests; it does not
-replace them.
+Contributors can use AI-written code; the check asks them to explain what they
+submit. Maintainers get an explanation to review alongside the diff and tests.
 
 [![CI](https://github.com/pascalkienast/understandproof/actions/workflows/ci.yml/badge.svg)](https://github.com/pascalkienast/understandproof/actions/workflows/ci.yml)
 [![Supply chain](https://github.com/pascalkienast/understandproof/actions/workflows/supply-chain.yml/badge.svg)](https://github.com/pascalkienast/understandproof/actions/workflows/supply-chain.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Run the full stack yourself or try
-[understandproof.paskie.me](https://understandproof.paskie.me). Each proof stays bound to
-the current head SHA, so a new push requires a fresh explanation.
-
-<p align="center">
-  <img src="docs/assets/product-tour/contributor-proof.webp" width="920" alt="SlopProof contributor page with optional Practice and required Proof choices">
-</p>
-<p align="center"><sub>The contributor view for a pull request: Practice is optional. Proof is required.</sub></p>
-
-## Beyond code
-
-The long-term vision is **Proof of Understanding** for texts and other media,
-not only code. Those are future applications, not supported input types today.
-The current product is a GitHub pull-request understanding gate.
+[Join the hosted beta](https://understandproof.paskie.me/#closed-beta) ·
+[Run the local demo](#run-it-locally) ·
+[Self-host](docs/operations/self-hosting.md) ·
+[Contribute](CONTRIBUTING.md)
 
 ## How it works
 
-1. The GitHub App receives a pull-request event and binds a check to that head
-   SHA.
-2. **Practice** is optional. You can study patch-bound learning goals and
-   private coaching. Practice never counts as the proof.
-3. **Proof** opens on a phone through a one-time QR link. You answer a
-   risk-adjusted set of patch questions in one continuous recording. The
-   recording tab has to stay in the foreground. Switch to another app, a
-   second screen, the lock screen, or another tab, and the take aborts as
-   `visibility_lost`. That is the help/no-help guarantee. You cannot read
-   notes on a second screen while the take runs.
-4. The browser encrypts each recording chunk before upload. The object store
-   gets ciphertext only.
-5. A worker builds a bounded transcript and a few frames. A multimodal model
-   compares those with the patch and rubric.
-6. A maintainer can review the take and the model finding.
-7. A new push invalidates the attempt. Evidence lasts at most 24 hours, and
-   may be deleted as soon as a maintainer accepts it.
+1. **Open a pull request.** The GitHub App posts a contributor link and creates
+   a check for that revision.
+2. **Prepare if you want.** Practice offers questions and coaching about the
+   patch. It uses a separate question set and does not count toward the proof.
+3. **Explain the change.** Scan the one-time QR link with your phone and answer
+   the proof questions in one continuous recording. Keep the recording tab in
+   front; switching away aborts the take.
+4. **Review and decide.** A model evaluates the transcript and selected frames
+   against the patch and rubric. A maintainer reviews the evidence and model
+   findings, then approves the proof or requests another attempt. The model
+   cannot approve a proof on its own.
 
-UnderstandProof does not run pull-request code. It does not do face recognition,
-gaze tracking, room scanning, identity verification, or persistent contributor
-scoring.
+Each proof belongs to one author and one exact commit. A new push invalidates
+it. An expired attempt or a technical failure does not satisfy the required
+check.
 
-## Product tour
+## Try it
 
-The GitHub App comment shows the current interface. Some other production
-captures still show earlier branding; those historical captures remain unaltered.
+Install the [GitHub App](https://github.com/apps/understandproof), select your
+repositories, and submit the [hosted-beta form](https://understandproof.paskie.me/#closed-beta).
+Your installation stays inactive until approved.
 
-The flow starts where contributors already work. The GitHub App posts a
-revision-bound link directly on the pull request.
+### Run it locally
 
-<p align="center">
-  <img src="docs/assets/product-tour/github-comment.webp?v=0964f60e8b5e" width="920" alt="Automatic UnderstandProof GitHub App comment linking to the contributor flow">
-</p>
-
-The contributor checks the camera and privacy terms, then answers the
-patch-bound questions in one continuous take.
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <img src="docs/assets/product-tour/privacy-check.webp" alt="Camera and privacy check before the live proof">
-      <br><sub>Preflight explains the one-take and retention rules.</sub>
-    </td>
-    <td width="50%" align="center">
-      <img src="docs/assets/product-tour/one-take.webp" alt="Live one-take proof with patch reference and question">
-      <br><sub>Each live question stays bound to the current revision.</sub>
-    </td>
-  </tr>
-</table>
-
-The result returns to the same head SHA on GitHub.
-
-<p align="center">
-  <img src="docs/assets/product-tour/github-passed.webp" width="760" alt="GitHub pull request with the SlopProof required check passed">
-</p>
-
-<details>
-  <summary><strong>Optional Practice</strong> — inspect the patch map and rehearse privately</summary>
-  <br>
-  <p align="center">
-    <img src="docs/assets/product-tour/practice.webp" width="820" alt="Practice page with patch map and understanding coach">
-  </p>
-</details>
-
-<details>
-  <summary><strong>Maintainer review</strong> — inspect private evidence when the model asks for review</summary>
-  <br>
-  <p align="center">
-    <img src="docs/assets/product-tour/review-evidence.webp" width="820" alt="Maintainer review with video, transcript, timestamps, and decision controls">
-  </p>
-</details>
-
-## See it
-
-- Live landing: [understandproof.paskie.me](https://understandproof.paskie.me)
-- Local demo: <http://localhost:3000/demo> after `docker compose up --build`
-- Curated production screenshots: [docs/assets/](docs/assets/README.md)
-
-## Local demo
-
-The reference demo needs Docker with Compose:
+With Git, Docker, and Compose installed:
 
 ```bash
+git clone https://github.com/pascalkienast/understandproof.git
+cd understandproof
 docker compose up --build
 ```
 
-Open <http://localhost:3000/demo>. The stack creates three synthetic pull
-requests and uses local fake adapters for GitHub, generation, transcription,
-and multimodal evaluation. Demo ports bind to `127.0.0.1` by default. Do not
-expose `DEMO_MODE=true` to a network.
+Open <http://localhost:3000/demo>. The demo includes three synthetic pull
+requests and local stand-ins for GitHub, storage, and model providers. You do
+not need production credentials. Ports bind to `127.0.0.1`; keep demo mode off
+public networks.
 
-For development without the application containers, install Node.js 24 and
-pnpm 10.8:
+For source development with Node.js 24 and pnpm 10.8, follow the
+[development setup](CONTRIBUTING.md#development-setup).
 
-```bash
-corepack enable
-pnpm install --frozen-lockfile
-pnpm dev:keys
-pnpm verify
-```
+### Self-host
 
-PostgreSQL integration tests also need `TEST_DATABASE_URL`. Playwright needs a
-migrated and seeded database. The CI workflow records the order.
+Follow the [self-hosting guide](docs/operations/self-hosting.md) to configure
+your own GitHub App, storage, and model providers. The repository includes a
+Docker Compose deployment and encrypted backup/restore tooling. Production
+setup requires operator configuration beyond starting the demo.
 
-## Production shape
+UnderstandProof is pre-1.0. Configuration and migrations can change between
+releases. See [project status](docs/project-status.md) for deployment limits.
 
-A production deployment needs:
+## Product tour
 
-- a GitHub App with the permissions and webhook events listed in the
-  [self-hosting guide](docs/operations/self-hosting.md);
-- PostgreSQL 18 with `pg-boss` in the same database;
-- private S3-compatible object storage with browser CORS and a lifecycle
-  backstop;
-- an HTTPS reverse proxy that serves the static `landing/` payload at `/`;
-- a transcription provider and a multimodal model provider;
-- a local RSA wrapping key pair or a compatible KMS adapter;
-- separate Web, Worker, GitHub Control, and migration processes.
+The contributor starts from the bot comment on their pull request:
 
-`DEPLOYMENT_PROFILE=production` rejects demo adapters, loopback or public HTTP
-endpoints, placeholder secrets, and incomplete provider configuration. The
-checked-in automation under `scripts/production-*` is the maintainer's current
-hardened profile. There is no one-command installer.
+<p align="center">
+  <img src="docs/assets/product-tour/github-comment.webp?v=0964f60e8b5e" width="892" alt="UnderstandProof bot comment with the Proof of Understanding heading and contributor link">
+</p>
 
-UnderstandProof is pre-1.0. The hosted flow has run against a real pull request:
-Practice, encrypted phone recording, provider processing, maintainer review,
-check completion, retention, backup, and restart. Config and migrations can
-still change before a stable release.
+<details>
+  <summary><strong>See Practice, recording, and maintainer review</strong></summary>
+  <br>
 
-## Security and privacy
+  <p>Contributors can open Practice or go straight to Proof.</p>
+  <p align="center">
+    <img src="docs/assets/product-tour/contributor-proof.webp" width="920" alt="Contributor page with optional Practice and required Proof choices">
+  </p>
 
-UnderstandProof handles video evidence and repository content. Read these before you
-run it for other people:
+  <p>Practice includes a patch map and coaching feedback.</p>
+  <p align="center">
+    <img src="docs/assets/product-tour/practice.webp" width="820" alt="Practice page with a patch map and coaching feedback">
+  </p>
 
-- [Threat model](docs/security/threat-model.md)
-- [Provider data flow](docs/privacy/provider-data-flow.md)
-- [Recording cryptography](docs/recording-crypto-v1.md)
-- [Production configuration](docs/operations/production-configuration.md)
-- [Incident response](docs/security/incident-response.md)
-- [Security reporting](SECURITY.md)
+  <p>The phone flow starts with a camera and privacy check, then presents the proof questions.</p>
+  <table>
+    <tr>
+      <td width="50%" align="center">
+        <img src="docs/assets/product-tour/privacy-check.webp" alt="Camera and privacy check before recording">
+      </td>
+      <td width="50%" align="center">
+        <img src="docs/assets/product-tour/one-take.webp" alt="Proof question with its patch reference during a recording">
+      </td>
+    </tr>
+  </table>
 
-Provider terms, lawful basis, retention notices, and data-processing agreements
-stay with the operator. The controls in this repository do not prove a third
-party's retention or training policy.
+  <p>Maintainers can inspect the recording, transcript, and model findings before deciding.</p>
+  <p align="center">
+    <img src="docs/assets/product-tour/review-evidence.webp" width="820" alt="Maintainer review with video, transcript, and decision controls">
+  </p>
 
-## Repository map
+  <p>The completed check appears on GitHub for the same commit.</p>
+  <p align="center">
+    <img src="docs/assets/product-tour/github-passed.webp" width="760" alt="Pull request with the required understanding check passed">
+  </p>
+</details>
 
-- `landing/`: static marketing source and published output for `GET /`
-- `apps/web`: contributor, mobile, and maintainer interfaces plus HTTP routes
-- `apps/worker`: queues, private media processing, providers, and retention
-- `apps/github-control`: installation-token and GitHub reconciliation process
-- `packages/domain`, `packages/db`, `packages/policy`: state machine, database
-  constraints, and review policy
-- `packages/media`, `packages/storage`: encrypted recording protocol and S3
-  transport
-- `packages/analysis`, `packages/questions`, `packages/providers`: bounded patch
-  analysis, planning, and provider adapters
-- `docs`: project status, security, privacy, maintainer, and operations guides
-- `scripts`: verification, release, backup, and deployment tooling
+<sub>These are production captures. Some show the earlier branding; see [capture notes](docs/assets/README.md).</sub>
 
-[Browse the documentation](docs/README.md) or read the current
-[project status](docs/project-status.md).
+## Recording and privacy
 
-Previously named SlopProof. See the [rename compatibility notes](docs/operations/understandproof-rename.md)
-for the existing App link, check name, and deployment settings retained during
-the transition.
+The browser encrypts recordings before upload. The worker decrypts the evidence
+for transcription and model evaluation; configured providers receive the data
+described in the [provider data flow](docs/privacy/provider-data-flow.md).
+Recordings and transcripts stay out of public GitHub comments and checks.
+
+Evidence has a maximum retention of 24 hours and may be deleted sooner after
+completion.
+
+The recording rules forbid outside help or notes. Tab monitoring enforces the
+foreground rule; it cannot detect all outside assistance. A passing result
+supports code review and tests rather than replacing them.
+
+UnderstandProof does not execute pull-request code or use face recognition,
+gaze tracking, or persistent contributor scores.
+
+Before running it for other people, read the [threat model](docs/security/threat-model.md)
+and [production configuration](docs/operations/production-configuration.md).
+Operators are responsible for consent, provider terms, and retention notices.
+Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Security
-reports go through GitHub's private vulnerability-reporting flow, not public
-issues. Support routes are in [SUPPORT.md](SUPPORT.md).
+Bug reports, focused fixes, and documentation improvements are welcome. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup and checks; open an issue before
+changing recording, retention, or authorization behavior.
 
-The project is maintained by [Pascal Kienast](https://github.com/pascalkienast).
+<details>
+  <summary><strong>Repository layout</strong></summary>
+
+- `apps/web` — contributor, phone, and maintainer interfaces
+- `apps/worker` — background jobs, media processing, evaluation, and retention
+- `apps/github-control` — GitHub credentials and event processing
+- `packages/` — domain rules, database, patch analysis, storage, and providers
+- `landing/` — public website
+- `scripts/` — verification, release, and backup tooling
+- `docs/` — architecture, security, and operating guides
+
+</details>
+
+[Documentation](docs/README.md) · [Support](SUPPORT.md) ·
+[Code of conduct](CODE_OF_CONDUCT.md)
 
 ## License
 
-Copyright © 2026 Pascal Kienast and contributors. UnderstandProof is licensed under
-the [Apache License, Version 2.0](LICENSE).
+[Apache 2.0](LICENSE). Maintained by [Pascal Kienast](https://github.com/pascalkienast).
+Copyright © 2026 Pascal Kienast and contributors.
