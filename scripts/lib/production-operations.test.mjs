@@ -106,14 +106,21 @@ test("landing interactions obey the strict script policy and default to Proof", 
   assert.match(landing, /Open the linked understanding check\./u);
   assert.match(
     landing,
-    /GitHub pull request comment from the SlopProof app, including its avatar and contributor-flow link/u,
+    /GitHub pull request comment from the UnderstandProof app, including its avatar and contributor-flow link/u,
   );
   assert.equal(
-    [...landing.matchAll(/src="\/product-tour\/[^"\s]+\.webp"/gu)].length,
+    [
+      ...landing.matchAll(
+        /src="\/product-tour\/[^"\s]+\.webp(?:\?v=[a-f0-9]{12})?"/gu,
+      ),
+    ].length,
     LANDING_ASSETS.length,
   );
   for (const asset of LANDING_ASSETS) {
-    assert.match(landing, new RegExp(`src="/product-tour/${asset}"`, "u"));
+    assert.match(
+      landing,
+      new RegExp(`src="/product-tour/${asset}(?:[?]v=[a-f0-9]{12})?"`, "u"),
+    );
   }
   assert.match(behavior, /function showJourneyStep\(index\)/u);
   assert.match(behavior, /data-journey-direction/u);
